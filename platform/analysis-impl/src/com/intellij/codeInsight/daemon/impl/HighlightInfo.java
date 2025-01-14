@@ -1,4 +1,4 @@
-/* Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license. */
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.daemon.impl;
 
 import com.intellij.codeInsight.daemon.GutterMark;
@@ -85,15 +85,11 @@ public class HighlightInfo implements Segment {
   /**
    * @deprecated use {@link #findRegisteredQuickFix(BiFunction)} instead
    */
-  @Deprecated
-  @Unmodifiable
-  public List<Pair<IntentionActionDescriptor, TextRange>> quickFixActionRanges;
+  @Deprecated public @Unmodifiable List<Pair<IntentionActionDescriptor, TextRange>> quickFixActionRanges;
   /**
    * @deprecated use {@link #findRegisteredQuickFix(BiFunction)} instead
    */
-  @Deprecated
-  @Unmodifiable
-  public List<Pair<IntentionActionDescriptor, RangeMarker>> quickFixActionMarkers;
+  @Deprecated public @Unmodifiable List<Pair<IntentionActionDescriptor, RangeMarker>> quickFixActionMarkers;
 
   private @Unmodifiable @NotNull List<IntentionActionDescriptor> myIntentionActionDescriptors = List.of(); // guarded by this
 
@@ -352,6 +348,9 @@ public class HighlightInfo implements Segment {
   }
 
   public void setHighlighter(@NotNull RangeHighlighterEx highlighter) {
+    if (this.highlighter != null) {
+      throw new IllegalStateException("Cannot set highlighter to " + highlighter+ " because it already set: "+this.highlighter+". Maybe this HighlightInfo was (incorrectly) stored and reused?");
+    }
     this.highlighter = highlighter;
   }
 
@@ -472,8 +471,8 @@ public class HighlightInfo implements Segment {
     return startOffset;
   }
 
-  @Override
-  public @NonNls String toString() {
+  @ApiStatus.Internal
+  public @NonNls String toStringCompact(boolean isFqdn) {
     String s = "HighlightInfo(" + getStartOffset() + "," + getEndOffset() + ")";
     if (isFileLevelAnnotation()) {
       s+=" (file level)";
@@ -487,14 +486,19 @@ public class HighlightInfo implements Segment {
     synchronized (this) {
       if (!myIntentionActionDescriptors.isEmpty()) {
         s += "; quickFixes: " + StringUtil.join(
-          myIntentionActionDescriptors, q -> ReportingClassSubstitutor.getClassToReport(q.myAction).getName(), ", ");
+          myIntentionActionDescriptors, q -> {
+            Class<?> quickClassName = ReportingClassSubstitutor.getClassToReport(q.myAction);
+            return isFqdn ? quickClassName.getName() : quickClassName.getSimpleName();
+          },
+          ", ");
       }
     }
     if (gutterIconRenderer != null) {
       s += "; gutter: " + gutterIconRenderer;
     }
     if (toolId != null) {
-      s += "; toolId: " + toolId +" ("+toolId.getClass()+")";
+      s += isFqdn ? "; toolId: " + toolId + " (" + toolId.getClass() + ")" :
+           "; toolId: " + (toolId instanceof Class ? ((Class)toolId).getSimpleName() : "not specified");
     }
     if (group != HighlightInfoUpdaterImpl.MANAGED_HIGHLIGHT_INFO_GROUP) {
       s += "; group: " + group;
@@ -502,10 +506,18 @@ public class HighlightInfo implements Segment {
     if (forcedTextAttributesKey != null) {
       s += "; forcedTextAttributesKey: " + forcedTextAttributesKey;
     }
+    if (forcedTextAttributes != null) {
+      s += "; forcedTextAttributes: " + forcedTextAttributes;
+    }
     if (unresolvedReference != null) {
       s += "; unresolvedReference: " + unresolvedReference.getClass() +"; qf completed: "+isUnresolvedReferenceQuickFixesComputed();
     }
     return s;
+  }
+
+  @Override
+  public @NonNls String toString() {
+    return toStringCompact(true);
   }
 
   public static @NotNull Builder newHighlightInfo(@NotNull HighlightInfoType type) {
@@ -525,8 +537,19 @@ public class HighlightInfo implements Segment {
 
     @NotNull Builder range(@NotNull PsiElement element);
 
+    /**
+     * @param element element to highlight
+     * @param rangeInElement range within element
+     * @return this builder
+     */
     @NotNull Builder range(@NotNull PsiElement element, @NotNull TextRange rangeInElement);
 
+    /**
+     * @param element element to highlight
+     * @param start absolute start offset in the file (not within element)
+     * @param end absolute end offset in the file (not within element)
+     * @return this builder
+     */
     @NotNull Builder range(@NotNull PsiElement element, int start, int end);
 
     @NotNull Builder range(int start, int end);
@@ -602,19 +625,16 @@ public class HighlightInfo implements Segment {
   /**
    * @deprecated use {@link HighlightInfo#fromAnnotation(ExternalAnnotator, Annotation)}
    */
-  @NotNull
   @Deprecated
-  public static HighlightInfo fromAnnotation(@NotNull Annotation annotation) {
+  public static @NotNull HighlightInfo fromAnnotation(@NotNull Annotation annotation) {
     return fromAnnotation(ExternalAnnotator.class, annotation, false);
   }
 
-  @NotNull
-  public static HighlightInfo fromAnnotation(@NotNull ExternalAnnotator<?,?> externalAnnotator, @NotNull Annotation annotation) {
+  public static @NotNull HighlightInfo fromAnnotation(@NotNull ExternalAnnotator<?,?> externalAnnotator, @NotNull Annotation annotation) {
     return fromAnnotation(externalAnnotator.getClass(), annotation, false);
   }
 
-  @NotNull
-  static HighlightInfo fromAnnotation(@NotNull Class<?> annotatorClass, @NotNull Annotation annotation, boolean batchMode) {
+  static @NotNull HighlightInfo fromAnnotation(@NotNull Class<?> annotatorClass, @NotNull Annotation annotation, boolean batchMode) {
     TextAttributes forcedAttributes = annotation.getEnforcedTextAttributes();
     TextAttributesKey key = annotation.getTextAttributes();
     TextAttributesKey forcedAttributesKey = forcedAttributes == null && key != HighlighterColors.NO_HIGHLIGHTING ? key : null;
@@ -640,8 +660,7 @@ public class HighlightInfo implements Segment {
   }
 
   @ApiStatus.Internal
-  @NotNull
-  private static HighlightInfoType convertType(@NotNull Annotation annotation) {
+  private static @NotNull HighlightInfoType convertType(@NotNull Annotation annotation) {
     ProblemHighlightType type = annotation.getHighlightType();
     HighlightSeverity severity = annotation.getSeverity();
     return toHighlightInfoType(type, severity);
@@ -696,7 +715,7 @@ public class HighlightInfo implements Segment {
 
   public int getActualEndOffset() {
     RangeHighlighterEx h = highlighter;
-    return h == null || !h.isValid()  || isFileLevelAnnotation() ? endOffset : h.getEndOffset();
+    return h == null || !h.isValid() || isFileLevelAnnotation() ? endOffset : h.getEndOffset();
   }
 
   public static class IntentionActionDescriptor {
@@ -1002,8 +1021,7 @@ public class HighlightInfo implements Segment {
     }
   }
 
-  @NotNull
-  private Long2ObjectMap<RangeMarker> getRangeMarkerCache() {
+  private @NotNull Long2ObjectMap<RangeMarker> getRangeMarkerCache() {
     Long2ObjectMap<RangeMarker> cache = new Long2ObjectOpenHashMap<>();
     for (IntentionActionDescriptor pair : myIntentionActionDescriptors) {
       Segment fixRange = pair.myFixRange;
@@ -1102,6 +1120,12 @@ public class HighlightInfo implements Segment {
   @ApiStatus.Internal
   boolean isInjectionRelated() {
     return HighlightInfoUpdaterImpl.isInjectionRelated(toolId);
+  }
+
+  @ApiStatus.Internal
+  @ApiStatus.Experimental
+  public @Nullable PsiReference getUnresolvedReference() {
+    return unresolvedReference;
   }
 
   static @NotNull HighlightInfo createComposite(@NotNull List<? extends HighlightInfo> infos) {

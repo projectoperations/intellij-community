@@ -13,6 +13,7 @@ import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.*
 import org.jetbrains.intellij.build.*
+import org.jetbrains.intellij.build.impl.plugins.PluginAutoPublishList
 import org.jetbrains.intellij.build.io.runProcess
 import org.jetbrains.intellij.build.jarCache.JarCacheManager
 import org.jetbrains.intellij.build.jarCache.LocalDiskJarCacheManager
@@ -31,7 +32,7 @@ import kotlin.io.path.invariantSeparatorsPathString
 import kotlin.time.Duration
 
 class BuildContextImpl internal constructor(
-  private val compilationContext: CompilationContext,
+  internal val compilationContext: CompilationContext,
   override val productProperties: ProductProperties,
   override val windowsDistributionCustomizer: WindowsDistributionCustomizer?,
   override val linuxDistributionCustomizer: LinuxDistributionCustomizer?,
@@ -64,12 +65,15 @@ class BuildContextImpl internal constructor(
 
   override fun reportDistributionBuildNumber() {
     val suppliedBuildNumber = options.buildNumber
-    val baseBuildNumber = SnapshotBuildNumber.VALUE.removeSuffix(".SNAPSHOT")
+    val baseBuildNumber = SnapshotBuildNumber.BASE
     check(suppliedBuildNumber == null || suppliedBuildNumber.startsWith(baseBuildNumber)) {
       "Supplied build number '$suppliedBuildNumber' is expected to start with '$baseBuildNumber' base build number " +
       "defined in ${SnapshotBuildNumber.PATH}"
     }
     messages.setParameter("build.artifact.buildNumber", buildNumber)
+    if (buildNumber != suppliedBuildNumber) {
+      messages.reportBuildNumber(buildNumber)
+    }
   }
 
   override suspend fun cleanupJarCache() {
@@ -92,11 +96,15 @@ class BuildContextImpl internal constructor(
 
   private var builtinModulesData: BuiltinModulesFileData? = null
 
-  internal val jarPackagerDependencyHelper: JarPackagerDependencyHelper by lazy { JarPackagerDependencyHelper(this) }
+  internal val jarPackagerDependencyHelper: JarPackagerDependencyHelper by lazy { JarPackagerDependencyHelper(this.compilationContext) }
 
   override val nonBundledPlugins: Path by lazy { paths.artifactDir.resolve("${applicationInfo.productCode}-plugins") }
 
   override val nonBundledPluginsToBePublished: Path by lazy { nonBundledPlugins.resolve("auto-uploading") }
+
+  override val bundledRuntime: BundledRuntime = BundledRuntimeImpl(this)
+
+  override val isNightlyBuild: Boolean = options.isNightlyBuild || buildNumber.count { it == '.' } <= 1
 
   init {
     @Suppress("DEPRECATION")
@@ -117,6 +125,9 @@ class BuildContextImpl internal constructor(
     if (!options.compatiblePluginsToIgnore.isEmpty()) {
       productProperties.productLayout.compatiblePluginsToIgnore =
         productProperties.productLayout.compatiblePluginsToIgnore.addAll(options.compatiblePluginsToIgnore)
+    }
+    check(options.isInDevelopmentMode || bundledRuntime.prefix == productProperties.runtimeDistribution.artifactPrefix) {
+      "The runtime type doesn't match the one specified in the product properties: ${bundledRuntime.prefix} != ${productProperties.runtimeDistribution.artifactPrefix}"
     }
   }
 
@@ -148,7 +159,7 @@ class BuildContextImpl internal constructor(
         LocalDiskJarCacheManager(cacheDir = it, productionClassOutDir = compilationContext.classesOutputDirectory.resolve("production"))
       } ?: NonCachingJarCacheManager
       return BuildContextImpl(
-        compilationContext = compilationContext,
+        compilationContext = compilationContext.asArchivedIfNeeded,
         productProperties = productProperties,
         windowsDistributionCustomizer = productProperties.createWindowsCustomizer(projectHomeAsString),
         linuxDistributionCustomizer = productProperties.createLinuxCustomizer(projectHomeAsString),
@@ -216,21 +227,22 @@ class BuildContextImpl internal constructor(
   }
 
   @OptIn(DelicateCoroutinesApi::class)
-  private val _jetBrainsClientModuleFilter = GlobalScope.async(Dispatchers.Unconfined + CoroutineName("JetBrains client module filter"), start = CoroutineStart.LAZY) {
-    val mainModule = productProperties.embeddedJetBrainsClientMainModule
-    if (mainModule != null && options.enableEmbeddedJetBrainsClient) {
-      val productModules = getOriginalModuleRepository().loadProductModules(mainModule, ProductMode.FRONTEND)
-      JetBrainsClientModuleFilterImpl(productModules = productModules)
+  private val _frontendModuleFilter = GlobalScope.async(Dispatchers.Unconfined + CoroutineName("JetBrains client module filter"), start = CoroutineStart.LAZY) {
+    val rootModule = productProperties.embeddedFrontendRootModule
+    if (rootModule != null && options.enableEmbeddedFrontend) {
+      val moduleRepository = getOriginalModuleRepository()
+      val productModules = moduleRepository.loadProductModules(rootModule, ProductMode.FRONTEND)
+      FrontendModuleFilterImpl(moduleRepository.repository, productModules)
     }
     else {
-      EmptyJetBrainsClientModuleFilter
+      EmptyFrontendModuleFilter
     }
   }
 
-  override suspend fun getJetBrainsClientModuleFilter(): JetBrainsClientModuleFilter = _jetBrainsClientModuleFilter.await()
+  override suspend fun getFrontendModuleFilter(): FrontendModuleFilter = _frontendModuleFilter.await()
 
-  override val isEmbeddedJetBrainsClientEnabled: Boolean
-    get() = productProperties.embeddedJetBrainsClientMainModule != null && options.enableEmbeddedJetBrainsClient
+  override val isEmbeddedFrontendEnabled: Boolean
+    get() = productProperties.embeddedFrontendRootModule != null && options.enableEmbeddedFrontend
 
   override fun shouldBuildDistributions(): Boolean = !options.targetOs.isEmpty()
 
@@ -331,6 +343,7 @@ class BuildContextImpl internal constructor(
     // require bundled JNA dispatcher lib
     jvmArgs.add("-Djna.nosys=true")
     jvmArgs.add("-Djna.noclasspath=true")
+    jvmArgs.add("-Dio.netty.allocator.type=pooled")
 
     if (useModularLoader || generateRuntimeModuleRepository) {
       jvmArgs.add("-Dintellij.platform.runtime.repository.path=${macroName}/${MODULE_DESCRIPTORS_JAR_PATH}".let { if (isScript) '"' + it + '"' else it })
@@ -424,6 +437,10 @@ class BuildContextImpl internal constructor(
       stdErrConsumer = messages::warning,
       attachStdOutToException = attachStdOutToException,
     )
+  }
+
+  override val pluginAutoPublishList: PluginAutoPublishList by lazy {
+    PluginAutoPublishList(this)
   }
 }
 

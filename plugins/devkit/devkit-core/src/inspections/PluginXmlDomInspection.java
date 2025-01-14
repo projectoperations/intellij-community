@@ -66,8 +66,7 @@ public final class PluginXmlDomInspection extends DevKitPluginXmlInspectionBase 
 
   private static final int MINIMAL_DESCRIPTION_LENGTH = 40;
 
-  @NonNls
-  public static final String DEPENDENCIES_DOC_URL =
+  public static final @NonNls String DEPENDENCIES_DOC_URL =
     "https://plugins.jetbrains.com/docs/intellij/plugin-dependencies.html?from=DevkitPluginXmlInspection";
 
   private static class Holder {
@@ -79,8 +78,7 @@ public final class PluginXmlDomInspection extends DevKitPluginXmlInspectionBase 
   public boolean myIgnoreUnstableApiDeclaredInThisProject = false;
 
   @Override
-  @NotNull
-  public String getShortName() {
+  public @NotNull String getShortName() {
     return "PluginXmlValidity";
   }
 
@@ -142,6 +140,9 @@ public final class PluginXmlDomInspection extends DevKitPluginXmlInspectionBase 
     }
     else if (element instanceof Action) {
       annotateAction((Action)element, holder);
+    }
+    else if (element instanceof Reference) {
+      annotateReference((Reference)element, holder);
     }
     else if (element instanceof Synonym) {
       annotateSynonym((Synonym)element, holder);
@@ -324,8 +325,14 @@ public final class PluginXmlDomInspection extends DevKitPluginXmlInspectionBase 
     //noinspection deprecation
     if (DomUtil.hasXml(ideaPlugin.getUseIdeaClassloader())) {
       //noinspection deprecation
-      highlightDeprecated(ideaPlugin.getUseIdeaClassloader(), DevKitBundle.message("inspections.plugin.xml.deprecated"), holder, true,
-                          true);
+      highlightDeprecated(ideaPlugin.getUseIdeaClassloader(), DevKitBundle.message("inspections.plugin.xml.deprecated"), holder, true, true);
+    }
+
+    //noinspection deprecation
+    if (DomUtil.hasXml(ideaPlugin.getImplementationDetail())) {
+      //noinspection deprecation
+      highlightDeprecated(ideaPlugin.getImplementationDetail(), DevKitBundle.message("inspections.plugin.xml.deprecated.implementation.detail"),
+                          holder, true, true);
     }
 
     checkMaxLength(ideaPlugin.getUrl(), 255, holder);
@@ -428,10 +435,6 @@ public final class PluginXmlDomInspection extends DevKitPluginXmlInspectionBase 
     if (DomUtil.hasXml(vendor.getEmail())) {
       highlightRedundant(vendor.getEmail(),
                          DevKitBundle.message("inspections.plugin.xml.plugin.jetbrains.vendor.no.email"), holder);
-    }
-    if (DomUtil.hasXml(ideaPlugin.getChangeNotes())) {
-      highlightRedundant(ideaPlugin.getChangeNotes(),
-                         DevKitBundle.message("inspections.plugin.xml.plugin.jetbrains.no.change.notes"), holder);
     }
     if (DomUtil.hasXml(ideaPlugin.getVersion())) {
       highlightRedundant(ideaPlugin.getVersion(),
@@ -542,10 +545,11 @@ public final class PluginXmlDomInspection extends DevKitPluginXmlInspectionBase 
     }
     @NonNls String name = nameAttrValue.getValue();
 
-    // skip some known offenders in IJ project
+    // skip some known offenders in the IJ project
     if (name != null
         && (StringUtil.startsWith(name, "Pythonid.") ||
-            StringUtil.startsWith(name, "DevKit."))) {
+            StringUtil.startsWith(name, "DevKit.") ||
+            StringUtil.startsWith(name, "Git4Idea."))) {
       if (IntelliJProjectUtil.isIntelliJPlatformProject(nameAttrValue.getManager().getProject())) {
         return true;
       }
@@ -565,9 +569,9 @@ public final class PluginXmlDomInspection extends DevKitPluginXmlInspectionBase 
     }
 
     String epName = fragments.get(fragments.size() - 1);
-    List<String> butlast = fragments.subList(0, fragments.size() - 1);
+    List<String> butLast = fragments.subList(0, fragments.size() - 1);
     List<String> words = StringUtil.getWordsIn(epName);
-    return !ContainerUtil.exists(words, w -> ContainerUtil.exists(butlast, f -> StringUtil.equalsIgnoreCase(w, f)));
+    return !ContainerUtil.exists(words, w -> ContainerUtil.exists(butLast, f -> StringUtil.equalsIgnoreCase(w, f)));
   }
 
   private static void annotateExtensions(Extensions extensions, DomElementAnnotationHolder holder) {
@@ -612,7 +616,6 @@ public final class PluginXmlDomInspection extends DevKitPluginXmlInspectionBase 
       holder.createProblem(unresolvedExtension, ProblemHighlightType.LIKE_UNKNOWN_SYMBOL, message, null);
       return;
     }
-
 
     final IdeaPlugin ideaPlugin = extensionPoint.getParentOfType(IdeaPlugin.class, true);
     assert ideaPlugin != null;
@@ -938,13 +941,13 @@ public final class PluginXmlDomInspection extends DevKitPluginXmlInspectionBase 
       return;
     }
 
-    final Anchor value = addToGroup.getAnchor().getValue();
-    if (value == Anchor.after || value == Anchor.before) {
+    final AddToGroup.Anchor value = addToGroup.getAnchor().getValue();
+    if (value == AddToGroup.Anchor.after || value == AddToGroup.Anchor.before) {
       return;
     }
     holder.createProblem(
       addToGroup.getAnchor(),
-      DevKitBundle.message("inspections.plugin.xml.must.use.after.before.with.relative-to-action", Anchor.after, Anchor.before));
+      DevKitBundle.message("inspections.plugin.xml.must.use.after.before.with.relative-to-action", AddToGroup.Anchor.after, AddToGroup.Anchor.before));
   }
 
   private static void annotateGroup(Group group, DomElementAnnotationHolder holder) {
@@ -1005,6 +1008,15 @@ public final class PluginXmlDomInspection extends DevKitPluginXmlInspectionBase 
     final GenericAttributeValue<String> iconAttribute = action.getIcon();
     if (DomUtil.hasXml(iconAttribute)) {
       annotateResolveProblems(holder, iconAttribute);
+    }
+  }
+
+  private static void annotateReference(Reference reference, DomElementAnnotationHolder holder) {
+    @SuppressWarnings("deprecation") GenericAttributeValue<ActionOrGroup> id = reference.getId();
+    if (id.exists()) {
+      highlightDeprecated(id,
+                          DevKitBundle.message("inspections.plugin.xml.reference.id.deprecated.use.ref"),
+                          holder, false, true);
     }
   }
 
@@ -1212,17 +1224,13 @@ public final class PluginXmlDomInspection extends DevKitPluginXmlInspectionBase 
       myCorrectValue = correctValue;
     }
 
-    @Nls
-    @NotNull
     @Override
-    public String getName() {
+    public @Nls @NotNull String getName() {
       return DevKitBundle.message("inspections.plugin.xml.change.until.build.name", myCorrectValue);
     }
 
-    @Nls
-    @NotNull
     @Override
-    public String getFamilyName() {
+    public @Nls @NotNull String getFamilyName() {
       return DevKitBundle.message("inspections.plugin.xml.change.until.build.family.name");
     }
 
@@ -1237,15 +1245,11 @@ public final class PluginXmlDomInspection extends DevKitPluginXmlInspectionBase 
 
   private static final class AddMissingMainTag implements LocalQuickFix {
 
-    @IntentionFamilyName
-    @NotNull
-    private final String myFamilyName;
+    private final @IntentionFamilyName @NotNull String myFamilyName;
 
-    @NotNull
-    private final String myTagName;
+    private final @NotNull String myTagName;
 
-    @Nullable
-    private final String myTagValue;
+    private final @Nullable String myTagValue;
 
     private AddMissingMainTag(@IntentionFamilyName @NotNull String familyName,
                               @NotNull GenericDomValue<String> domValue,
@@ -1255,10 +1259,8 @@ public final class PluginXmlDomInspection extends DevKitPluginXmlInspectionBase 
       myTagValue = tagValue;
     }
 
-    @IntentionFamilyName
-    @NotNull
     @Override
-    public String getFamilyName() {
+    public @IntentionFamilyName @NotNull String getFamilyName() {
       return myFamilyName;
     }
 

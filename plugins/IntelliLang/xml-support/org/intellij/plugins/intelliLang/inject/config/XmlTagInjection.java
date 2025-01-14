@@ -28,13 +28,13 @@ public class XmlTagInjection extends AbstractTagInjection {
     setTagName("<none>");
   }
 
-  public boolean isApplicable(@NotNull final XmlTag context) {
+  public boolean isApplicable(final @NotNull XmlTag context) {
     return matches(context) && matchXPath(context);
   }
 
   public @NlsSafe String getGeneratedName() {
     final String name = getTagName();
-    return name.length() > 0 ? name : "*";
+    return !name.isEmpty() ? name : "*";
   }
 
   @Override

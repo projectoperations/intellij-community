@@ -93,8 +93,10 @@ open class FlatWelcomeFrame @JvmOverloads constructor(
     const val CUSTOM_HEADER: String = "CUSTOM_HEADER"
 
     @JvmField
-    val DEFAULT_HEIGHT: Int = if (USE_TABBED_WELCOME_SCREEN) 650 else 460
-    const val MAX_DEFAULT_WIDTH: Int = 800
+    val DEFAULT_HEIGHT: Int = if (USE_TABBED_WELCOME_SCREEN) System.getProperty("welcome.screen.defaultHeight", "650").toInt() else 460
+
+    @JvmField
+    val MAX_DEFAULT_WIDTH: Int = System.getProperty("welcome.screen.defaultWidth", "800").toInt()
 
     private fun saveSizeAndLocation(location: Rectangle) {
       val middle = Point(location.x + location.width / 2, location.y + location.height / 2)
@@ -469,8 +471,7 @@ open class FlatWelcomeFrame @JvmOverloads constructor(
       panel.isOpaque = false
       frame.extendActionsGroup(mainPanel)
       mainPanel.add(panel)
-      for (item in visibleActions) {
-        var action = item
+      for (action in visibleActions) {
         val presentation = presentationFactory.getPresentation(action)
         var text = presentation.text
         if (text != null && text.endsWith("...")) {
@@ -481,27 +482,30 @@ open class FlatWelcomeFrame @JvmOverloads constructor(
           icon = if (icon == null) JBUIScale.scaleIcon(EmptyIcon.create(16)) else IconUtil.scale(icon, null, 16f / icon.iconWidth)
           icon = IconUtil.colorize(icon, JBColor(0x6e6e6e, 0xafb1b3))
         }
-        action = ActionGroupPanelWrapper.wrapGroups(action, this)
-        val link = ActionLink(text, icon, action, null, ActionPlaces.WELCOME_SCREEN)
+        val wrapper = when {
+          action is ActionGroup && action is ActionsWithPanelProvider -> ActionGroupPanelWrapper.wrapGroups(action, this)
+          else -> action
+        }
+        val link = ActionLink(text, icon, wrapper, null, ActionPlaces.WELCOME_SCREEN)
         link.isFocusable = false // don't allow focus, as the containing panel is going to be focusable
         link.setPaintUnderline(false)
         link.setNormalColor(WelcomeScreenUIManager.getLinkNormalColor())
         val button = JActionLinkPanel(link)
         button.border = JBUI.Borders.empty(8, 20)
-        if (action is WelcomePopupAction) {
+        if (wrapper is WelcomePopupAction) {
           button.add(WelcomeScreenComponentFactory.createArrow(link), BorderLayout.EAST)
-          TouchbarActionCustomizations.setComponent(action, link)
+          TouchbarActionCustomizations.setComponent(wrapper, link)
         }
         WelcomeScreenFocusManager.installFocusable(
           frame,
           button,
-          action,
+          wrapper,
           KeyEvent.VK_DOWN,
           KeyEvent.VK_UP,
           UIUtil.findComponentOfType(frame.component, JList::class.java)
         )
         panel.add(button)
-        mainPanel.addAction(action)
+        mainPanel.addAction(wrapper)
       }
       return mainPanel
     }

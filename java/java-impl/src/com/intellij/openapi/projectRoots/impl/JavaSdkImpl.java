@@ -34,6 +34,7 @@ import com.intellij.openapi.vfs.newvfs.events.VFileContentChangeEvent;
 import com.intellij.openapi.vfs.newvfs.events.VFileCreateEvent;
 import com.intellij.openapi.vfs.newvfs.events.VFileDeleteEvent;
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
+import com.intellij.platform.eel.path.EelPath;
 import com.intellij.platform.eel.provider.EelProviderUtil;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.util.PathUtil;
@@ -47,6 +48,7 @@ import org.jdom.Element;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
 import org.jetbrains.concurrency.Promise;
 import org.jetbrains.jps.model.java.JdkVersionDetector;
 import org.jetbrains.jps.model.java.impl.JavaSdkUtil;
@@ -60,6 +62,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+
+import static com.intellij.platform.eel.impl.utils.EelProviderUtilsKt.getEelApiBlocking;
 
 public final class JavaSdkImpl extends JavaSdk {
   private static final Logger LOG = Logger.getInstance(JavaSdkImpl.class);
@@ -201,7 +205,7 @@ public final class JavaSdkImpl extends JavaSdk {
 
   @Override
   public @NotNull Collection<String> suggestHomePaths(@Nullable Project project) {
-    return JavaHomeFinder.suggestHomePaths(EelProviderUtil.getEelApiBlocking(project), false);
+    return JavaHomeFinder.suggestHomePaths(getEelApiBlocking(project), false);
   }
 
   @Override
@@ -219,7 +223,8 @@ public final class JavaSdkImpl extends JavaSdk {
 
   @Override
   public boolean isValidSdkHome(@NotNull String path) {
-    return JdkUtil.checkForJdk(path);
+    Path homePath = Path.of(path);
+    return JdkUtil.checkForJdk(homePath, EelProviderUtil.getEelDescriptor(homePath).getOperatingSystem() == EelPath.OS.WINDOWS);
   }
 
   @Override
@@ -492,7 +497,7 @@ public final class JavaSdkImpl extends JavaSdk {
    * Tries to load the list of modules in the JDK from the 'release' file. Returns null if the 'release' file is not there
    * or doesn't contain the expected information.
    */
-  private static @Nullable List<String> readModulesFromReleaseFile(@NotNull Path jrtBaseDir) {
+  private static @Unmodifiable @Nullable List<String> readModulesFromReleaseFile(@NotNull Path jrtBaseDir) {
     try (InputStream stream = Files.newInputStream(jrtBaseDir.resolve("release"))) {
       Properties p = new Properties();
       p.load(stream);

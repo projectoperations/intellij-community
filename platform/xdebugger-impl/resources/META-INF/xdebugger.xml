@@ -43,6 +43,8 @@
     <projectService serviceInterface="com.intellij.xdebugger.XDebuggerManager"
                     serviceImplementation="com.intellij.xdebugger.impl.XDebuggerManagerImpl"
                     preload="notLightEdit"/>
+    <ide.dynamicPluginVetoer implementation="com.intellij.xdebugger.impl.XDebuggerManagerImpl$XDebuggerPluginVetoer"/>
+
     <projectService serviceImplementation="com.intellij.xdebugger.impl.inline.DebuggerInlayListener"/>
     <projectService serviceImplementation="com.intellij.xdebugger.impl.XDebuggerLineChangeIconProvider"/>
 
@@ -140,8 +142,6 @@
     <xdebugger.textValueVisualizer implementation="com.intellij.xdebugger.impl.ui.visualizedtext.common.UrlEncodedTextVisualizer"/>
 
     <runDashboardCustomizer implementation="com.intellij.xdebugger.impl.dashboard.XDebuggerRunDashboardCustomizer" order="first"/>
-    <registryKey defaultValue="false" key="debugger.valueLookupFrontendBackend"
-                 description="Provides a way to use frontend-backend implementation of debugger's evaluation popup"/>
     <platform.entityTypes implementation="com.intellij.xdebugger.impl.evaluate.XDebuggerValueLookupEntityTypesProvider"/>
 
     <intentionAction>
@@ -157,6 +157,11 @@
     <group id="XDebugger.AttachGroup">
       <action id="XDebugger.AttachToProcess" class="com.intellij.xdebugger.impl.actions.AttachToProcessAction"/>
       <add-to-group group-id="RunMenu" anchor="before" relative-to-action="editRunConfigurations"/>
+    </group>
+
+    <group id="ToolbarPopupActions.XDebugger.ToolWindow.TopToolbar3">
+      <group id="DebugToolbarQuickActions" class="com.intellij.xdebugger.impl.actions.DebuggerToolbarQuickActionsGroup" searchable="false"
+             popup="true"/>
     </group>
 
     <group>

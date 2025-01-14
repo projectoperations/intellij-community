@@ -37,6 +37,7 @@ import com.intellij.util.ui.accessibility.ScreenReader;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
 import org.jetbrains.concurrency.AsyncPromise;
 import org.jetbrains.concurrency.Promise;
 import org.jetbrains.concurrency.Promises;
@@ -50,8 +51,8 @@ import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.lang.reflect.Method;
-import java.util.List;
 import java.util.*;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -89,7 +90,10 @@ public final class TreeUtil {
   }
 
   public static @NotNull JBTreeTraverser<Object> treeTraverser(@NotNull JTree tree) {
-    TreeModel model = tree.getModel();
+    return modelTraverser(tree.getModel());
+  }
+
+  public static @NotNull JBTreeTraverser<Object> modelTraverser(@NotNull TreeModel model) {
     Object root = model.getRoot();
     return JBTreeTraverser.from(node -> nodeChildren(node, model)).withRoot(root);
   }
@@ -1151,7 +1155,7 @@ public final class TreeUtil {
    * @param mapper a function to convert a selected tree path to a corresponding object
    * @return a list of objects which correspond to all selected paths
    */
-  public static @NotNull <T> List<T> collectSelectedObjects(@NotNull JTree tree, @NotNull Function<? super TreePath, ? extends T> mapper) {
+  public static @Unmodifiable @NotNull <T> List<T> collectSelectedObjects(@NotNull JTree tree, @NotNull Function<? super TreePath, ? extends T> mapper) {
     return getSelection(tree, path -> isViewable(tree, path), mapper);
   }
 
@@ -1160,7 +1164,7 @@ public final class TreeUtil {
    * @param root an ascendant tree path to filter selected tree paths
    * @return a list of selected paths under the specified root node
    */
-  public static @NotNull List<TreePath> collectSelectedPaths(@NotNull JTree tree, @NotNull TreePath root) {
+  public static @Unmodifiable @NotNull List<TreePath> collectSelectedPaths(@NotNull JTree tree, @NotNull TreePath root) {
     return collectSelectedObjects(tree, root, Function.identity());
   }
 
@@ -1169,7 +1173,7 @@ public final class TreeUtil {
    * @param root an ascendant tree path to filter selected tree paths
    * @return a list of user objects which correspond to selected paths under the specified root node
    */
-  public static @NotNull List<Object> collectSelectedUserObjects(@NotNull JTree tree, @NotNull TreePath root) {
+  public static @Unmodifiable @NotNull List<Object> collectSelectedUserObjects(@NotNull JTree tree, @NotNull TreePath root) {
     return collectSelectedObjects(tree, root, TreeUtil::getLastUserObject);
   }
 
@@ -1179,12 +1183,12 @@ public final class TreeUtil {
    * @param mapper a function to convert a selected tree path to a corresponding object
    * @return a list of objects which correspond to selected paths under the specified root node
    */
-  public static @NotNull <T> List<T> collectSelectedObjects(@NotNull JTree tree, @NotNull TreePath root, @NotNull Function<? super TreePath, ? extends T> mapper) {
+  public static @Unmodifiable @NotNull <T> List<T> collectSelectedObjects(@NotNull JTree tree, @NotNull TreePath root, @NotNull Function<? super TreePath, ? extends T> mapper) {
     if (!tree.isVisible(root)) return Collections.emptyList(); // invisible path should not be selected
     return getSelection(tree, path -> isViewable(tree, path) && root.isDescendant(path), mapper);
   }
 
-  private static @NotNull <T> List<T> getSelection(@NotNull JTree tree, @NotNull Predicate<? super TreePath> filter, @NotNull Function<? super TreePath, ? extends T> mapper) {
+  private static @Unmodifiable @NotNull <T> List<T> getSelection(@NotNull JTree tree, @NotNull Predicate<? super TreePath> filter, @NotNull Function<? super TreePath, ? extends T> mapper) {
     TreePath[] paths = tree.getSelectionPaths();
     if (paths == null || paths.length == 0) return Collections.emptyList(); // nothing is selected
     return Stream.of(paths).filter(filter).map(mapper).filter(Objects::nonNull).collect(toList());
@@ -1356,7 +1360,12 @@ public final class TreeUtil {
 
   public static @Nullable Object getUserObject(@Nullable Object node) {
     if (node instanceof DefaultMutableTreeNode treeNode) return treeNode.getUserObject();
-    if (node instanceof TreeNodeViewModel nodeModel) return nodeModel.getUserObject();
+    if (
+      node instanceof TreeNodeViewModel nodeModel &&
+      nodeModel.getDomainModel() instanceof LegacyCompatibilityTreeNode legacyNode
+    ) {
+      return legacyNode.getUserObject();
+    }
     return node;
   }
 

@@ -76,14 +76,14 @@ class TextEditorCellViewComponent(
       endOffset,
       HighlighterLayer.FIRST - 100,
       TextAttributes(),
-      HighlighterTargetArea.EXACT_RANGE
+      HighlighterTargetArea.LINES_IN_RANGE
     )
 
     highlighter.gutterIconRenderer = ActionToGutterRendererAdapter(gutterAction)
     this.highlighters = listOf(highlighter)
   }
 
-  override fun dispose() = cell.manager.update { ctx ->
+  override fun dispose() = editor.updateManager.update { ctx ->
     disposeExistingHighlighter()
     editor.contentComponent.removeMouseListener(mouseListener)
   }
@@ -204,10 +204,6 @@ class TextEditorCellViewComponent(
       presentationToInlay.values.forEach { inlay -> Disposer.dispose(inlay) }
       presentations.forEach { addInlayBelow(it) }
     }
-  }
-
-  override fun doViewportChange() {
-    if (gutterIconStickToFirstVisibleLine) updateGutterIcons(cell.gutterAction.get())
   }
 
   private fun isInlaysBroken(): Boolean {

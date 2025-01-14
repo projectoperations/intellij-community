@@ -14,6 +14,7 @@ import org.jetbrains.idea.maven.MavenCustomRepositoryHelper
 import org.jetbrains.idea.maven.project.*
 import org.jetbrains.idea.maven.server.MavenEmbedderWrapper
 import org.junit.Test
+import kotlin.io.path.isRegularFile
 
 class MavenSnapshotDependenciesTest : MavenMultiVersionImportingTestCase() {
   private val httpServerFixture = MavenHttpRepositoryServerFixture()
@@ -53,9 +54,9 @@ class MavenSnapshotDependenciesTest : MavenMultiVersionImportingTestCase() {
     val jarVersion3 = "local1/org/mytest/myartifact/1.0-SNAPSHOT/myartifact-1.0-20240912.201701-3.jar"
     val jarVersion4 = "local1/org/mytest/myartifact/1.0-SNAPSHOT/myartifact-1.0-20240912.201843-4.jar"
 
-    assertFalse(helper.getTestData(jarSnapshot).isFile)
-    assertFalse(helper.getTestData(jarVersion3).isFile)
-    assertFalse(helper.getTestData(jarVersion4).isFile)
+    assertFalse(helper.getTestData(jarSnapshot).isRegularFile())
+    assertFalse(helper.getTestData(jarVersion3).isRegularFile())
+    assertFalse(helper.getTestData(jarVersion4).isRegularFile())
     importProjectAsync("""
                        <groupId>test</groupId>
                        <artifactId>project</artifactId>
@@ -76,9 +77,9 @@ class MavenSnapshotDependenciesTest : MavenMultiVersionImportingTestCase() {
                        </repositories>
                        """.trimIndent())
 
-    assertTrue(helper.getTestData(jarSnapshot).isFile)
-    assertTrue(helper.getTestData(jarVersion3).isFile)
-    assertFalse(helper.getTestData(jarVersion4).isFile)
+    assertTrue(helper.getTestData(jarSnapshot).isRegularFile())
+    assertTrue(helper.getTestData(jarVersion3).isRegularFile())
+    assertFalse(helper.getTestData(jarVersion4).isRegularFile())
     assertTrue(fileContentEqual(helper.getTestData(jarSnapshot), helper.getTestData(jarVersion3)))
 
     helper.delete("remote")
@@ -86,9 +87,9 @@ class MavenSnapshotDependenciesTest : MavenMultiVersionImportingTestCase() {
 
     updateAllProjects()
 
-    assertTrue(helper.getTestData(jarSnapshot).isFile)
-    assertTrue(helper.getTestData(jarVersion3).isFile)
-    assertTrue(helper.getTestData(jarVersion4).isFile)
+    assertTrue(helper.getTestData(jarSnapshot).isRegularFile())
+    assertTrue(helper.getTestData(jarVersion3).isRegularFile())
+    assertTrue(helper.getTestData(jarVersion4).isRegularFile())
     assertTrue(fileContentEqual(helper.getTestData(jarSnapshot), helper.getTestData(jarVersion4)))
   }
 

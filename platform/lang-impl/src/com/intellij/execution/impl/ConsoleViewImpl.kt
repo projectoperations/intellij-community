@@ -64,6 +64,7 @@ import com.intellij.openapi.project.DumbService.Companion.getInstance
 import com.intellij.openapi.project.IndexNotReadyException
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.*
+import com.intellij.openapi.util.Pair as OpenApiPair
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.util.text.Strings
 import com.intellij.pom.Navigatable
@@ -97,7 +98,6 @@ import java.util.function.Consumer
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.event.AncestorEvent
-import kotlin.concurrent.Volatile
 import kotlin.math.max
 import kotlin.math.min
 
@@ -278,7 +278,7 @@ open class ConsoleViewImpl protected constructor(
       }
 
       fun getEffectiveOffset(editor: Editor): Int {
-        var moveOffset = min(offset.toDouble(), editor.document.textLength.toDouble()).toInt()
+        var moveOffset = min(offset, editor.document.textLength)
         if (ConsoleBuffer.useCycleBuffer() && moveOffset >= editor.document.textLength) {
           moveOffset = 0
         }
@@ -623,7 +623,7 @@ open class ConsoleViewImpl protected constructor(
       editor.scrollingModel.accumulateViewportChanges()
     }
     val contentTypes = HashSet<ConsoleViewContentType>()
-    val contents = ArrayList<Pair<String, ConsoleViewContentType>>()
+    val contents = ArrayList<OpenApiPair<String, ConsoleViewContentType>>()
     val addedText: CharSequence
     try {
       // the text can contain one "\r" at the start meaning we should delete the last line
@@ -643,7 +643,8 @@ open class ConsoleViewImpl protected constructor(
         if (lineCount != 0) {
           val lineStartOffset = document.getLineStartOffset(lineCount - 1)
           document.deleteString(
-            max(lineStartOffset.toDouble(), (document.textLength - backspacePrefixLength).toDouble()).toInt(), document.textLength)
+            max(lineStartOffset, document.textLength - backspacePrefixLength),
+            document.textLength)
         }
       }
       addedText = TokenBuffer.getRawText(refinedTokens)
@@ -845,7 +846,7 @@ open class ConsoleViewImpl protected constructor(
     val document = editor!!.document
     if (document.textLength == 0) return
 
-    val endLine = max(0.0, (document.lineCount - 1).toDouble()).toInt()
+    val endLine = max(0, document.lineCount - 1)
 
     if (canHighlightHyperlinks) {
       getHyperlinks()!!.highlightHyperlinksLater(compositeFilter, startLine, endLine, expirableToken)
@@ -873,7 +874,7 @@ open class ConsoleViewImpl protected constructor(
 
   private fun runHeavyFilters(compositeFilter: CompositeFilter, line1: Int, endLine: Int) {
     ThreadingAssertions.assertEventDispatchThread()
-    val startLine = max(0.0, line1.toDouble()).toInt()
+    val startLine = max(0, line1)
 
     val document = editor!!.document
     val startOffset = document.getLineStartOffset(startLine)
@@ -918,73 +919,120 @@ open class ConsoleViewImpl protected constructor(
                           }, 0)
   }
 
-  protected open fun updateFoldings(startLine: Int, endLine: Int) {
+  private data class FoldingInfo(val folding: ConsoleFolding, val region: FoldRegion?, val startLine: Int, val expanded: Boolean, val attachedToPreviousLine: Boolean)
+
+  private fun reconstructFoldingInfo(document: Document, region: FoldRegion): FoldingInfo? {
+    val folding = findFoldingByRegion(region) ?: return null
+
+    val offset = region.startOffset
+    val line = document.getLineNumber(offset)
+    val attachedToPreviousLine = document.getLineStartOffset(line) != offset
+    val startLine = if (attachedToPreviousLine) line + 1 else line
+    val expanded = region.isExpanded
+    return FoldingInfo(folding, region, startLine, expanded, attachedToPreviousLine)
+  }
+
+  protected open fun updateFoldings(startLine: Int, endLine: Int ) {
     ThreadingAssertions.assertEventDispatchThread()
-    val editor = editor
-    editor!!.foldingModel.runBatchFoldingOperation {
+
+    val editor = editor!!
+    editor.foldingModel.runBatchFoldingOperation {
       val document = editor.document
-      var existingRegion: FoldRegion? = null
-      if (startLine > 0) {
-        val prevLineStart = document.getLineStartOffset(startLine - 1)
-        val regions = FoldingUtil.getFoldRegionsAtOffset(editor, prevLineStart)
-        if (regions.size == 1) {
-          existingRegion = regions[0]
-        }
-      }
-      var lastFolding = if (existingRegion == null) null else findFoldingByRegion(existingRegion)
-      var lastStartLine = Int.MAX_VALUE
-      if (lastFolding != null) {
-        val offset = existingRegion!!.startOffset
-        if (offset == 0) {
-          lastStartLine = 0
+
+      val lastFoldingInfos =
+        if (startLine > 0) {
+          val prevLineStart = document.getLineStartOffset(startLine - 1)
+          FoldingUtil.getFoldRegionsAtOffset(editor, prevLineStart)
+            .mapNotNull { reconstructFoldingInfo(document, it) }
+            .toMutableList()
         }
         else {
-          lastStartLine = document.getLineNumber(offset)
-          if (document.getLineStartOffset(lastStartLine) != offset) lastStartLine++
+          mutableListOf()
         }
-      }
 
       val extensions = ConsoleFolding.EP_NAME.extensionList.filter { it.isEnabledForConsole(this) }
       if (extensions.isEmpty()) return@runBatchFoldingOperation
+
+      val toRemove = mutableListOf<FoldRegion>()
+      val toAdd = mutableListOf<Pair<FoldingInfo, Int>>()
+
+      require(startLine <= endLine)
       for (line in startLine..endLine) {
-        /*
-            Grep Console plugin allows to fold empty lines. We need to handle this case in a special way.
-    
-            Multiple lines are grouped into one folding, but to know when you can create the folding,
-            you need a line which does not belong to that folding.
-            When a new line, or a chunk of lines is printed, #addFolding is called for that lines + for an empty string
-            (which basically does only one thing, gets a folding displayed).
-            We do not want to process that empty string, but also we do not want to wait for another line
-            which will create and display the folding - we'd see an unfolded stacktrace until another text came and flushed it.
-            Thus, the condition: the last line(empty string) should still flush, but not be processed by
-            com.intellij.execution.ConsoleFolding.
-             */
-        val next = if (line < endLine) foldingForLine(extensions, line, document) else null
-        if (next !== lastFolding) {
-          if (lastFolding != null) {
-            var isExpanded = false
-            if (line > startLine && existingRegion != null && lastStartLine < startLine) {
-              isExpanded = existingRegion.isExpanded
-              editor.foldingModel.removeFoldRegion(existingRegion)
+        // Grep Console plugin allows to fold empty lines. We need to handle this case in a special way.
+        //
+        // Multiple lines are grouped into one folding, but to know when you can create the folding,
+        // you need a line which does not belong to that folding.
+        // When a new line, or a chunk of lines is printed, #addFolding is called for that lines + for an empty string
+        // (which basically does only one thing, gets a folding displayed).
+        // We do not want to process that empty string, but also we do not want to wait for another line
+        // which will create and display the folding - we'd see an unfolded stacktrace until another text came and flushed it.
+        // Thus, the condition: the last line(empty string) should still flush, but not be processed by
+        // com.intellij.execution.ConsoleFolding.
+        val nextFoldings = if (line < endLine) foldingsForLine(extensions, line, document) else emptyList()
+
+        val foldingsToProcess = (lastFoldingInfos.map { it.folding } + nextFoldings).distinct().sortedByDescending { it.nestingPriority }
+        var splitBelowPriority = Int.MIN_VALUE
+        for (f in foldingsToProcess) {
+          val existing: FoldingInfo? = lastFoldingInfos.find { it.folding === f }
+          val willExist: Boolean = nextFoldings.contains(f)
+          val isSplit = f.nestingPriority < splitBelowPriority
+          var shouldSplitOthers = false
+
+          if (existing != null && (!willExist || isSplit)) {
+            // region ends here
+            val existingRegion = existing.region
+            if (existingRegion != null) {
+              if (line == startLine) {
+                // old region remain as is, no changes needed
+              }
+              else {
+                // old region should be grown
+                toRemove += existingRegion
+                toAdd += existing to line
+              }
             }
-            addFoldRegion(document, lastFolding, lastStartLine, line - 1, isExpanded)
+            else {
+              // create new region
+              toAdd += existing to line
+            }
+            lastFoldingInfos -= existing
+            shouldSplitOthers = true
           }
-          lastFolding = next
-          lastStartLine = line
-          existingRegion = null
+
+          if ((existing == null || isSplit) && willExist) {
+            // region starts here
+            // Note that we don't attach a folding to the previos line if there is
+            val attachedToPreviousLine = f.shouldBeAttachedToThePreviousLine() && !isSplit
+            lastFoldingInfos += FoldingInfo(f, region = null, line, expanded = false, attachedToPreviousLine)
+            shouldSplitOthers = true
+          }
+
+          if (shouldSplitOthers) {
+            splitBelowPriority = max(splitBelowPriority, f.nestingPriority)
+          }
         }
       }
+
+      assert(lastFoldingInfos.isEmpty())
+
+      // To correctly handle nested regions (i.e., prevent overlapping of new ones with old ones),
+      // we have to first delete all old regions and only then create new ones.
+      toRemove
+        .forEach { editor.foldingModel.removeFoldRegion(it) }
+      toAdd
+        .sortedByDescending { (f, _) -> f.folding.nestingPriority }
+        .forEach { (f, line) -> addFoldRegion(document, f.folding, f.startLine, line - 1, f.expanded, f.attachedToPreviousLine) }
     }
   }
 
-  private fun addFoldRegion(document: Document, folding: ConsoleFolding, startLine: Int, endLine: Int, isExpanded: Boolean) {
+  private fun addFoldRegion(document: Document, folding: ConsoleFolding, startLine: Int, endLine: Int, isExpanded: Boolean, shouldBeAttachedToPreviousLine: Boolean) {
     val toFold: MutableList<String> = ArrayList(endLine - startLine + 1)
     for (i in startLine..endLine) {
       toFold.add(EditorHyperlinkSupport.getLineText(document, i, false))
     }
 
     var oStart = document.getLineStartOffset(startLine)
-    if (oStart > 0 && folding.shouldBeAttachedToThePreviousLine()) oStart--
+    if (oStart > 0 && shouldBeAttachedToPreviousLine) oStart--
     val oEnd = CharArrayUtil.shiftBackward(document.immutableCharSequence, document.getLineEndOffset(endLine) - 1, " \t") + 1
 
     val placeholder = folding.getPlaceholderText(project, toFold)
@@ -1004,19 +1052,13 @@ open class ConsoleViewImpl protected constructor(
     return if (consoleFolding != null && consoleFolding.isEnabledForConsole(this)) consoleFolding else null
   }
 
-  private fun foldingForLine(extensions: List<ConsoleFolding>, line: Int, document: Document): ConsoleFolding? {
+  private fun foldingsForLine(extensions: List<ConsoleFolding>, line: Int, document: Document): List<ConsoleFolding> {
     val lineText = EditorHyperlinkSupport.getLineText(document, line, false)
     if (line == 0 && commandLineFolding.shouldFoldLine(project, lineText)) {
-      return commandLineFolding
+      return listOf(commandLineFolding)
     }
 
-    for (extension in extensions) {
-      if (extension.shouldFoldLine(project, lineText)) {
-        return extension
-      }
-    }
-
-    return null
+    return extensions.filter { it.shouldFoldLine(project, lineText) }
   }
 
   private class ClearThisConsoleAction(private val myConsoleView: ConsoleView) : ClearConsoleAction() {
@@ -1310,8 +1352,7 @@ open class ConsoleViewImpl protected constructor(
 
     val oldDocLength = document.textLength
     document.insertString(offset, text)
-    val newStartOffset = max(0.0,
-                             (document.textLength - oldDocLength + offset - text.length).toDouble()).toInt() // take care of trim document
+    val newStartOffset = max(0, document.textLength - oldDocLength + offset - text.length) // take care of trim document
     val newEndOffset = document.textLength - oldDocLength + offset // take care of trim document
 
     if (ConsoleTokenUtil.findTokenMarker(this.editor!!, project, newEndOffset) == null) {

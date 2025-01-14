@@ -2,9 +2,6 @@
 package org.jetbrains.idea.maven.indices
 
 import com.intellij.maven.testFramework.MavenTestCase
-import com.intellij.platform.ide.progress.runWithModalProgressBlocking
-import com.intellij.platform.util.progress.rawProgressReporter
-import com.intellij.platform.util.progress.withRawProgressReporter
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.idea.maven.MavenCustomRepositoryHelper
 import org.jetbrains.idea.maven.model.MavenRepositoryInfo

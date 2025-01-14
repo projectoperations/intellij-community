@@ -17,6 +17,7 @@ import com.intellij.openapi.application.runReadAction
 import com.intellij.psi.PsiElement
 import com.sun.jdi.*
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedFunctionSymbol
+import org.jetbrains.kotlin.codegen.inline.KOTLIN_STRATA_NAME
 import org.jetbrains.kotlin.codegen.inline.dropInlineScopeInfo
 import org.jetbrains.kotlin.idea.base.psi.getLineEndOffset
 import org.jetbrains.kotlin.idea.base.psi.getLineStartOffset
@@ -25,7 +26,6 @@ import org.jetbrains.kotlin.idea.base.util.KOTLIN_FILE_EXTENSIONS
 import org.jetbrains.kotlin.idea.codeinsight.utils.getFunctionSymbol
 import org.jetbrains.kotlin.idea.debugger.base.util.*
 import org.jetbrains.kotlin.idea.debugger.base.util.KotlinDebuggerConstants.INVOKE_SUSPEND_METHOD_NAME
-import org.jetbrains.kotlin.idea.debugger.base.util.KotlinDebuggerConstants.KOTLIN_STRATA_NAME
 import org.jetbrains.kotlin.idea.debugger.core.DebuggerUtils.getBorders
 import org.jetbrains.kotlin.load.java.JvmAbi
 import org.jetbrains.kotlin.psi.*
@@ -121,6 +121,8 @@ fun <T : Any> DebugProcessImpl.invokeInManagerThread(f: (DebuggerContextImpl) ->
         return f(debuggerContext)
     }
     var result: T? = null
+    @Suppress("UsagesOfObsoleteApi")
+    val managerThread = debuggerContext.managerThread ?: managerThread
     managerThread.invokeAndWait(object : DebuggerContextCommandImpl(debuggerContext) {
         override fun threadAction(suspendContext: SuspendContextImpl) {
             result = f(debuggerContext)
@@ -202,6 +204,7 @@ private class MockStackFrame(private val location: Location, private val vm: Vir
 }
 
 private const val INVOKE_SUSPEND_SIGNATURE = "(Ljava/lang/Object;)Ljava/lang/Object;"
+private const val CONTINUATION_VARIABLE_NAME = "\$continuation"
 
 fun StackFrameProxyImpl.isOnSuspensionPoint(): Boolean {
     val location = this.safeLocation() ?: return false
@@ -245,9 +248,19 @@ fun isOnSuspendReturnOrReenter(location: Location): Boolean {
 
 private fun doesMethodHaveSwitcher(location: Location): Boolean {
     if (DexDebugFacility.isDex(location.virtualMachine())) {
-        return false
+        // For JVM `checkContinuationLabelField` tries to find an instruction like `getfield MainKt$foo$1.label:I`,
+        // thus defining if a state machine was generated for a suspend function.
+        // This approach doesn't work for Android, so this is a simpler approach (see https://github.com/JetBrains/intellij-community/pull/2842):
+        val method = location.safeMethod() ?: return false
+        // State machine is always generated for suspend lambdas
+        if (isInvokeSuspendMethod(method)) {
+            return true
+        }
+        // Otherwise, if state machine is generated, the $continuation
+        // variable will be present in LVT.
+        val variables = method.safeVariables() ?: return false
+        return variables.any { it.name() == CONTINUATION_VARIABLE_NAME }
     }
-
     var result = false
     MethodBytecodeUtil.visit(location.method(), object : MethodVisitor(Opcodes.API_VERSION) {
         override fun visitFieldInsn(opcode: Int, owner: String, name: String, descriptor: String) {
@@ -488,23 +501,23 @@ fun getLocationOfNextInstructionAfterResume(resumeLocation: Location?): Location
     return resumedMethod.locationOfCodeIndex(visitor.nextCallOffset.toLong())
 }
 
-fun isOneLineMethod(location: Location): Boolean {
-    val method = location.safeMethod() ?: return false
+internal fun hasUserCodeOnFirstLine(method: Method?): Boolean {
+    if (method == null) return false
     val allLineLocations = method.safeAllLineLocations()
     if (allLineLocations.isEmpty()) return false
-    if (allLineLocations.size == 1) return true
+    val nonFakeLocations = allLineLocations.filter { !isKotlinFakeLineNumber(it) }
+    val firstLine = nonFakeLocations.firstOrNull()?.lineNumber() ?: return false
+    if (firstLine < 0) return false
+    // This is a single line function
+    if (nonFakeLocations.all { it.lineNumber() == firstLine }) return true
+    val firstLineLocations = nonFakeLocations.takeWhile { it.lineNumber() == firstLine }
+    if (firstLineLocations.isEmpty()) return false
 
     val inlineFunctionBorders = method.getInlineFunctionAndArgumentVariablesToBordersMap().values
-    return allLineLocations
-        .mapNotNull { loc ->
-            if (!isKotlinFakeLineNumber(loc) &&
-                !inlineFunctionBorders.any { loc in it })
-                loc.lineNumber()
-            else
-                null
-        }
-        .toHashSet()
-        .size == 1
+    val validLocations = firstLineLocations
+        .count { loc -> !inlineFunctionBorders.any { loc in it } }
+    // Coroutine label switch has its own location
+    return validLocations > 1
 }
 
 fun findElementAtLine(file: KtFile, line: Int): PsiElement? {

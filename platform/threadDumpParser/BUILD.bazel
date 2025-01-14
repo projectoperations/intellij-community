@@ -1,32 +1,38 @@
-### auto-generated section `build` start
-load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_library")
-load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_test")
+### auto-generated section `build intellij.platform.threadDumpParser` start
+load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_test")
 
-kt_jvm_library(
+jvm_library(
   name = "threadDumpParser",
   module_name = "intellij.platform.threadDumpParser",
   visibility = ["//visibility:public"],
-  srcs = glob(["src/**/*.kt", "src/**/*.java"], exclude = ["**/module-info.java"]),
-  javac_opts = "//:j17",
-  kotlinc_opts = "//:k17",
+  srcs = glob(["src/**/*.kt", "src/**/*.java"], allow_empty = True),
   deps = [
-    "@libraries//:kotlin-stdlib",
-    "@community//platform/util",
-    "@community//platform/platform-impl:ide-impl",
+    "@lib//:kotlin-stdlib",
+    "//platform/util",
+    "//platform/platform-impl:ide-impl",
   ]
 )
 
-kt_jvm_test(
-  name = "threadDumpParser_test",
+jvm_library(
+  name = "threadDumpParser_test_lib",
   visibility = ["//visibility:public"],
-  srcs = glob(["testSrc/**/*.kt", "testSrc/**/*.java"], exclude = ["**/module-info.java"]),
-  javac_opts = "//:j17",
-  kotlinc_opts = "//:k17",
+  srcs = glob(["testSrc/**/*.kt", "testSrc/**/*.java"], allow_empty = True),
+  associates = [":threadDumpParser"],
   deps = [
-    ":threadDumpParser",
-    "@libraries//:junit",
-    "@community//tools/intellij.tools.ide.metrics.benchmark:tools-ide-metrics-benchmark",
-    "@community//platform/testFramework",
+    "@lib//:kotlin-stdlib",
+    "//platform/util",
+    "//platform/platform-impl:ide-impl",
+    "//platform/platform-impl:ide-impl_test_lib",
+    "@lib//:junit3",
+    "//tools/intellij.tools.ide.metrics.benchmark:ide-metrics-benchmark",
+    "//tools/intellij.tools.ide.metrics.benchmark:ide-metrics-benchmark_test_lib",
+    "//platform/testFramework",
+    "//platform/testFramework:testFramework_test_lib",
   ]
 )
-### auto-generated section `build` end
+
+jvm_test(
+  name = "threadDumpParser_test",
+  runtime_deps = [":threadDumpParser_test_lib"]
+)
+### auto-generated section `build intellij.platform.threadDumpParser` end

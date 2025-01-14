@@ -7,6 +7,7 @@ import com.intellij.psi.util.ClassUtil;
 import com.intellij.psi.util.ImportsUtil;
 import com.siyeh.IntentionPowerPackBundle;
 import com.siyeh.ig.psiutils.CommentTracker;
+import com.siyeh.ig.psiutils.ImportUtils;
 import com.siyeh.ipp.base.MCIntention;
 import com.siyeh.ipp.base.PsiElementPredicate;
 import org.jetbrains.annotations.NotNull;
@@ -52,8 +53,13 @@ public final class ReplaceOnDemandImportIntention extends MCIntention {
       for (PsiClass aClass : classes) {
         aClass.accept(visitor);
       }
-      final PsiClass[] importedClasses = visitor.getImportedClasses();
-      Arrays.sort(importedClasses, new PsiClassComparator());
+      ImportUtils.ImplicitImportChecker checker = ImportUtils.createImplicitImportChecker(javaFile);
+      final PsiClass[] importedClasses = Arrays.stream(visitor.getImportedClasses())
+        .filter(
+          cl -> !(importStatementBase instanceof PsiImportModuleStatement) ||
+                !checker.isImplicitlyImported(cl.getQualifiedName(), false))
+        .sorted(new PsiClassComparator())
+        .toArray(PsiClass[]::new);
       createImportStatements(importStatementBase, importedClasses, factory::createImportStatement);
     }
     else if (importStatementBase instanceof PsiImportStaticStatement) {
@@ -89,10 +95,8 @@ public final class ReplaceOnDemandImportIntention extends MCIntention {
 
   private static class ClassCollector extends JavaRecursiveElementWalkingVisitor {
 
-    @Nullable
-    private final String importedPackageName;
-    @Nullable
-    private final PsiImportModuleStatement importModuleStatement;
+    private final @Nullable String importedPackageName;
+    private final @Nullable PsiImportModuleStatement importModuleStatement;
     private final Set<PsiClass> importedClasses = new HashSet<>();
 
     ClassCollector(@NotNull String importedPackageName) {
@@ -135,8 +139,7 @@ public final class ReplaceOnDemandImportIntention extends MCIntention {
       return importedClasses.toArray(PsiClass.EMPTY_ARRAY);
     }
 
-    @Nullable
-    static ClassCollector create(@NotNull PsiImportStatementBase statementBase) {
+    static @Nullable ClassCollector create(@NotNull PsiImportStatementBase statementBase) {
       if (statementBase instanceof PsiImportModuleStatement moduleStatement) {
         return new ClassCollector(moduleStatement);
       }

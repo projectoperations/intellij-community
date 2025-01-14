@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.kotlin.idea.inspections;
 
@@ -124,11 +124,6 @@ public abstract class InspectionTestGenerated extends AbstractInspectionTest {
         @TestMetadata("conflictingExtensionProperty/inspectionData/inspections.test")
         public void testConflictingExtensionProperty_inspectionData_Inspections_test() throws Exception {
             runTest("testData/inspections/conflictingExtensionProperty/inspectionData/inspections.test");
-        }
-
-        @TestMetadata("constantConditionIf/inspectionData/inspections.test")
-        public void testConstantConditionIf_inspectionData_Inspections_test() throws Exception {
-            runTest("testData/inspections/constantConditionIf/inspectionData/inspections.test");
         }
 
         @TestMetadata("convertLambdaToReference/inspectionData/inspections.test")

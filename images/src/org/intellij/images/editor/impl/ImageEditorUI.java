@@ -82,15 +82,11 @@ import java.util.Objects;
  * @author <a href="mailto:aefimov.box@gmail.com">Alexey Efimov</a>
  */
 final class ImageEditorUI extends JPanel implements UiDataProvider, CopyProvider, ImageComponentDecorator, Disposable {
-  @NonNls
-  private static final String IMAGE_PANEL = "image";
-  @NonNls
-  private static final String ERROR_PANEL = "error";
-  @NonNls
-  private static final String ZOOM_FACTOR_PROP = "ImageEditor.zoomFactor";
+  private static final @NonNls String IMAGE_PANEL = "image";
+  private static final @NonNls String ERROR_PANEL = "error";
+  private static final @NonNls String ZOOM_FACTOR_PROP = "ImageEditor.zoomFactor";
 
-  @Nullable
-  private final ImageEditor editor;
+  private final @Nullable ImageEditor editor;
   private final DeleteProvider deleteProvider;
   private final CopyPasteSupport copyPasteSupport;
 
@@ -596,6 +592,7 @@ final class ImageEditorUI extends JPanel implements UiDataProvider, CopyProvider
 
   @Override
   public void uiDataSnapshot(@NotNull DataSink sink) {
+    sink.set(PlatformDataKeys.COPY_PROVIDER, this);
     sink.set(DATA_KEY, editor != null ? editor : this);
     if (editor == null) return;
     Project project = editor.getProject();
@@ -604,7 +601,6 @@ final class ImageEditorUI extends JPanel implements UiDataProvider, CopyProvider
     sink.set(CommonDataKeys.PROJECT, project);
     sink.set(CommonDataKeys.VIRTUAL_FILE, file);
     sink.set(CommonDataKeys.VIRTUAL_FILE_ARRAY, new VirtualFile[]{file});
-    sink.set(PlatformDataKeys.COPY_PROVIDER, this);
     if (copyPasteSupport != null) {
       sink.set(PlatformDataKeys.CUT_PROVIDER, copyPasteSupport.getCutProvider());
     }

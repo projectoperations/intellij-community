@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package com.intellij.psi.impl.source.tree.injected;
 
@@ -29,6 +29,7 @@ import com.intellij.util.text.ImmutableCharSequence;
 import com.intellij.util.text.StringOperation;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
 
 import java.beans.PropertyChangeListener;
 import java.util.ArrayList;
@@ -288,7 +289,7 @@ class DocumentWindowImpl extends UserDataHolderBase implements Disposable, Docum
   }
 
   @Override
-  public @NotNull Collection<@NotNull StringOperation> prepareReplaceString(int startOffset, int endOffset, @NotNull CharSequence s) {
+  public @Unmodifiable @NotNull Collection<@NotNull StringOperation> prepareReplaceString(int startOffset, int endOffset, @NotNull CharSequence s) {
     if (isOneLine()) {
       s = StringUtil.replace(s.toString(), "\n", "");
     }
@@ -305,7 +306,7 @@ class DocumentWindowImpl extends UserDataHolderBase implements Disposable, Docum
     return doPrepareReplaceString(startOffset, endOffset, s);
   }
 
-  private @NotNull Collection<@NotNull StringOperation> doPrepareReplaceString(int startOffset, int endOffset, CharSequence s) {
+  private @Unmodifiable @NotNull Collection<@NotNull StringOperation> doPrepareReplaceString(int startOffset, int endOffset, CharSequence s) {
     assert intersectWithEditable(new TextRange(startOffset, startOffset)) != null;
     assert intersectWithEditable(new TextRange(endOffset, endOffset)) != null;
 

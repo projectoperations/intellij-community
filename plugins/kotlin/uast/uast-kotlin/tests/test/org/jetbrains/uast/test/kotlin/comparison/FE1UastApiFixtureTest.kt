@@ -138,6 +138,26 @@ class FE1UastApiFixtureTest : KotlinLightCodeInsightFixtureTestCase(), UastApiFi
         checkInvokedLambdaBody(myFixture)
     }
 
+    fun testImplicitReceiver() {
+        checkImplicitReceiver(myFixture)
+    }
+
+    fun testImplicitReceiver_extensionFunction() {
+        checkImplicitReceiver_extensionFunction(myFixture)
+    }
+
+    fun testImplicitReceiver_insideInterface() {
+        checkImplicitReceiver_insideInterface(myFixture)
+    }
+
+    fun testImplicitReceiver_interfaceHierarchy() {
+        checkImplicitReceiver_interfaceHierarchy(myFixture)
+    }
+
+    fun testImplicitReceiver_interfaceHierarchy_smartcast() {
+        checkImplicitReceiver_interfaceHierarchy_smartcast(myFixture)
+    }
+
     fun testLambdaImplicitParameters() {
         checkLambdaImplicitParameters(myFixture)
     }

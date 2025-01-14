@@ -26,8 +26,6 @@ import kotlinx.coroutines.runBlocking
 import org.jetbrains.idea.maven.importing.MAVEN_BSC_DEFAULT_ANNOTATION_PROFILE
 import org.jetbrains.idea.maven.importing.MAVEN_DEFAULT_ANNOTATION_PROFILE
 import org.jetbrains.idea.maven.importing.MavenAnnotationProcessorConfiguratorUtil.getModuleProfileName
-import org.jetbrains.jps.model.java.compiler.ProcessorConfigProfile
-import org.jetbrains.jps.model.java.impl.compiler.ProcessorConfigProfileImpl
 import org.junit.Assert
 import org.junit.Test
 

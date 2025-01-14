@@ -198,7 +198,7 @@ public abstract class InspectionProfileEntry implements BatchSuppressableTool, O
     return alternativeId != null && !alternativeId.equals(toolId) && suppressor.isSuppressedFor(element, alternativeId);
   }
 
-  public static @NotNull Collection<InspectionSuppressor> getSuppressors(@NotNull PsiElement element) {
+  public static @Unmodifiable @NotNull Collection<InspectionSuppressor> getSuppressors(@NotNull PsiElement element) {
     PsiFile file = element.getContainingFile();
     if (file == null) {
       PsiUtilCore.ensureValid(element);
@@ -234,8 +234,8 @@ public abstract class InspectionProfileEntry implements BatchSuppressableTool, O
     };
   }
 
-  private static @NotNull Collection<InspectionSuppressor> checkDumbMode(@NotNull PsiFile file,
-                                                                         @NotNull Collection<InspectionSuppressor> suppressors) {
+  private static @Unmodifiable @NotNull Collection<InspectionSuppressor> checkDumbMode(@NotNull PsiFile file,
+                                                                                       @NotNull Collection<InspectionSuppressor> suppressors) {
     DumbService dumbService = DumbService.getInstance(file.getProject());
     if (dumbService.isDumb()) {
       return ContainerUtil.filter(suppressors, suppressor -> DumbService.isDumbAware(suppressor));
@@ -524,7 +524,7 @@ public abstract class InspectionProfileEntry implements BatchSuppressableTool, O
     return null;
   }
 
-  private @NotNull Class<? extends InspectionProfileEntry> getDescriptionContextClass() {
+  protected @NotNull Class<? extends InspectionProfileEntry> getDescriptionContextClass() {
     return getClass();
   }
 

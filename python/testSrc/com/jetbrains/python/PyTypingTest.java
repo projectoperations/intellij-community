@@ -4490,7 +4490,7 @@ public class PyTypingTest extends PyTestCase {
 
   // PY-36444
   public void testTextIOInferredWithContextManagerDecorator() {
-    doTest("TextIO",
+    doTest("TextIOWrapper",
            """
              from contextlib import contextmanager
                              
@@ -4503,6 +4503,25 @@ public class PyTypingTest extends PyTestCase {
              cm = open_file(__file__)
              with cm as file:
                  expr = file
+             """);
+  }
+
+  // PY-71674
+  public void testContextManagerDecoratorOnMethod() {
+    doTest("str",
+           """
+             from contextlib import contextmanager
+             from typing import Iterator
+             
+             
+             class MyClass:
+                 @contextmanager
+                 def as_context(self) -> Iterator[str]:
+                     yield "foo"
+             
+             
+             with MyClass().as_context() as value:
+                 expr = value
              """);
   }
 
@@ -4523,7 +4542,7 @@ public class PyTypingTest extends PyTestCase {
 
   // PY-70484
   public void testUnboundParamSpecThatCannotBeBoundThroughParametersLeftIntact() {
-    doTest("((ParamSpec(\"P\")) -> Any) -> (ParamSpec(\"P\")) -> int",
+    doTest("((**P) -> Any) -> (**P) -> int",
            """
              from typing import Callable, Any, ParamSpec
                           
@@ -4556,7 +4575,7 @@ public class PyTypingTest extends PyTestCase {
   }
 
   public void testParamSpecInConcatenateMappedToAnotherParamSpec() {
-    doTest("(int, ParamSpec(\"P1\")) -> Any",
+    doTest("(int, **P1) -> Any",
            """
              from typing import Callable, Any, ParamSpec, Concatenate
                                 
@@ -5959,6 +5978,28 @@ public class PyTypingTest extends PyTestCase {
       """);
   }
 
+  // PY-77168
+  public void testReferencingImportedTypeFromUnmatchedVersionGuard() {
+    doTest("Literal[42]", """
+      from typing import Literal
+      import sys
+      
+      if sys.version_info < (3, 0):
+          expr: Literal[42]
+      """);
+  }
+
+  // PY-77168
+  public void testReferencingTopLevelTypeFromUnmatchedVersionGuard() {
+    doTest("int", """
+      import sys
+      
+      type Alias = int
+      if sys.version_info < (3, 0):
+          expr: Alias
+      """);
+  }
+  
   // PY-76243
   public void testGenericClassDeclaredInStubPackage() {
     runWithAdditionalClassEntryInSdkRoots("types/" + getTestName(false) + "/site-packages", () -> {
@@ -5980,6 +6021,18 @@ public class PyTypingTest extends PyTestCase {
              for expr in Foo:
                  pass
              """);
+  }
+
+  // PY-77074
+  public void testEnumIndexer() {
+    doTest("Color", """
+      from enum import Enum
+      
+      class Color(Enum):
+        RED = 1
+      
+      expr = Color["RED"]
+      """);
   }
 
   // PY-76149
@@ -6077,6 +6130,175 @@ public class PyTypingTest extends PyTestCase {
       
       type Plug = Any
       expr: int | Plug
+      """);
+  }
+
+  // PY-36416
+  public void testReturnTypeOfNonAnnotatedAsyncOverride() {
+    doTest("Coroutine[Any, Any, str]", """
+      class Base:
+          async def get(self) -> str:
+              ...
+      
+      class Specific(Base):
+          async def get(self):
+              ...
+      
+      expr = Specific().get()
+      """);
+  }
+
+  // PY-40458
+  public void testReturnTypeOfNonAnnotatedAsyncOverrideOfNonAsyncMethod() {
+    doTest("AsyncGenerator[int, Any]", """
+      from typing import AsyncIterator, TypeGuard, Protocol
+      
+      class Base(Protocol):
+          def get(self) -> AsyncIterator[int]:
+              ...
+      
+      class Specific(Base):
+          async def get(self):
+              yield 42
+      
+      expr = Specific().get()
+      """);
+  }
+
+  // PY-40458
+  public void testReturnTypeOfNonAnnotatedAsyncOverrideOfAsyncGeneratorMethod() {
+    doTest("AsyncIterator[int]", """
+      from typing import AsyncIterator, TypeGuard, Protocol
+      
+      class Base(Protocol):
+          async def get(self) -> AsyncIterator[int]:
+              if False: yield
+      
+      class Specific(Base):
+          async def get(self):
+              yield 42
+      
+      expr = Specific().get()
+      """);
+  }
+
+  // PY-77541
+  public void testParamSpecBoundToAnotherParamSpecInCustomGeneric() {
+    doTest("MyCallable[**P2, R2]", """
+                   class MyCallable[**P, R]:
+                       def __call__(self, *args: P.args, **kwargs: P.kwargs):
+                           ...
+                   
+                   def f[**P, R](callback: MyCallable[P, R]) -> MyCallable[P, R]:
+                       ...
+                   
+                   def g[**P2, R2](callback: MyCallable[P2, R2]) -> MyCallable[P2, R2]:
+                       expr = f(callback)
+                   """);
+  }
+
+  // PY-77541
+  public void testParamSpecBoundToConcatenateInCustomGeneric() {
+    doTest("MyCallable[Concatenate(int, **P2), R2]", """
+                   from typing import Concatenate
+                   
+                   class MyCallable[**P, R]:
+                       def __call__(self, *args: P.args, **kwargs: P.kwargs):
+                           ...
+                   
+                   def f[**P, R](callback: MyCallable[P, R]) -> MyCallable[P, R]:
+                       ...
+                   
+                   def g[**P2, R2](callback: MyCallable[Concatenate[int, P2], R2]) -> MyCallable[P2, R2]:
+                       expr = f(callback)
+                   """);
+  }
+
+  // PY-77940
+  public void testUnderscoredNameInPyiStub() {
+    doMultiFileStubAwareTest("int", """
+      from lib import f
+      
+      expr = f()
+      """);
+  }
+
+  // PY-77601
+  public void testParamSpecCorrectlyParameterizedWhenItIsOnlyGenericParam() {
+    doTest("(str, int, bool) -> int", """
+      from typing import ParamSpec, Callable, Generic
+      
+      P = ParamSpec("P")
+      
+      class MyClass(Generic[P]):
+          def call(self) -> Callable[P, int]: ...
+      c = MyClass[str, int, bool]()
+      expr = c.call()
+      """);
+  }
+
+  // PY-77601
+  public void testParamSpecNotMappedToSingleTypeWithoutSquareBrackets() {
+    doTest("Any", """
+      from typing import ParamSpec, Callable, Generic, TypeVar
+      
+      P = ParamSpec("P")
+      T = TypeVar("T")
+      
+      class MyClass(Generic[T, P]):
+          def call(self) -> Callable[P, int]: ...
+      c = MyClass[str, int]()
+      expr = c.call()
+      """);
+  }
+
+  // PY-77601
+  public void testParamSpecMappedToSingleTypeWithSquareBrackets() {
+    doTest("(int) -> str", """
+      from typing import ParamSpec, Callable, Generic, TypeVar
+      
+      P = ParamSpec("P")
+      T = TypeVar("T")
+      
+      class MyClass(Generic[T, P]):
+          def call(self) -> Callable[P, T]: ...
+      c = MyClass[str, [int]]()
+      expr = c.call()
+      """);
+  }
+
+  // PY-78044
+  public void testGeneratorYieldsSelf() {
+    doTest("A", """
+      from collections.abc import Generator
+      from typing import Self
+      
+      class A:
+          @classmethod
+          def f(cls) -> Generator[Self, None, None]:
+              pass
+      
+      for x in A.f():
+          expr = x
+      """);
+  }
+
+  // PY-78044
+  public void testGeneratorYieldsSelfNested() {
+    doTest("C", """
+      from collections.abc import Generator
+      from typing import Self
+      
+      class A:
+          @classmethod
+          def f(cls) -> Generator[Self, None, None]:
+              pass
+      
+      class B(A): ...
+      class C(B): ...
+      
+      for x in C.f():
+          expr = x
       """);
   }
 

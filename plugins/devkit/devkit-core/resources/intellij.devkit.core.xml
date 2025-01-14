@@ -85,6 +85,8 @@
                                 implementationClass="org.jetbrains.idea.devkit.references.extensions.ExtensionPointDocumentationProvider"/>
 
     <platform.backend.documentation.psiTargetProvider implementation="org.jetbrains.idea.devkit.documentation.PluginDescriptorDocumentationTargetProvider"/>
+    <platform.backend.documentation.psiTargetProvider implementation="org.jetbrains.idea.devkit.documentation.ProductModulesDescriptorDocumentationTargetProvider"/>
+    <platform.backend.documentation.psiTargetProvider implementation="org.jetbrains.idea.devkit.documentation.TemplatesDescriptorDocumentationTargetProvider"/>
     <platform.backend.documentation.linkHandler implementation="org.jetbrains.idea.devkit.documentation.XmlDescriptorDocumentationLinkHandler"/>
 
     <completion.contributor implementationClass="org.jetbrains.idea.devkit.completion.ExtensionOrderKeywordCompletionContributor"
@@ -96,6 +98,8 @@
     <allOverridingMethodsSearch implementation="org.jetbrains.idea.devkit.driver.RemoteMethodAllImplementationSearcher"/>
     <directClassInheritorsSearch implementation="org.jetbrains.idea.devkit.driver.RemoteInterfaceDirectImplementationSearcher"/>
     <classInheritorsSearch implementation="org.jetbrains.idea.devkit.driver.RemoteInterfaceImplementationSearcher"/>
+
+    <highlightErrorFilter implementation="org.jetbrains.idea.devkit.highlighting.TestFragmentsErrorFilter"/>
 
     <localInspection language="XML" shortName="PluginXmlValidity" applyToDialects="false"
                      projectType="INTELLIJ_PLUGIN"
@@ -151,9 +155,15 @@
     <localInspection language="JVM" shortName="InspectionDescriptionNotFoundInspection"
                      projectType="INTELLIJ_PLUGIN"
                      groupPathKey="inspections.group.path" groupKey="inspections.group.description.file"
-                     enabledByDefault="true" level="WARNING"
+                     enabledByDefault="true" level="ERROR"
                      implementationClass="org.jetbrains.idea.devkit.inspections.InspectionDescriptionNotFoundInspection"
                      key="inspection.inspection.description.not.found.inspection.display.name"/>
+    <localInspection language="JVM" shortName="checkReturnValue"
+                     key="inspections.check.return.value"
+                     groupKey="inspections.group.code"
+                     enabledByDefault="true"
+                     level="ERROR"
+                     implementationClass="org.jetbrains.idea.devkit.inspections.CheckReturnValueInspection"/>
     <localInspection language="UAST" shortName="InspectionUsingGrayColors"
                      projectType="INTELLIJ_PLUGIN"
                      groupPathKey="inspections.group.path" groupKey="inspections.group.code"
@@ -169,7 +179,7 @@
     <localInspection language="JVM" shortName="IntentionDescriptionNotFoundInspection"
                      projectType="INTELLIJ_PLUGIN"
                      groupPathKey="inspections.group.path" groupKey="inspections.group.description.file"
-                     enabledByDefault="true" level="WARNING"
+                     enabledByDefault="true" level="ERROR"
                      implementationClass="org.jetbrains.idea.devkit.inspections.IntentionDescriptionNotFoundInspection"
                      key="inspection.intention.description.not.found.inspection.display.name"/>
     <localInspection language="JVM"
@@ -177,7 +187,7 @@
                      key="inspections.component.postfix.template.not.found.description.name"
                      groupPathKey="inspections.group.path" groupKey="inspections.group.description.file"
                      enabledByDefault="true"
-                     level="WARNING"
+                     level="ERROR"
                      implementationClass="org.jetbrains.idea.devkit.inspections.PostfixTemplateDescriptionNotFoundInspection"/>
     <!--suppress PluginXmlCapitalization -->
     <localInspection language="UAST" shortName="ComponentRegistrationProblems"
@@ -482,6 +492,7 @@
     <implicitUsageProvider implementation="org.jetbrains.idea.devkit.inspections.DevKitImplicitUsageProvider"/>
 
     <psi.referenceContributor language="XML" implementation="org.jetbrains.idea.devkit.references.I18nReferenceContributor"/>
+    <psi.referenceContributor language="XML" implementation="org.jetbrains.idea.devkit.references.ExtensionReferenceContributor"/>
     <psi.referenceContributor language="UAST" implementation="org.jetbrains.idea.devkit.references.ExperimentalFeatureIdContributor"/>
     <psi.referenceContributor language="UAST" implementation="org.jetbrains.idea.devkit.references.AdvancedSettingsIdContributor"/>
     <psi.referenceContributor language="XML" implementation="org.jetbrains.idea.devkit.references.IconsXmlReferencesContributor"/>
@@ -489,6 +500,7 @@
     <psi.referenceContributor language="UAST" implementation="org.jetbrains.idea.devkit.references.TestDataFilesReferencesContributor"/>
     <psi.referenceContributor language="UAST" implementation="org.jetbrains.idea.devkit.references.RegistryKeyIdReferenceContributor"/>
     <psi.referenceContributor language="UAST" implementation="org.jetbrains.idea.devkit.references.ActionIdReferenceContributor"/>
+    <referenceInjector implementation="org.jetbrains.idea.devkit.references.ActionOrGroupIdReferenceInjector"/>
     <psi.referenceContributor language="UAST"
                               implementation="org.jetbrains.idea.devkit.references.NotificationGroupIdReferenceContributor"/>
     <psi.referenceContributor language="UAST"
@@ -577,6 +589,7 @@
       implementation="org.jetbrains.idea.devkit.inspections.missingApi.update.IntelliJSdkExternalAnnotationsUpdateStartupActivity"/>
     <java.externalAnnotation.locationProvider
       implementation="org.jetbrains.idea.devkit.inspections.missingApi.resolve.IdeExternalAnnotationsLocationProvider"/>
+    <postStartupActivity implementation="org.jetbrains.idea.devkit.documentation.InitDescriptorDocumentationsDownloadActivity"/>
 
     <generatedSourcesFilter implementation="org.jetbrains.idea.devkit.internal.IconsGeneratedSourcesFilter"/>
     <generatedSourcesFilter implementation="org.jetbrains.idea.devkit.internal.KotlinTestGeneratedSourcesFilter"/>
@@ -594,6 +607,9 @@
     <console.folding order="first" implementation="org.jetbrains.idea.devkit.run.FailedTestDebugLogConsoleFolding"/>
 
     <applicationService serviceImplementation="org.jetbrains.idea.devkit.actions.updateFromSources.UpdateFromSourcesSettings"/>
+
+    <projectService serviceImplementation="org.jetbrains.idea.devkit.run.JUnitDevKitUnitTestingSettings"
+                    configurationSchemaKey="unitTesting"/>
 
     <notificationGroup id="Plugin DevKit Deployment" displayType="BALLOON" bundle="messages.DevKitBundle"
                        key="notification.group.devkit.deployment"/>
@@ -624,16 +640,15 @@
     <registryKey key="devkit.inlay.threading" defaultValue="false"
                  description="Experimental inlays for Threading Annotations"/>
 
-    <smartUpdateStep implementation="org.jetbrains.idea.devkit.actions.updateFromSources.UpdateFromSourcesStep" order="first"/>
     <registryKey key="intellij.commit.message.validation.enabled" defaultValue="false"
                  description="Enables commit messages validation for intellij project"/>
 
-    <fileIconProvider implementation="org.jetbrains.idea.devkit.apiDump.ApiDumpFileIconProvider"/>
-    <generatedSourcesFilter implementation="org.jetbrains.idea.devkit.apiDump.ApiDumpGeneratedSourcesFilter"/>
     <generatedSourcesFilter implementation="org.jetbrains.idea.devkit.contentReport.ContentReportGeneratedSourcesFilter"/>
 
     <!-- INTERNAL -->
     <consoleFilterProvider implementation="org.jetbrains.idea.devkit.run.ModulePathFilterProvider"/>
+
+    <properties.extendedUseScopeProvider implementation="org.jetbrains.idea.devkit.references.BundleExtendedUseScopeProvider"/>
   </extensions>
 
   <extensions defaultExtensionNs="DevKit.lang">
@@ -668,6 +683,7 @@
 
   <extensions defaultExtensionNs="JavaScript.JsonSchema">
     <ProviderFactory implementation="org.jetbrains.idea.devkit.inspections.metaInformation.MetaInformationJsonSchemaProviderFactory"/>
+    <ProviderFactory implementation="org.jetbrains.idea.devkit.documentation.DescriptorDocumentationYamlSchemaProviderFactory"/>
   </extensions>
 
 

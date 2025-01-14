@@ -144,6 +144,9 @@ public class JavaHomeFinderBasic {
 
       return scanAll(dirsToCheck, false);
     }
+    catch (CancellationException e) {
+      throw e;
+    }
     catch (Exception e) {
       log.warn("Failed to scan PATH for JDKs. " + e.getMessage(), e);
       return Collections.emptySet();
@@ -279,8 +282,7 @@ public class JavaHomeFinderBasic {
       .collect(Collectors.toSet());
   }
 
-  @Nullable
-  private Path findMiseInstallsDir() {
+  private @Nullable Path findMiseInstallsDir() {
     // try to use environment variable for custom data directory
     // https://mise.jdx.dev/configuration.html#mise-data-dir
     Path miseDataDir = getPathInEnvironmentVariable("MISE_DATA_DIR", "installs");

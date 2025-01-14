@@ -59,6 +59,7 @@ import com.intellij.psi.impl.light.LightJavaModule;
 import com.intellij.psi.impl.source.PsiJavaCodeReferenceElementImpl;
 import com.intellij.psi.impl.source.PsiLabelReference;
 import com.intellij.psi.impl.source.resolve.JavaResolveUtil;
+import com.intellij.psi.impl.source.tree.JavaElementType;
 import com.intellij.psi.scope.ElementClassFilter;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.ProjectScope;
@@ -88,6 +89,16 @@ public final class JavaCompletionContributor extends CompletionContributor imple
   private static final ElementPattern<PsiElement> UNEXPECTED_REFERENCE_AFTER_DOT = or(
       // dot at the statement beginning
       psiElement().afterLeaf(".").insideStarting(psiExpressionStatement()),
+      //example: class A{ .something }
+      psiElement().afterLeaf(".")
+        .insideStarting(psiElement(JavaElementType.TYPE))
+        .afterLeafSkipping(psiElement().andOr(
+                             psiElement().whitespace(),
+                             psiElement().withText("")),
+                           psiElement().withParent(PsiErrorElement.class))
+        .withParent(PsiJavaCodeReferenceElement.class)
+        .withSuperParent(2, PsiTypeElement.class)
+        .withSuperParent(3, PsiClass.class),
       // like `call(Cls::methodRef.<caret>`
       psiElement().afterLeaf(psiElement(JavaTokenType.DOT).afterSibling(psiElement(PsiMethodCallExpression.class).withLastChild(
         psiElement(PsiExpressionList.class).withLastChild(psiElement(PsiErrorElement.class))))),
@@ -482,6 +493,13 @@ public final class JavaCompletionContributor extends CompletionContributor imple
           }
           else {
             refSuggestions = completeReference(parameters, parentRef, session, expectedInfos, matcher::prefixMatches);
+            if (refSuggestions
+              .stream()
+              .map(lookupElement -> MethodTags.collectTags(lookupElement, matcher::prefixMatches))
+              .anyMatch(t -> t != null && !t.isEmpty())) {
+              //it is possible to propose some tags, let's try to do this
+              _result.restartCompletionWhenNothingMatches();
+            }
           }
         }
         List<LookupElement> filtered = filterReferenceSuggestions(parameters, expectedInfos, refSuggestions);
@@ -912,7 +930,7 @@ public final class JavaCompletionContributor extends CompletionContributor imple
     return null;
   }
 
-  private static Collection<LookupElement> getInnerScopeVariables(CompletionParameters parameters, PsiElement position) {
+  private static @Unmodifiable Collection<LookupElement> getInnerScopeVariables(CompletionParameters parameters, PsiElement position) {
     PsiElement container = BringVariableIntoScopeFix.getContainer(position);
     if (container == null) return Collections.emptyList();
     Map<String, Optional<PsiLocalVariable>> variableMap =
@@ -991,7 +1009,7 @@ public final class JavaCompletionContributor extends CompletionContributor imple
            LambdaHighlightingUtil.insertSemicolon(position.getParent().getParent());
   }
 
-  private static List<LookupElement> processLabelReference(PsiLabelReference reference) {
+  private static @Unmodifiable List<LookupElement> processLabelReference(PsiLabelReference reference) {
     return ContainerUtil.map(reference.getVariants(), s -> TailTypeDecorator.withTail(LookupElementBuilder.create(s),
                                                                                       TailTypes.semicolonType()));
   }
@@ -1487,8 +1505,7 @@ public final class JavaCompletionContributor extends CompletionContributor imple
    * @param lookup the {@link LookupElement} to be marked as inaccessible
    * @return the modified {@link LookupElement} marked as inaccessible
    */
-  @NotNull
-  private static LookupElement markAsInaccessible(@NotNull LookupElement lookup) {
+  private static @NotNull LookupElement markAsInaccessible(@NotNull LookupElement lookup) {
     return PrioritizedLookupElement.withExplicitProximity(LookupElementDecorator.withRenderer(lookup, new LookupElementRenderer<>() {
       @Override
       public void renderElement(LookupElementDecorator<LookupElement> element, LookupElementPresentation presentation) {
@@ -1535,9 +1552,8 @@ public final class JavaCompletionContributor extends CompletionContributor imple
     return result;
   }
 
-  @Nullable
-  private static LookupElement getAutoModuleReference(@NotNull String name, @NotNull PsiElement parent,
-                                                      @NotNull Set<? super String> filter) {
+  private static @Nullable LookupElement getAutoModuleReference(@NotNull String name, @NotNull PsiElement parent,
+                                                                @NotNull Set<? super String> filter) {
     if (PsiNameHelper.isValidModuleName(name, parent) && filter.add(name)) {
       LookupElement lookup = LookupElementBuilder.create(name).withIcon(AllIcons.FileTypes.Archive);
       return TailTypeDecorator.withTail(lookup, TailTypes.semicolonType());

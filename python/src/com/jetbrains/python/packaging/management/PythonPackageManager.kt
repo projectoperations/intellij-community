@@ -1,17 +1,18 @@
 // Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.packaging.management
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.writeAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.roots.OrderRootType
+import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.util.messages.Topic
-import com.jetbrains.python.packaging.common.PackageManagerHolder
-import com.jetbrains.python.packaging.common.PythonPackage
-import com.jetbrains.python.packaging.common.PythonPackageManagementListener
-import com.jetbrains.python.packaging.common.PythonPackageSpecification
+import com.jetbrains.python.PyBundle
+import com.jetbrains.python.packaging.PyPackageManager
+import com.jetbrains.python.packaging.common.*
 import com.jetbrains.python.sdk.PythonSdkUpdater
 import org.jetbrains.annotations.ApiStatus
 
@@ -20,6 +21,22 @@ abstract class PythonPackageManager(val project: Project, val sdk: Sdk) {
   abstract var installedPackages: List<PythonPackage>
 
   abstract val repositoryManager: PythonRepositoryManager
+
+
+  /**
+   * Install all specified packages, stop on the first error
+   */
+  suspend fun installPackagesWithDialogOnError(packages: List<PythonPackageSpecification>, options: List<String>): Result<List<PythonPackage>> {
+    packages.forEach { specification ->
+      runPackagingOperationOrShowErrorDialog(sdk, PyBundle.message("python.new.project.install.failed.title", specification.name), specification.name) {
+        installPackageCommand(specification, options)
+      }.onFailure {
+        return Result.failure(it)
+      }
+    }
+    refreshPaths()
+    return reloadPackages()
+  }
 
   suspend fun installPackage(specification: PythonPackageSpecification, options: List<String>): Result<List<PythonPackage>> {
     installPackageCommand(specification, options).onFailure { return Result.failure(it) }
@@ -39,8 +56,19 @@ abstract class PythonPackageManager(val project: Project, val sdk: Sdk) {
     return reloadPackages()
   }
 
-  abstract suspend fun reloadPackages(): Result<List<PythonPackage>>
+  open suspend fun reloadPackages(): Result<List<PythonPackage>> {
+    val packages = reloadPackagesCommand().getOrElse {
+      return Result.failure(it)
+    }
 
+    installedPackages = packages
+    ApplicationManager.getApplication().messageBus.apply {
+      syncPublisher(PACKAGE_MANAGEMENT_TOPIC).packagesChanged(sdk)
+      syncPublisher(PyPackageManager.PACKAGE_MANAGER_TOPIC).packagesRefreshed(sdk)
+    }
+
+    return Result.success(packages)
+  }
 
   protected abstract suspend fun installPackageCommand(specification: PythonPackageSpecification, options: List<String>): Result<String>
   protected abstract suspend fun updatePackageCommand(specification: PythonPackageSpecification): Result<String>
@@ -49,7 +77,13 @@ abstract class PythonPackageManager(val project: Project, val sdk: Sdk) {
 
   internal suspend fun refreshPaths() {
     writeAction {
-      VfsUtil.markDirtyAndRefresh(true, true, true, *sdk.rootProvider.getFiles(OrderRootType.CLASSES))
+      // Background refreshing breaks structured concurrency: there is a some activity in background that locks files.
+      // Temporary folders can't be deleted on Windows due to that.
+      // That breaks tests.
+      // This code should be deleted, but disabled temporary to fix tests
+      if (!(ApplicationManager.getApplication().isUnitTestMode && SystemInfoRt.isWindows)) {
+        VfsUtil.markDirtyAndRefresh(true, true, true, *sdk.rootProvider.getFiles(OrderRootType.CLASSES))
+      }
       PythonSdkUpdater.scheduleUpdate(sdk, project)
     }
   }

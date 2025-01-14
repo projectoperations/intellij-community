@@ -884,27 +884,24 @@ class KtControlFlowBuilder(val factory: DfaValueFactory, val context: KtExpressi
         }
         val endOffset = DeferredOffset()
         for (entry in expr.entries) {
-            if (entry.isElse) {
-                processExpression(entry.expression)
-                addInstruction(GotoInstruction(endOffset))
-            } else {
+            val skipBranch = DeferredOffset()
+            if (entry.elseKeyword == null) {
                 val branchStart = DeferredOffset()
                 for (condition in entry.conditions) {
                     processWhenCondition(dfVar, kotlinType, condition)
                     addInstruction(ConditionalGotoInstruction(branchStart, DfTypes.TRUE))
                 }
-                val skipBranch = DeferredOffset()
                 addInstruction(GotoInstruction(skipBranch))
                 setOffset(branchStart)
-                val guard = entry.guard
-                if (guard != null) {
-                    processExpression(guard.getExpression())
-                    addInstruction(ConditionalGotoInstruction(skipBranch, DfTypes.FALSE))
-                }
-                processExpression(entry.expression)
-                addInstruction(GotoInstruction(endOffset))
-                setOffset(skipBranch)
             }
+            val guard = entry.guard
+            if (guard != null) {
+                processExpression(guard.getExpression())
+                addInstruction(ConditionalGotoInstruction(skipBranch, DfTypes.FALSE))
+            }
+            processExpression(entry.expression)
+            addInstruction(GotoInstruction(endOffset))
+            setOffset(skipBranch)
         }
         pushUnknown()
         setOffset(endOffset)
@@ -1828,7 +1825,7 @@ class KtControlFlowBuilder(val factory: DfaValueFactory, val context: KtExpressi
             addInstruction(WrapDerivedVariableInstruction(expectedType.toDfType().meet(dfType), SpecialField.UNBOX))
         }
         if (actualDfType is DfPrimitiveType && expectedDfType is DfPrimitiveType) {
-            addInstruction(PrimitiveConversionInstruction(expectedType.toPsiPrimitiveType(), null))
+            addInstruction(PrimitiveConversionInstruction(expectedDfType.psiType, null))
         }
     }
 
@@ -1850,7 +1847,8 @@ class KtControlFlowBuilder(val factory: DfaValueFactory, val context: KtExpressi
     context(KaSession)
     private fun balanceType(left: KaType?, right: KaType?): KaType? {
         if (left == null || right == null) return null
-        if (left == right) return left
+        if (left is KaErrorType || right is KaErrorType) return null
+        if (left.semanticallyEquals(right)) return left
         if (left.canBeNull() && !right.canBeNull()) {
             return balanceType(left.withNullability(KaTypeNullability.NON_NULLABLE), right)
         }

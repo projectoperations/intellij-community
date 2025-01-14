@@ -13,7 +13,6 @@ import com.intellij.util.ReflectionUtil
 import com.intellij.util.WaitFor
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.idea.maven.project.MavenWorkspaceSettingsComponent
-import org.jetbrains.idea.maven.server.MavenServerConnectorImpl
 import java.io.File
 import java.util.concurrent.*
 import java.util.concurrent.atomic.AtomicReference

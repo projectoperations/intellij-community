@@ -2,10 +2,8 @@
 package com.intellij.execution.wsl.ijent.nio.toggle
 
 import com.intellij.diagnostic.VMOptions
-import com.intellij.execution.eel.EelApiWithPathsMapping
-import com.intellij.execution.wsl.WSLDistribution
-import com.intellij.execution.wsl.WslIjentAvailabilityService
-import com.intellij.execution.wsl.WslIjentManager
+import com.intellij.execution.wsl.*
+import com.intellij.execution.wsl.ijent.nio.toggle.IjentWslNioFsToggler.WslEelProvider
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
@@ -16,9 +14,10 @@ import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.platform.core.nio.fs.MultiRoutingFileSystemProvider
 import com.intellij.platform.eel.EelApi
-import com.intellij.platform.eel.provider.EelApiKey
+import com.intellij.platform.eel.EelDescriptor
+import com.intellij.platform.eel.path.EelPath
 import com.intellij.platform.eel.provider.EelProvider
-import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.*
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.TestOnly
 import org.jetbrains.annotations.VisibleForTesting
@@ -26,7 +25,6 @@ import java.io.BufferedReader
 import java.nio.file.FileSystems
 import java.nio.file.Path
 import kotlin.io.path.bufferedReader
-import kotlin.io.path.isSameFileAs
 
 /**
  * This service, along with listeners inside it, enables and disables access to WSL drives through IJent.
@@ -42,15 +40,16 @@ class IjentWslNioFsToggler(private val coroutineScope: CoroutineScope) {
 
   val isAvailable: Boolean get() = strategy != null
 
-  suspend fun enableForAllWslDistributions() {
+  fun enableForAllWslDistributions() {
     logErrorIfNotWindows()
     strategy?.enableForAllWslDistributions()
   }
 
   @TestOnly
-  suspend fun switchToIjentFs(distro: WSLDistribution) {
+  fun switchToIjentFs(distro: WSLDistribution) {
     logErrorIfNotWindows()
     strategy ?: error("Not available")
+    strategy.enabledInDistros.add(distro)
     strategy.switchToIjentFs(distro)
   }
 
@@ -76,23 +75,16 @@ class IjentWslNioFsToggler(private val coroutineScope: CoroutineScope) {
 
   // TODO Move to ijent.impl?
   internal class WslEelProvider : EelProvider {
-    override suspend fun getEelApi(path: Path): EelApi? {
-      val enabledDistros = serviceAsync<IjentWslNioFsToggler>().strategy?.enabledInDistros
 
-      return enabledDistros?.firstOrNull { distro -> distro.getUNCRootPath().isSameFileAs(path.root) }?.let { distro ->
-        EelApiWithPathsMapping(
-          ephemeralRoot = path.root,
-          original = WslIjentManager.getInstance().getIjentApi(distro, null, rootUser = false)
-        )
+    suspend fun getApiByDistribution(distro: WSLDistribution): EelApi {
+      val enabledDistros = serviceAsync<IjentWslNioFsToggler>().strategy?.enabledInDistros
+      if (enabledDistros == null || distro !in enabledDistros) {
+        throw IllegalStateException("IJent is not enabled in $distro")
       }
+      return WslIjentManager.getInstance().getIjentApi(distro, null, rootUser = false)
     }
 
-    override fun getEelApiKey(path: Path): EelApiKey? =
-      service<IjentWslNioFsToggler>().strategy?.enabledInDistros
-        ?.find { distro -> distro.getUNCRootPath().isSameFileAs(path.root) }
-        ?.let { WslEelKey(it.id) }
-
-    private data class WslEelKey(val key: String) : EelApiKey()
+    override suspend fun tryInitialize(path: String) = tryInitializeEelOnWsl(path)
   }
 
   private val strategy = run {
@@ -101,7 +93,7 @@ class IjentWslNioFsToggler(private val coroutineScope: CoroutineScope) {
       !WslIjentAvailabilityService.getInstance().useIjentForWslNioFileSystem() -> null
 
       defaultProvider.javaClass.name == MultiRoutingFileSystemProvider::class.java.name -> {
-        IjentWslNioFsToggleStrategy(defaultProvider, coroutineScope)
+        IjentWslNioFsToggleStrategy(coroutineScope)
       }
 
       else -> {
@@ -129,5 +121,63 @@ class IjentWslNioFsToggler(private val coroutineScope: CoroutineScope) {
         null
       }
     }
+  }
+}
+
+
+private suspend fun tryInitializeEelOnWsl(path: String) {
+  if (!WslIjentAvailabilityService.getInstance().useIjentForWslNioFileSystem()) {
+    return
+  }
+
+  if (!WslPath.isWslUncPath(path)) {
+    return
+  }
+
+  val ijentWslNioFsToggler = IjentWslNioFsToggler.instanceAsync()
+
+  coroutineScope {
+    launch {
+      ijentWslNioFsToggler.enableForAllWslDistributions()
+    }
+
+    val allWslDistributions = async(Dispatchers.IO) {
+      serviceAsync<WslDistributionManager>().installedDistributions
+    }
+
+    val path = Path.of(path)
+
+    for (distro in allWslDistributions.await()) {
+      val matches =
+        try {
+          distro.getWslPath(path) != null
+        }
+        catch (_: IllegalArgumentException) {
+          false
+        }
+      if (matches) {
+        launch {
+          serviceAsync<WslIjentManager>().getIjentApi(distro, null, false)
+        }
+      }
+    }
+  }
+}
+
+
+internal data class WslEelDescriptor(val distribution: WSLDistribution) : EelDescriptor {
+  override val operatingSystem: EelPath.OS = EelPath.OS.UNIX
+
+
+  override suspend fun upgrade(): EelApi {
+    return WslEelProvider().getApiByDistribution(distribution)
+  }
+
+  override fun equals(other: Any?): Boolean {
+    return other is WslEelDescriptor && other.distribution.id == distribution.id
+  }
+
+  override fun hashCode(): Int {
+    return distribution.id.hashCode()
   }
 }

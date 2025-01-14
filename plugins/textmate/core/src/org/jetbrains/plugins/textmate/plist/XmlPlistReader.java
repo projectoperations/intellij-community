@@ -1,6 +1,5 @@
 package org.jetbrains.plugins.textmate.plist;
 
-import com.intellij.openapi.util.text.Strings;
 import com.intellij.util.xml.dom.XmlDomReader;
 import com.intellij.util.xml.dom.XmlElement;
 import org.jetbrains.annotations.NotNull;
@@ -52,8 +51,7 @@ public final class XmlPlistReader implements PlistReader {
     return value(dict, PlistValueType.DICT);
   }
 
-  @Nullable
-  private static PListValue readValue(@NotNull String key, @NotNull XmlElement valueElement) throws IOException {
+  private static @Nullable PListValue readValue(@NotNull String key, @NotNull XmlElement valueElement) throws IOException {
     String type = valueElement.name;
     if ("dict".equals(type)) {
       return readDict(valueElement);
@@ -77,12 +75,11 @@ public final class XmlPlistReader implements PlistReader {
     return value(result, PlistValueType.ARRAY);
   }
 
-  @Nullable
-  private static PListValue readBasicValue(@NotNull String type, @NotNull XmlElement valueElement) throws IOException {
+  private static @Nullable PListValue readBasicValue(@NotNull String type, @NotNull XmlElement valueElement) throws IOException {
     String content = valueElement.content;
 
     if ("string".equals(type) && content != null) {
-      return value(Strings.unescapeXmlEntities(content), PlistValueType.STRING);
+      return value(content, PlistValueType.STRING);
     }
     else if ("true".equals(type)) {
       return value(Boolean.TRUE, PlistValueType.BOOLEAN);

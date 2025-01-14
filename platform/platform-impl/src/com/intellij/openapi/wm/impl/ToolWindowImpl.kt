@@ -767,7 +767,7 @@ internal class ToolWindowImpl(
           group.add(additionalGearActions)
         }
         else {
-          addSorted(group, additionalGearActions)
+          addSorted(e, group, additionalGearActions)
         }
         group.addSeparator()
       }
@@ -883,15 +883,28 @@ internal class ToolWindowImpl(
     }
   }
 
+  internal var isAboutToReceiveFocus: Boolean = false
+
   fun requestFocusInToolWindow() {
+    // Requesting focus may invoke a whole chain of focus changes.
+    // For example, when activating an undocked tool window,
+    // the previously active tool window may become hidden,
+    // which in turn will temporarily bring focus to the editor,
+    // which can cause the newly shown tool window to hide itself immediately.
+    // To guard ourselves against this mess, we temporarily prohibit hiding of this tool window
+    // by setting this flag until all events (including focus changes) are processed.
+    isAboutToReceiveFocus = true
     focusTask.resetStartTime()
     focusAlarm.cancel()
     focusTask.run()
+    SwingUtilities.invokeLater {
+      isAboutToReceiveFocus = false
+    }
   }
 }
 
-private fun addSorted(main: DefaultActionGroup, group: ActionGroup) {
-  val children = group.getChildren(null)
+private fun addSorted(e: AnActionEvent?, main: DefaultActionGroup, group: ActionGroup) {
+  val children = ActionWrapperUtil.getChildren(e, main, group)
   var hadSecondary = false
   for (action in children) {
     if (group.isPrimary(action)) {

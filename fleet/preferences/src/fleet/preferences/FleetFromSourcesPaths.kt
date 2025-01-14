@@ -29,12 +29,13 @@ object FleetFromSourcesPaths {
     intellijProjectRoot.resolve("fleet")
   }
 
-  val fontsDirectory: Path by lazy {
-    projectRoot.resolve("frontend.ui/src/main/fonts")
-  }
+  private const val fontsResourcesDirectory: String = "/frontend/fonts"
+
+  @Deprecated(message = "should use the string property on next dock api breakage", ReplaceWith("fontsResourcesDirectory"))
+  val fontsDirectory: Path = Path.of(fontsResourcesDirectory)
 
   val dockAppDevIconFile: Path by lazy {
-    projectRoot.resolve("resources/artwork/fleet/fleet-appicon-dev.png")
+    buildDirectory.resolve("localDistribution/icons/os-appicon.png")
   }
 
   val nemmetPath: Path by lazy {
@@ -57,10 +58,10 @@ object FleetFromSourcesPaths {
   //@fleet.kernel.plugins.InternalInPluginModules(where = ["fleet.noria.ui.test"])
   object Fonts {
     val jbMonoTTF: String by lazy {
-      fontsDirectory.resolve("JetBrainsMono/JetBrainsMono-Regular.ttf").pathString
+      "$fontsResourcesDirectory/JetBrainsMono/JetBrainsMono-Regular.ttf"
     }
     val notoColorEmoji: String by lazy {
-      fontsDirectory.resolve("NotoColorEmoji/NotoColorEmoji.ttf").pathString
+      "$fontsResourcesDirectory/NotoColorEmoji/NotoColorEmoji.ttf"
     }
   }
 

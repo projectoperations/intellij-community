@@ -4,14 +4,9 @@ package com.intellij.debugger.engine.events
 import com.intellij.debugger.engine.DebuggerManagerThreadImpl
 import com.intellij.debugger.engine.DebuggerThreadDispatcher
 import com.intellij.debugger.impl.DebuggerTaskImpl
-import com.intellij.debugger.impl.InvokeThread
+import com.intellij.debugger.impl.DebuggerUtilsImpl
 import com.intellij.debugger.impl.PrioritizedTask
-import com.intellij.platform.util.coroutines.childScope
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
 import org.jetbrains.annotations.ApiStatus
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.CoroutineContext
@@ -19,26 +14,45 @@ import kotlin.coroutines.CoroutineContext.Key
 
 abstract class DebuggerCommandImpl(private val myPriority: PrioritizedTask.Priority = PrioritizedTask.Priority.LOW)
   : DebuggerTaskImpl(), CoroutineContext.Element {
+
+  /**
+   * [CoroutineScope] tied to this command execution.
+   *
+   * The command is executed in its own scope to have a possibility to cancel all the work started within the command when
+   * [notifyCancelled] is called.
+   * For example, a command can start a computation in [kotlinx.coroutines.Dispatchers.Default].
+   * When the program is resumed, the scope will be canceled.
+   */
   @Volatile
-  protected var myCoroutineScope: CoroutineScope? = null
+  private var commandScope: CoroutineScope? = null
+    set(value) {
+      if (value != null && field != null) error("Command scope is already set")
+      field = value
+    }
+
   private val continuation = AtomicReference<Runnable>(null)
   private var myThread: DebuggerManagerThreadImpl? = null
+  protected val commandManagerThread: DebuggerManagerThreadImpl
+    get() = myThread ?: error("DebuggerManagerThread is not set")
+
+  internal fun setCommandManagerThread(value: DebuggerManagerThreadImpl) {
+    if (myThread != null && myThread !== value) {
+      error("DebuggerManagerThread is already set")
+    }
+    myThread = value
+  }
 
   @Throws(Exception::class)
-  protected open fun action() {
-    throw AbstractMethodError()
-  }
+  protected open fun action(): Unit = throw AbstractMethodError()
 
   @ApiStatus.Experimental
-  protected open suspend fun actionSuspend() {
-    action()
-  }
-
+  protected open suspend fun actionSuspend(): Unit = action()
   protected open fun commandCancelled() {
   }
 
-  override fun getPriority() = myPriority
+  override fun getPriority(): PrioritizedTask.Priority = myPriority
 
+  @ApiStatus.Internal
   fun notifyCancelled() {
     try {
       commandCancelled()
@@ -47,18 +61,19 @@ abstract class DebuggerCommandImpl(private val myPriority: PrioritizedTask.Prior
       myThread?.unfinishedCommands?.remove(this)
       release()
       cancelCommandScope()
+      // The continuation must be called by the CoroutineDispatcher contract.
+      // It should do nothing, as the scope is canceled.
       executeContinuation()
     }
   }
 
   @Throws(Exception::class)
   private suspend fun runSuspend() {
-    val managerThreadImpl = InvokeThread.currentThread() as DebuggerManagerThreadImpl
-    myThread = managerThreadImpl
-    val commands = managerThreadImpl.unfinishedCommands
+    val commands = commandManagerThread.unfinishedCommands
     commands.add(this)
     try {
       actionSuspend()
+      check(resetContinuation(null) == null) { "Continuation is not null after command is completed" }
     }
     finally {
       commands.remove(this)
@@ -66,51 +81,43 @@ abstract class DebuggerCommandImpl(private val myPriority: PrioritizedTask.Prior
     }
   }
 
+  @ApiStatus.Internal
   protected open fun onSuspendOrFinish() {
   }
 
-  protected open fun invokeContinuation() {
-    executeContinuation()
-  }
-
-  private fun getOrCreateCommandScope(parentScope: CoroutineScope): CoroutineScope =
-    myCoroutineScope ?: parentScope.childScope("Debugger Command $this", this).also { myCoroutineScope = it }
+  @ApiStatus.Internal
+  protected open fun invokeContinuation(): Unit = executeContinuation()
 
   private fun cancelCommandScope() {
-    myCoroutineScope?.cancel()
-    myCoroutineScope = null
+    commandScope?.cancel()
+    commandScope = null
   }
 
   internal fun resetContinuation(runnable: Runnable?): Runnable? = continuation.getAndSet(runnable)
+
+  @ApiStatus.Internal
   protected fun executeContinuation() {
     resetContinuation(null)?.run()
   }
 
   internal fun invokeCommand(dispatcher: DebuggerThreadDispatcher, parentScope: CoroutineScope) {
     if (continuation.get() == null) {
-      var exception: Exception? = null
-      val commandScope = getOrCreateCommandScope(parentScope)
       // executed synchronously until the first suspend, resume is handled by dispatcher
-      commandScope.launch(dispatcher, start = CoroutineStart.UNDISPATCHED) {
+      val job = parentScope.async(this + dispatcher, start = CoroutineStart.UNDISPATCHED) {
         try {
-          if (commandScope.isActive) {
-            try {
-              runSuspend()
-            }
-            catch (e: Exception) {
-              exception = e
-            }
+          // wrap with a separate scope to be sure that we can clean `commandScope` in finally
+          coroutineScope {
+            commandScope = this
+            runSuspend()
           }
-          else {
-            notifyCancelled()
-          }
-        } finally {
+        }
+        finally {
           // Command finished or postponed
-          cancelCommandScope()
+          commandScope = null
         }
       }
       onSuspendOrFinish()
-      exception?.let { throw it }
+      handleCompletionException(job)
     }
     else {
       invokeContinuation()
@@ -139,5 +146,29 @@ abstract class DebuggerCommandImpl(private val myPriority: PrioritizedTask.Prior
   //*** Do not remove
   override fun plus(context: CoroutineContext): CoroutineContext {
     return super.plus(context)
+  }
+}
+
+/**
+ * Rethrows exception if the job completes without suspension, or logs it otherwise.
+ */
+@OptIn(ExperimentalCoroutinesApi::class)
+private fun handleCompletionException(job: Deferred<Unit>) {
+  if (job.isCompleted) {
+    val completionException = job.getCompletionExceptionOrNull() ?: return
+    if (completionException !is CancellationException) {
+      throw completionException
+    }
+  }
+  else {
+    job.invokeOnCompletion {
+      // Should not throw in completion handler
+      runCatching {
+        val completionException = it ?: return@invokeOnCompletion
+        if (completionException !is CancellationException) {
+          DebuggerUtilsImpl.logError(completionException)
+        }
+      }
+    }
   }
 }

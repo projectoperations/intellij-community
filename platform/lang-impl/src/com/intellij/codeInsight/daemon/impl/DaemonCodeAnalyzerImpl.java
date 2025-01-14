@@ -56,6 +56,7 @@ import com.intellij.openapi.progress.impl.CoreProgressManager;
 import com.intellij.openapi.project.*;
 import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.registry.Registry;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.openapi.vfs.newvfs.RefreshQueueImpl;
@@ -349,7 +350,10 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
           // for the condition `existing.equalsByActualOffset(info)` above work correctly,
           // create a fake whole-file highlighter which will track the document size changes
           // and which will make possible to calculate correct `info.getActualEndOffset()`
-          info.setHighlighter((RangeHighlighterEx)highlighter);
+          if (toReuse == null) {
+            // assign only newly created highlighter here; otherwise the reused highlighter was already set, no need (and can't) to overwrite
+            info.setHighlighter((RangeHighlighterEx)highlighter);
+          }
           info.setGroup(group);
           fileLevelInfos.add(info);
           FileLevelIntentionComponent component = new FileLevelIntentionComponent(info.getDescription(), info.getSeverity(),
@@ -517,6 +521,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
                         @Nullable Runnable callbackWhileWaiting) throws Exception {
     ThreadingAssertions.assertEventDispatchThread();
     assert !myDisposed;
+    PsiUtilCore.ensureValid(file);
     assertMyFile(file.getProject(), file);
     assert textEditor.getEditor().getDocument() == document : "Expected document "+document+" but one of the passed TextEditors points to a different document: "+textEditor.getEditor().getDocument();
     Document associatedDocument = PsiDocumentManager.getInstance(myProject).getDocument(file);
@@ -919,7 +924,8 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
   private synchronized void scheduleUpdateRunnable(long delayNanos) {
     Future<?> oldFuture = myUpdateRunnableFuture;
     if (oldFuture.isDone()) {
-      ConcurrencyUtil.manifestExceptionsIn(oldFuture);
+      // schedule `manifest` into a separate call to avoid breaking the current stack with an exception from the previous execution
+      ApplicationManager.getApplication().invokeLater(() -> ConcurrencyUtil.manifestExceptionsIn(oldFuture));
     }
     myUpdateRunnableFuture = EdtExecutorService.getScheduledExecutorInstance().schedule(myUpdateRunnable, delayNanos, TimeUnit.NANOSECONDS);
   }
@@ -998,7 +1004,16 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
                                                         boolean includeFixRange,
                                                         boolean highestPriorityOnly,
                                                         @NotNull HighlightSeverity minSeverity) {
-    HighlightByOffsetProcessor processor = new HighlightByOffsetProcessor(highestPriorityOnly);
+    return findHighlightsByOffset(document, offset, includeFixRange, highestPriorityOnly, minSeverity, true);
+  }
+  @ApiStatus.Internal
+  public @Nullable HighlightInfo findHighlightsByOffset(@NotNull Document document,
+                                                        int offset,
+                                                        boolean includeFixRange,
+                                                        boolean highestPriorityOnly,
+                                                        @NotNull HighlightSeverity minSeverity,
+                                                        boolean includeFileLevel) {
+    HighlightByOffsetProcessor processor = new HighlightByOffsetProcessor(highestPriorityOnly, includeFileLevel);
     processHighlightsNearOffset(document, myProject, minSeverity, offset, includeFixRange, processor);
     return processor.getResult();
   }
@@ -1007,7 +1022,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
   @ApiStatus.Experimental
   public static void waitForUnresolvedReferencesQuickFixesUnderCaret(@NotNull PsiFile file, @NotNull Editor editor) {
     ApplicationManager.getApplication().assertIsNonDispatchThread();
-    ApplicationManager.getApplication().assertReadAccessNotAllowed();
+    ThreadingAssertions.assertNoOwnReadAccess();
     List<HighlightInfo> relevantInfos = new ArrayList<>();
     Project project = file.getProject();
     ReadAction.run(() -> {
@@ -1035,14 +1050,19 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
   static final class HighlightByOffsetProcessor implements Processor<HighlightInfo> {
     private final List<HighlightInfo> foundInfoList = new SmartList<>();
     private final boolean highestPriorityOnly;
+    private final boolean myIncludeFileLevel;
 
-    HighlightByOffsetProcessor(boolean highestPriorityOnly) {
+    HighlightByOffsetProcessor(boolean highestPriorityOnly, boolean includeFileLevel) {
       this.highestPriorityOnly = highestPriorityOnly;
+      myIncludeFileLevel = includeFileLevel;
     }
 
     @Override
     public boolean process(@NotNull HighlightInfo info) {
-      if (info.getSeverity() == HighlightInfoType.ELEMENT_UNDER_CARET_SEVERITY || info.type == HighlightInfoType.TODO) {
+      if (info.getSeverity() == HighlightInfoType.ELEMENT_UNDER_CARET_SEVERITY
+          || info.type == HighlightInfoType.TODO
+          || !myIncludeFileLevel && info.isFileLevelAnnotation()
+      ) {
         return true;
       }
 
@@ -1155,20 +1175,24 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
           !project.isDefault() &&
           project.isInitialized() &&
           !LightEdit.owns(project)) {
-        ((DaemonCodeAnalyzerImpl)getInstance(project)).runUpdate();
+        String result = ((DaemonCodeAnalyzerImpl)getInstance(project)).runUpdate();
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("runUpdate: "+result);
+        }
       }
     }
   }
 
-  private void runUpdate() {
+  // return update outcome for debug
+  private @NotNull @NonNls String runUpdate() {
     ThreadingAssertions.assertEventDispatchThread();
     if (myDisposed) {
-      return;
+      return "wasn't run because i'm disposed";
     }
     if (PowerSaveMode.isEnabled()) {
       // to show the correct "power save" traffic light icon
       myListeners.repaintTrafficLightIconForAllEditors();
-      return;
+      return "wasn't run because power save mode was on";
     }
 
     synchronized (this) {
@@ -1176,32 +1200,23 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
       if (actualDelay > 0) {
          // started too soon (there must've been some typings after we'd scheduled this; need to re-schedule)
         scheduleUpdateRunnable(actualDelay);
-        return;
+        return "wasn't run because called too soon: rescheduled in "+TimeUnit.NANOSECONDS.toMillis(actualDelay)+"ms";
       }
     }
 
     Collection<? extends FileEditor> activeEditors = getSelectedEditors();
     boolean updateByTimerEnabled = isUpdateByTimerEnabled();
-    PsiDocumentManager documentManager = getPsiDocumentManager();
-    if (PassExecutorService.LOG.isDebugEnabled()) {
-      PassExecutorService.log(null, null, "Update Runnable. myUpdateByTimerEnabled:",
-        updateByTimerEnabled, "activeEditors:", activeEditors,
-        (documentManager.hasEventSystemEnabledUncommittedDocuments() ? "hasEventSystemEnabledUncommittedDocuments(" + Arrays.toString(documentManager.getUncommittedDocuments()) + ")" : ""),
-        (ApplicationManager.getApplication().isWriteAccessAllowed() ? "inside write action" : ""));
-    }
     if (!updateByTimerEnabled || activeEditors.isEmpty()) {
-      return;
+      return "wasn't run because updateByTimerEnabled="+updateByTimerEnabled+"; activeEditors: ("+activeEditors.size()+"): "+activeEditors;
     }
 
     if (ApplicationManager.getApplication().isWriteAccessAllowed()) {
       // makes no sense to start from within write action - will cancel anyway
       // we'll restart when the write action finish
-      return;
+      return "wasn't run because inside write action";
     }
+    PsiDocumentManager documentManager = getPsiDocumentManager();
     if (documentManager.hasEventSystemEnabledUncommittedDocuments()) {
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("Reschedule after commit. Uncommitted documents: " + Arrays.toString(documentManager.getUncommittedDocuments()));
-      }
       // restart when everything committed
       documentManager.performLaterWhenAllCommitted(() -> {
         synchronized (DaemonCodeAnalyzerImpl.this) {
@@ -1209,13 +1224,14 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
           scheduleIfNotRunning();
         }
       });
-      return;
+      return "wasn't run because uncommitted docs found: "+Arrays.toString(documentManager.getUncommittedDocuments())+"; delayed until commit";
     }
 
     boolean submitted = false;
     ProcessCanceledException pce = null;
     // have to store created indicators because myUpdateProgress removes canceled indicator immediately
     List<ProgressIndicator> createdIndicators = new ArrayList<>();
+    List<String> result = new SmartList<>();
     try {
       for (FileEditor fileEditor : activeEditors) {
         if (fileEditor instanceof TextEditor textEditor && !textEditor.isEditorLoaded()) {
@@ -1224,6 +1240,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
           if (PassExecutorService.LOG.isDebugEnabled()) {
             PassExecutorService.log(null, null, "runUpdate for ", fileEditor, " rescheduled because the editor was not loaded yet");
           }
+          result.add("didn't submit " + fileEditor + " because it's not loaded");
           // AsyncEditorLoader will restart
         }
         else {
@@ -1233,13 +1250,13 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
           if (session != null) {
             createdIndicators.add(session.getProgressIndicator());
           }
-          ProgressIndicator indicator = session == null ? null : session.getProgressIndicator();
-          PassExecutorService.log(indicator, null, "submit:", virtualFile, "; submitted=", submitted);
+          result.add(fileEditor+" submitted="+submitted);
         }
       }
     }
     catch (ProcessCanceledException e) {
       pce = e;
+      return "wasn't run because PCE was thrown:"+ExceptionUtil.getThrowableText(e);
     }
     finally {
       boolean wasCanceledDuringSubmit = ContainerUtil.exists(createdIndicators, p -> p.isCanceled());
@@ -1249,10 +1266,11 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
         // or when PCE happened in queuePassesCreation
         String reason = "Couldn't create session for " + activeEditors
                         + (pce == null ? "" : "; PCE was thrown: " + pce)
-                        + (wasCanceledDuringSubmit ? "; was canceled during queuePassesCreation(): "+getUpdateProgress() : "");
+                        + (wasCanceledDuringSubmit ? "; was canceled during queuePassesCreation(): "+createdIndicators : "");
         ApplicationManager.getApplication().invokeLater(() -> stopProcess(true, reason), __->myDisposed);
       }
     }
+    return StringUtil.join(result, "; ");
   }
 
   private static VirtualFile getVirtualFile(@NotNull FileEditor fileEditor) {
@@ -1458,8 +1476,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
   }
 
   @TestOnly
-  @Unmodifiable
-  synchronized @NotNull Map<FileEditor, DaemonProgressIndicator> getUpdateProgress() {
+  synchronized @Unmodifiable @NotNull Map<FileEditor, DaemonProgressIndicator> getUpdateProgress() {
     return Map.copyOf(myUpdateProgress);
   }
 

@@ -128,6 +128,7 @@ a:com.intellij.execution.testframework.TestConsoleProperties
 - sf:SHOW_INLINE_STATISTICS:com.intellij.util.config.BooleanProperty
 - sf:SHOW_STATISTICS:com.intellij.util.config.BooleanProperty
 - sf:SORT_ALPHABETICALLY:com.intellij.util.config.BooleanProperty
+- sf:SORT_BY_DECLARATION_ORDER:com.intellij.util.config.BooleanProperty
 - sf:SORT_BY_DURATION:com.intellij.util.config.BooleanProperty
 - sf:SUITES_ALWAYS_ON_TOP:com.intellij.util.config.BooleanProperty
 - sf:TRACK_CODE_COVERAGE:com.intellij.util.config.BooleanProperty
@@ -341,6 +342,7 @@ a:com.intellij.execution.testframework.autotest.AbstractAutoTestManager
 - p:myDelayMillis:I
 - <init>(com.intellij.openapi.project.Project):V
 - pa:createWatcher(com.intellij.openapi.project.Project):com.intellij.execution.testframework.autotest.AutoTestWatcher
+- disableAllAutoTests():V
 - getState():com.intellij.execution.testframework.autotest.AbstractAutoTestManager$State
 - loadState(com.intellij.execution.testframework.autotest.AbstractAutoTestManager$State):V
 - p:restartAllAutoTests(I):V

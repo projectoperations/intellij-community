@@ -22,6 +22,7 @@ import com.intellij.openapi.fileChooser.impl.FileChooserUtil
 import com.intellij.openapi.progress.blockingContext
 import com.intellij.openapi.progress.runBlockingMaybeCancellable
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.ProjectCoreUtil
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.project.ex.ProjectManagerEx
 import com.intellij.openapi.startup.StartupManager
@@ -176,7 +177,7 @@ object ProjectUtil {
         return chooseProcessorAndOpenAsync(mutableListOf(provider), virtualFile, options)
       }
     }
-    if (ProjectUtilCore.isValidProjectPath(file)) {
+    if (isValidProjectPath(file)) {
       // see OpenProjectTest.`open valid existing project dir with inability to attach using OpenFileAction` test about why `runConfigurators = true` is specified here
       return (serviceAsync<ProjectManager>() as ProjectManagerEx).openProjectAsync(file, options.copy(runConfigurators = true))
     }
@@ -281,9 +282,11 @@ object ProjectUtil {
                        })
   }
 
-  private suspend fun chooseProcessorAndOpenAsync(processors: MutableList<ProjectOpenProcessor>,
-                                                  virtualFile: VirtualFile,
-                                                  options: OpenProjectTask): Project? {
+  private suspend fun chooseProcessorAndOpenAsync(
+    processors: MutableList<ProjectOpenProcessor>,
+    virtualFile: VirtualFile,
+    options: OpenProjectTask,
+  ): Project? {
     val processor = when (processors.size) {
       1 -> {
         processors.first()
@@ -343,9 +346,10 @@ object ProjectUtil {
       }
     }
     if (fileAttributes.isDirectory) {
-      val dir = file.resolve(Project.DIRECTORY_STORE_FOLDER)
-      if (!Files.isDirectory(dir)) {
-        Messages.showErrorDialog(IdeBundle.message("error.project.file.does.not.exist", dir.toString()), CommonBundle.getErrorTitle())
+      val isKnownProject = ProjectCoreUtil.isKnownProjectDirectory(file)
+      if (!isKnownProject) {
+        val dirPath = ProjectCoreUtil.getProjectStoreDirectory(file)
+        Messages.showErrorDialog(IdeBundle.message("error.project.file.does.not.exist", dirPath.toString()), CommonBundle.getErrorTitle())
         return null
       }
     }
@@ -359,9 +363,11 @@ object ProjectUtil {
     return null
   }
 
-  fun confirmLoadingFromRemotePath(path: String,
-                                   msgKey: @PropertyKey(resourceBundle = IdeBundle.BUNDLE) String,
-                                   titleKey: @PropertyKey(resourceBundle = IdeBundle.BUNDLE) String): Boolean {
+  fun confirmLoadingFromRemotePath(
+    path: String,
+    msgKey: @PropertyKey(resourceBundle = IdeBundle.BUNDLE) String,
+    titleKey: @PropertyKey(resourceBundle = IdeBundle.BUNDLE) String,
+  ): Boolean {
     return showYesNoDialog(IdeBundle.message(msgKey, path), titleKey)
   }
 
@@ -449,12 +455,11 @@ object ProjectUtil {
       }
     }
 
-    var parent: Path? = projectFile.parent ?: return false
-    val parentFileName = parent!!.fileName
-    if (parentFileName != null && parentFileName.toString() == Project.DIRECTORY_STORE_FOLDER) {
-      parent = parent.parent
-      return parent != null && FileUtil.pathsEqual(parent.toString(), existingBaseDirPath.toString())
+    val storeDir = projectStore.directoryStorePath ?: return false
+    if (projectFile.startsWith(storeDir)) {
+      return true
     }
+    var parent: Path? = projectFile.parent ?: return false
     return projectFile.fileName.toString().endsWith(ProjectFileType.DOT_DEFAULT_EXTENSION) &&
            FileUtil.pathsEqual(parent.toString(), existingBaseDirPath.toString())
   }
@@ -598,11 +603,7 @@ object ProjectUtil {
 
   fun getProjectFile(name: String): Path? {
     val projectDir = getProjectPath(name)
-    return if (isProjectFile(projectDir)) projectDir else null
-  }
-
-  private fun isProjectFile(projectDir: Path): Boolean {
-    return Files.isDirectory(projectDir.resolve(Project.DIRECTORY_STORE_FOLDER))
+    return if (ProjectCoreUtil.isKnownProjectDirectory(projectDir)) projectDir else null
   }
 
   @JvmStatic
@@ -614,7 +615,7 @@ object ProjectUtil {
   }
 
   private suspend fun openOrCreateProjectInner(name: String, file: Path): Project? {
-    val existingFile = if (isProjectFile(file)) file else null
+    val existingFile = if (ProjectCoreUtil.isKnownProjectDirectory(file)) file else null
     val projectManager = serviceAsync<ProjectManager>() as ProjectManagerEx
     if (existingFile != null) {
       for (p in projectManager.openProjects) {
@@ -660,7 +661,6 @@ object ProjectUtil {
     return projectManager.openProjectAsync(projectStoreBaseDir = projectFile, options = OpenProjectTask {
       runConfigurators = true
       isProjectCreatedWithWizard = true
-      isRefreshVfsNeeded = false
     })
   }
 
@@ -693,7 +693,7 @@ object ProjectUtil {
     val canAttach = ProjectAttachProcessor.canAttachToProject()
     val preferAttach = currentProject != null &&
                        canAttach &&
-                       (PlatformUtils.isDataGrip() && !ProjectUtilCore.isValidProjectPath(file))
+                       (PlatformUtils.isDataGrip() && !isValidProjectPath(file))
     if (preferAttach && attachToProjectAsync(projectToClose = currentProject, projectDir = file, callback = null)) {
       return null
     }
@@ -711,9 +711,19 @@ object ProjectUtil {
     return project
   }
 
+  @Deprecated("Please use the suspending version to avoid FS access on an unintended thread", ReplaceWith("isValidProjectPath(file)"))
   @JvmStatic
-  fun isValidProjectPath(file: Path): Boolean {
+  @JvmName("isValidProjectPath")
+  fun isValidProjectPathBlocking(file: Path): Boolean {
     return ProjectUtilCore.isValidProjectPath(file)
+  }
+
+  @JvmName("isValidProjectPathAsync")
+  @JvmStatic
+  suspend fun isValidProjectPath(file: Path): Boolean {
+    return withContext(Dispatchers.IO) {
+      ProjectUtilCore.isValidProjectPath(file)
+    }
   }
 }
 

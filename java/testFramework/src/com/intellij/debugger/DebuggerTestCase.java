@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.debugger;
 
 import com.intellij.JavaTestUtil;
@@ -16,6 +16,7 @@ import com.intellij.debugger.impl.*;
 import com.intellij.debugger.jdi.StackFrameProxyImpl;
 import com.intellij.debugger.settings.DebuggerSettings;
 import com.intellij.debugger.settings.NodeRendererSettings;
+import com.intellij.debugger.settings.ViewsGeneralSettings;
 import com.intellij.debugger.ui.breakpoints.BreakpointManager;
 import com.intellij.debugger.ui.impl.watch.WatchItemDescriptor;
 import com.intellij.debugger.ui.tree.render.NodeRenderer;
@@ -34,12 +35,14 @@ import com.intellij.execution.target.TargetedCommandLineBuilder;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.application.ex.ApplicationManagerEx;
 import com.intellij.openapi.compiler.CompilerManager;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.options.SettingsEditor;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.JavaPsiFacade;
@@ -198,9 +201,8 @@ public abstract class DebuggerTestCase extends ExecutionWithDebuggerToolsTestCas
         return javaParameters;
       }
 
-      @NotNull
       @Override
-      protected TargetedCommandLineBuilder createTargetedCommandLine(@NotNull TargetEnvironmentRequest request)
+      protected @NotNull TargetedCommandLineBuilder createTargetedCommandLine(@NotNull TargetEnvironmentRequest request)
         throws ExecutionException {
         return getJavaParameters().toCommandLine(request);
       }
@@ -217,8 +219,7 @@ public abstract class DebuggerTestCase extends ExecutionWithDebuggerToolsTestCas
       try {
         XDebuggerManager.getInstance(myProject).startSession(myExecutionEnvironment, new XDebugProcessStarter() {
           @Override
-          @NotNull
-          public XDebugProcess start(@NotNull XDebugSession session) {
+          public @NotNull XDebugProcess start(@NotNull XDebugSession session) {
             return JavaDebugProcess.create(session, myDebuggerSession);
           }
         });
@@ -266,9 +267,8 @@ public abstract class DebuggerTestCase extends ExecutionWithDebuggerToolsTestCas
         return javaParameters;
       }
 
-      @NotNull
       @Override
-      protected TargetedCommandLineBuilder createTargetedCommandLine(@NotNull TargetEnvironmentRequest request)
+      protected @NotNull TargetedCommandLineBuilder createTargetedCommandLine(@NotNull TargetEnvironmentRequest request)
         throws ExecutionException {
         return getJavaParameters().toCommandLine(request);
       }
@@ -547,8 +547,7 @@ public abstract class DebuggerTestCase extends ExecutionWithDebuggerToolsTestCas
       try {
         XDebuggerManager.getInstance(myProject).startSession(environment, new XDebugProcessStarter() {
           @Override
-          @NotNull
-          public XDebugProcess start(@NotNull XDebugSession session) {
+          public @NotNull XDebugProcess start(@NotNull XDebugSession session) {
             return JavaDebugProcess.create(session, debuggerSession);
           }
         });
@@ -585,9 +584,8 @@ public abstract class DebuggerTestCase extends ExecutionWithDebuggerToolsTestCas
     @Override
     public void setName(@NotNull String name) { }
 
-    @NotNull
     @Override
-    public SettingsEditor<? extends RunConfiguration> getConfigurationEditor() {
+    public @NotNull SettingsEditor<? extends RunConfiguration> getConfigurationEditor() {
       throw new UnsupportedOperationException();
     }
 
@@ -606,9 +604,8 @@ public abstract class DebuggerTestCase extends ExecutionWithDebuggerToolsTestCas
       return null;
     }
 
-    @NotNull
     @Override
-    public String getName() {
+    public @NotNull String getName() {
       return "";
     }
   }
@@ -648,6 +645,21 @@ public abstract class DebuggerTestCase extends ExecutionWithDebuggerToolsTestCas
           }
         });
       }
+    });
+  }
+
+  protected void setUpPacketsMeasureTest() {
+    ApplicationManagerEx.setInStressTest(true);
+    setRegistryPropertyForTest("debugger.track.instrumentation", "false");
+    setRegistryPropertyForTest("debugger.evaluate.single.threaded.timeout", "-1");
+
+    boolean dfa = ViewsGeneralSettings.getInstance().USE_DFA_ASSIST;
+    boolean dfaGray = ViewsGeneralSettings.getInstance().USE_DFA_ASSIST_GRAY_OUT;
+    ViewsGeneralSettings.getInstance().USE_DFA_ASSIST = false;
+    ViewsGeneralSettings.getInstance().USE_DFA_ASSIST_GRAY_OUT = false;
+    Disposer.register(getTestRootDisposable(), () -> {
+      ViewsGeneralSettings.getInstance().USE_DFA_ASSIST = dfa;
+      ViewsGeneralSettings.getInstance().USE_DFA_ASSIST_GRAY_OUT = dfaGray;
     });
   }
 }

@@ -7,7 +7,6 @@ import com.intellij.diagnostic.runActivity
 import com.intellij.ide.impl.OpenProjectTask
 import com.intellij.ide.impl.ProjectUtil
 import com.intellij.ide.impl.ProjectUtil.isSameProject
-import com.intellij.ide.impl.ProjectUtilCore
 import com.intellij.ide.impl.ProjectUtilService
 import com.intellij.ide.lightEdit.LightEdit
 import com.intellij.ide.vcs.RecentProjectsBranchesProvider
@@ -23,6 +22,7 @@ import com.intellij.openapi.options.advanced.AdvancedSettings
 import com.intellij.openapi.progress.runBlockingMaybeCancellable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectCloseListener
+import com.intellij.openapi.project.ProjectCoreUtil
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.project.ex.ProjectManagerEx
 import com.intellij.openapi.project.impl.OpenProjectImplOptions
@@ -141,6 +141,10 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
     synchronized(stateLock) {
       this.state = state
       state.pid = null
+
+      for ((path, value) in state.additionalInfo) {
+        checkForNonsenseBounds("com.intellij.ide.RecentProjectsManagerBase.loadState(path=$path)", value.frame?.bounds)
+      }
 
       // IDEA <= 2019.2 doesn't delete project info from additionalInfo on project delete
       @Suppress("DEPRECATION")
@@ -322,7 +326,7 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
     }
 
     FUSProjectHotStartUpMeasurer.reportProjectPath(projectFile)
-    if (isValidProjectPath(projectFile)) {
+    if (ProjectUtil.isValidProjectPath(projectFile)) {
       val projectManager = ProjectManagerEx.getInstanceEx()
       projectManager.openProjects.firstOrNull { isSameProject(projectFile = projectFile, project = it) }?.let { project ->
         FUSProjectHotStartUpMeasurer.reportAlreadyOpenedProject()
@@ -502,7 +506,7 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
       val toOpen = openPaths.mapNotNull { entry ->
         runCatching {
           val path = Path.of(entry.key)
-          if (isValidProjectPath(path)) Pair(path, entry.value) else null
+          if (ProjectUtil.isValidProjectPath(path)) Pair(path, entry.value) else null
         }.getOrLogException(LOG)
       }
 
@@ -546,12 +550,6 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
   }
 
   override fun suggestNewProjectLocation(): String = ProjectUtil.getBaseDir()
-
-  // open for Rider
-  @Suppress("MemberVisibilityCanBePrivate")
-  protected suspend fun isValidProjectPath(file: Path): Boolean {
-    return withContext(Dispatchers.IO) { ProjectUtilCore.isValidProjectPath(file) }
-  }
 
   // toOpen - no non-existent project paths and every info has a frame
   private suspend fun openMultiple(toOpen: List<Pair<Path, RecentProjectMetaInfo>>): Boolean {
@@ -866,7 +864,8 @@ private fun readProjectName(path: String): String {
     return path
   }
 
-  return JpsPathUtil.readProjectName(file.resolve(Project.DIRECTORY_STORE_FOLDER)) ?: PathUtilRt.getFileName(path)
+  val storePath = ProjectCoreUtil.getProjectStoreDirectory(file)
+  return JpsPathUtil.readProjectName(storePath) ?: PathUtilRt.getFileName(path)
 }
 
 private fun getLastProjectFrameInfoFile() = appSystemDir.resolve("lastProjectFrameInfo")

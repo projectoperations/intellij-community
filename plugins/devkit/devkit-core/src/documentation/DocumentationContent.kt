@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.idea.devkit.documentation
 
 internal data class DocumentationContent(
@@ -14,7 +14,7 @@ internal data class DocumentationContent(
     if (path.isEmpty()) return null
     val name = path.first()
     val remainingPath = path.drop(1)
-    val currentElement = currentElements.find { it.element?.name == name }?.element ?: return null
+    val currentElement = currentElements.find { it.element?.name == name || it.element?.isWildcard() == true }?.element ?: return null
     return if (remainingPath.isEmpty()) currentElement else findElementRecursively(currentElement.children, remainingPath)
   }
 
@@ -34,6 +34,7 @@ internal data class ElementWrapper(
 
 internal data class Element(
   var name: String? = null,
+  var descriptiveName: String? = null,
   var sdkDocsFixedPath: List<String> = emptyList(),
   var since: String? = null,
   var until: String? = null,
@@ -50,17 +51,36 @@ internal data class Element(
   var defaultValue: String? = null,
   var examples: List<String> = emptyList(),
   var path: List<String> = emptyList(),
-)
+) {
+
+  fun isWildcard(): Boolean {
+    return name == "*"
+  }
+
+  fun copy(): Element {
+    return this.copy(attributes = this.attributes.map { it.copy() })
+  }
+
+  override fun toString(): String {
+    return "Element(name=$name, path=$path)"
+  }
+}
 
 // allows for referencing attributes by anchors in YAML
 internal data class AttributeWrapper(
   var attribute: Attribute? = null,
-)
+) {
+  fun copy(): AttributeWrapper {
+    return this.copy(attribute = this.attribute?.copy())
+  }
+}
 
 internal data class Attribute(
   var name: String? = null,
   var since: String? = null,
   var until: String? = null,
+  var deprecatedSince: String? = null,
+  var deprecationNote: String? = null,
   var requirement: Requirement? = null,
   var description: String? = null,
   var defaultValue: String? = null,
@@ -69,6 +89,10 @@ internal data class Attribute(
   fun getPresentableName(): String {
     val elementName = path[path.lastIndex - 1]
     return "$elementName@$name"
+  }
+
+  override fun toString(): String {
+    return "Attribute(name=$name, path=$path)"
   }
 }
 

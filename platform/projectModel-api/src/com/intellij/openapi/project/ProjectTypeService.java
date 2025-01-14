@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.project;
 
 import com.intellij.openapi.application.ReadAction;
@@ -11,10 +11,7 @@ import com.intellij.psi.util.CachedValue;
 import com.intellij.psi.util.CachedValueProvider.Result;
 import com.intellij.psi.util.CachedValuesManager;
 import com.intellij.util.containers.ContainerUtil;
-import org.jetbrains.annotations.ApiStatus;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.TestOnly;
+import org.jetbrains.annotations.*;
 
 import java.util.Collection;
 import java.util.List;
@@ -49,7 +46,7 @@ public final class ProjectTypeService implements PersistentStateComponent<Projec
     return null;
   }
 
-  public static Set<String> getProjectTypeIds(@Nullable Project project) {
+  public static @Unmodifiable Set<String> getProjectTypeIds(@Nullable Project project) {
     return ContainerUtil.map2Set(getProjectTypes(project), ProjectType::getId);
   }
 

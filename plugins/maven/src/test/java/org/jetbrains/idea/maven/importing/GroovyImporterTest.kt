@@ -13,7 +13,7 @@ import org.jetbrains.plugins.groovy.compiler.GreclipseIdeaCompilerSettings
 import org.jetbrains.plugins.groovy.config.GroovyConfigUtils
 import org.junit.Test
 import java.io.File
-import java.util.*
+import java.nio.file.Paths
 
 class GroovyImporterTest : MavenMultiVersionImportingTestCase() {
   private var repoPath: String? = null
@@ -21,7 +21,7 @@ class GroovyImporterTest : MavenMultiVersionImportingTestCase() {
   
   override fun setUp() {
     super.setUp()
-    repoPath = File(dir, "repo").path
+    repoPath = Paths.get(dir.toString(), "repo").toString()
     repositoryPath = repoPath
   }
 
@@ -75,8 +75,8 @@ class GroovyImporterTest : MavenMultiVersionImportingTestCase() {
     assertTrue("unexpected groovy libs configuration: " + libraries.size, libraries.size > 0)
     val library = libraries[0]
     assertUnorderedPathsAreEqual(
-      Arrays.asList(*library.getUrls(OrderRootType.CLASSES)),
-      Arrays.asList("jar://" + repositoryPath + "/org/codehaus/groovy/groovy-all-minimal/1.5.6/groovy-all-minimal-1.5.6.jar!/"))
+      listOf(*library.getUrls(OrderRootType.CLASSES)),
+      listOf("jar://$repositoryPath/org/codehaus/groovy/groovy-all-minimal/1.5.6/groovy-all-minimal-1.5.6.jar!/"))
   }
 
   @Test
@@ -468,9 +468,6 @@ class GroovyImporterTest : MavenMultiVersionImportingTestCase() {
 
   @Test
   fun testDoNotAddGroovySpecificGeneratedSources() = runBlocking {
-    if (!true) {
-      createStdProjectFolders()
-    }
     createProjectSubDirs("target/generated-sources/xxx/yyy",
                          "target/generated-sources/groovy-stubs/main/foo",
                          "target/generated-sources/groovy-stubs/test/bar")

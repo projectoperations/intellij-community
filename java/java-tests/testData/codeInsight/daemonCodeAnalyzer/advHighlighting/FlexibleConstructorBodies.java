@@ -10,6 +10,11 @@ class A {
     <error descr="Cannot reference 'this' before superclass constructor is called">this</error>.i++;                   // Error
     <error descr="Cannot reference 'this' before superclass constructor is called">this</error>.hashCode();            // Error
     System.out.print(<error descr="Cannot reference 'this' before superclass constructor is called">this</error>);     // Error
+    Runnable r = () -> {
+      <error descr="Cannot reference 'A.i' before superclass constructor is called">i</error> = 1;
+      <error descr="Cannot reference 'this' before superclass constructor is called">this</error>.i = 1;
+      <error descr="Cannot reference 'A.this' before superclass constructor is called">A.this</error>.i = 1;
+    };
     super();
   }
   A(int i) {}
@@ -31,14 +36,14 @@ class B extends A {
 
   B(String s) {
     try {
-     <error descr="Call to 'super()' must be a top level statement in constructor body">super(2)</error>;
+     <error descr="Call to 'super()' must be top-level statement in constructor body">super(2)</error>;
     }
     finally {
     }
   }
   B(String s, int i) {
     {
-     <error descr="Call to 'super()' must be a top level statement in constructor body">super(2)</error>;
+     <error descr="Call to 'super()' must be top-level statement in constructor body">super(2)</error>;
     }
   }
   B(boolean b, int i) {
@@ -180,4 +185,13 @@ enum EE {
     this(1);
   }
   EE(int i) {}
+}
+class InitializeField {
+  private int i = 0;
+  InitializeField() {
+    <error descr="Cannot assign initialized field 'InitializeField.i' before superclass constructor is called">i</error> = 1;
+    <error descr="Cannot assign initialized field 'InitializeField.i' before superclass constructor is called">this.i</error> =  1;
+    <error descr="Cannot assign initialized field 'InitializeField.i' before superclass constructor is called">InitializeField.this.i</error> = 1;
+    super();
+  }
 }

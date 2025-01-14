@@ -312,8 +312,8 @@ private suspend fun collectModulesToCompileForDistribution(context: BuildContext
   result.addAll(productLayout.productApiModules)
   result.addAll(productLayout.productImplementationModules)
   result.addAll(getToolModules())
-  if (context.isEmbeddedJetBrainsClientEnabled) {
-    result.add(context.productProperties.embeddedJetBrainsClientMainModule!!)
+  if (context.isEmbeddedFrontendEnabled) {
+    result.add(context.productProperties.embeddedFrontendRootModule!!)
   }
   result.add("intellij.idea.community.build.tasks")
   result.add("intellij.platform.images.build")
@@ -423,7 +423,8 @@ private suspend fun createBuildContext(
 ): BuildContext {
   return coroutineScope {
     val buildOptionsTemplate = request.buildOptionsTemplate
-    val useCompiledClassesFromProjectOutput = buildOptionsTemplate == null || buildOptionsTemplate.useCompiledClassesFromProjectOutput
+    val useCompiledClassesFromProjectOutput =
+      buildOptionsTemplate == null || (buildOptionsTemplate.useCompiledClassesFromProjectOutput && buildOptionsTemplate.unpackCompiledClassesArchives)
     val classOutDir = if (useCompiledClassesFromProjectOutput) {
       request.productionClassOutput.parent
     }
@@ -465,8 +466,8 @@ private suspend fun createBuildContext(
           BuildOptions.FUS_METADATA_BUNDLE_STEP,
         )
 
-        if (request.isUnpackedDist && options.enableEmbeddedJetBrainsClient) {
-          options.enableEmbeddedJetBrainsClient = false
+        if (request.isUnpackedDist && options.enableEmbeddedFrontend) {
+          options.enableEmbeddedFrontend = false
         }
 
         options.generateRuntimeModuleRepository = options.generateRuntimeModuleRepository && request.generateRuntimeModuleRepository
@@ -509,7 +510,7 @@ private suspend fun createBuildContext(
     }
 
     BuildContextImpl(
-      compilationContext = compilationContext,
+      compilationContext = compilationContext.asArchivedIfNeeded,
       productProperties = productProperties.await(),
       windowsDistributionCustomizer = WindowsDistributionCustomizer(),
       linuxDistributionCustomizer = LinuxDistributionCustomizer(),
@@ -564,20 +565,21 @@ internal suspend fun createProductProperties(productConfiguration: ProductConfig
   }
 
   return spanBuilder("create product properties").use {
+    val className = if (System.getProperty("intellij.build.minimal").toBoolean()) {
+      "org.jetbrains.intellij.build.IjVoidProperties"
+    }
+    else {
+      productConfiguration.className
+    }
     val productPropertiesClass = try {
-      val className = if (System.getProperty("intellij.build.minimal").toBoolean()) {
-        "org.jetbrains.intellij.build.IjVoidProperties"
-      }
-      else {
-        productConfiguration.className
-      }
       classLoader.loadClass(className)
     }
-    catch (_: ClassNotFoundException) {
+    catch (e: ClassNotFoundException) {
       val classPathString = classPathFiles.joinToString(separator = "\n") { file ->
         "$file (" + (if (Files.isDirectory(file)) "dir" else if (Files.exists(file)) "exists" else "doesn't exist") + ")"
       }
-      throw RuntimeException("cannot create product properties (classPath=$classPathString")
+      val projectPropertiesPath = getProductPropertiesPath(request.projectDir)
+      throw RuntimeException("cannot create product properties, className=$className, projectPropertiesPath=$projectPropertiesPath, classPath=$classPathString, ", e)
     }
 
     val lookup = MethodHandles.lookup()

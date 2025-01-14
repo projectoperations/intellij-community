@@ -298,7 +298,7 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
       throw new IncorrectOperationException("Must not start inspections from within write action");
     }
     // in offline inspection application we don't care about global read action
-    if (!isOfflineInspections && ApplicationManager.getApplication().isReadAccessAllowed()) {
+    if (!isOfflineInspections && ApplicationManager.getApplication().holdsReadLock()) {
       throw new IncorrectOperationException("Must not start inspections from within global read action");
     }
     InspectionManager inspectionManager = InspectionManager.getInstance(getProject());
@@ -354,8 +354,8 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
           // PCE may be thrown from inside wrapper when write action started.
           // Go on with the write action and then resume processing the rest of the queue.
           if (!isOfflineInspections) {
-            ApplicationManager.getApplication().assertReadAccessNotAllowed();
             ApplicationManager.getApplication().assertIsNonDispatchThread();
+            ThreadingAssertions.assertNoOwnReadAccess();
           }
 
           // wait for write action to complete
@@ -687,7 +687,7 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
                               @NotNull List<? extends Tools> globalTools,
                               boolean isOfflineInspections) {
     long timestamp = System.currentTimeMillis();
-    LOG.assertTrue(!ApplicationManager.getApplication().isReadAccessAllowed() || isOfflineInspections,
+    LOG.assertTrue(!ApplicationManager.getApplication().holdsReadLock() || isOfflineInspections,
                    "Must not run under read action, too unresponsive");
 
     if (isOfflineInspections && System.getProperty("idea.offline.no.global.inspections") != null) {
@@ -892,7 +892,7 @@ public class GlobalInspectionContextImpl extends GlobalInspectionContextEx {
     return enabledInspectionsProvider.getEnabledTools(file, includeDoNotShow);
   }
 
-  public @NotNull <T extends @NotNull InspectionToolWrapper<?, ?>> List<T> getWrappersFromTools(
+  public @Unmodifiable @NotNull <T extends @NotNull InspectionToolWrapper<?, ?>> List<T> getWrappersFromTools(
     @NotNull List<? extends Tools> localTools,
     @NotNull PsiFile file,
     boolean includeDoNotShow

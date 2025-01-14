@@ -1,25 +1,23 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.idea.devkit.documentation
 
+import com.intellij.codeInsight.documentation.DocumentationManager
 import com.intellij.codeInsight.documentation.DocumentationManagerProtocol.PSI_ELEMENT_PROTOCOL
 import com.intellij.icons.AllIcons
+import com.intellij.lang.documentation.psi.psiDocumentationTargets
 import com.intellij.model.Pointer
 import com.intellij.openapi.project.Project
-import com.intellij.platform.backend.documentation.DocumentationLinkHandler
-import com.intellij.platform.backend.documentation.DocumentationResult
-import com.intellij.platform.backend.documentation.DocumentationTarget
-import com.intellij.platform.backend.documentation.LinkResolveResult
-import com.intellij.platform.backend.documentation.PsiDocumentationTargetProvider
+import com.intellij.platform.backend.documentation.*
 import com.intellij.platform.backend.presentation.TargetPresentation
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiNamedElement
 import com.intellij.psi.xml.XmlAttribute
 import com.intellij.psi.xml.XmlTag
 
-const val ELEMENT_PATH_PREFIX = "#element:"
-const val ATTRIBUTE_PATH_PREFIX = "#attribute:"
-const val ELEMENT_DOC_LINK_PREFIX = "$PSI_ELEMENT_PROTOCOL$ELEMENT_PATH_PREFIX"
-const val ATTRIBUTE_DOC_LINK_PREFIX = "$PSI_ELEMENT_PROTOCOL$ATTRIBUTE_PATH_PREFIX"
+internal const val ELEMENT_PATH_PREFIX = "#element:"
+internal const val ATTRIBUTE_PATH_PREFIX = "#attribute:"
+internal const val ELEMENT_DOC_LINK_PREFIX = "$PSI_ELEMENT_PROTOCOL$ELEMENT_PATH_PREFIX"
+internal const val ATTRIBUTE_DOC_LINK_PREFIX = "$PSI_ELEMENT_PROTOCOL$ATTRIBUTE_PATH_PREFIX"
 
 /**
  * Base class for XML descriptors (for example, plugin.xml) documentation providers.
@@ -45,7 +43,7 @@ internal abstract class AbstractXmlDescriptorDocumentationTargetProvider : PsiDo
     val content = DocumentationContentProvider.getInstance().getContent(docYamlCoordinates) ?: return null
     return when (xmlElement) {
       is XmlTag -> {
-        val docElement = content.findElement(elementPath) ?: return null
+        val docElement = content.findElement(elementPath)?.takeIf { !it.isWildcard() } ?: return null
         XmlDescriptorElementDocumentationTarget(element.project, content, docElement)
       }
       is XmlAttribute -> {
@@ -129,6 +127,12 @@ internal class XmlDescriptorDocumentationLinkHandler : DocumentationLinkHandler 
           return LinkResolveResult.resolvedTarget(
             XmlDescriptorAttributeDocumentationTarget(target.project, target.content, attribute)
           )
+        }
+        else -> {
+          // required for Java links to work; inspired by PsiDocumentationLinkHandler
+          val project = target.project
+          val resolved = DocumentationManager.targetAndRef(project, url, null)?.first ?: return null // we can't get rid of this API usage
+          return LinkResolveResult.resolvedTarget(psiDocumentationTargets(resolved, null).first())
         }
       }
     }

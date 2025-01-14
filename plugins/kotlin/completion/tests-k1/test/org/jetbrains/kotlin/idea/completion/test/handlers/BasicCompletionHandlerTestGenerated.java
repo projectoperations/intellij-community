@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.kotlin.idea.completion.test.handlers;
 
@@ -459,6 +459,31 @@ public abstract class BasicCompletionHandlerTestGenerated extends AbstractBasicC
             runTest("../testData/handlers/basic/highOrderFunctions/HigherOrderFunction.kt");
         }
 
+        @TestMetadata("HigherOrderFunctionParameterName.kt")
+        public void testHigherOrderFunctionParameterName() throws Exception {
+            runTest("../testData/handlers/basic/highOrderFunctions/HigherOrderFunctionParameterName.kt");
+        }
+
+        @TestMetadata("HigherOrderFunctionParameterName2.kt")
+        public void testHigherOrderFunctionParameterName2() throws Exception {
+            runTest("../testData/handlers/basic/highOrderFunctions/HigherOrderFunctionParameterName2.kt");
+        }
+
+        @TestMetadata("HigherOrderFunctionParameterName3.kt")
+        public void testHigherOrderFunctionParameterName3() throws Exception {
+            runTest("../testData/handlers/basic/highOrderFunctions/HigherOrderFunctionParameterName3.kt");
+        }
+
+        @TestMetadata("HigherOrderFunctionParameterName4.kt")
+        public void testHigherOrderFunctionParameterName4() throws Exception {
+            runTest("../testData/handlers/basic/highOrderFunctions/HigherOrderFunctionParameterName4.kt");
+        }
+
+        @TestMetadata("HigherOrderFunctionParameterName5.kt")
+        public void testHigherOrderFunctionParameterName5() throws Exception {
+            runTest("../testData/handlers/basic/highOrderFunctions/HigherOrderFunctionParameterName5.kt");
+        }
+
         @TestMetadata("HigherOrderFunctionWithArg.kt")
         public void testHigherOrderFunctionWithArg() throws Exception {
             runTest("../testData/handlers/basic/highOrderFunctions/HigherOrderFunctionWithArg.kt");
@@ -477,6 +502,11 @@ public abstract class BasicCompletionHandlerTestGenerated extends AbstractBasicC
         @TestMetadata("HigherOrderFunctionWithArgs3.kt")
         public void testHigherOrderFunctionWithArgs3() throws Exception {
             runTest("../testData/handlers/basic/highOrderFunctions/HigherOrderFunctionWithArgs3.kt");
+        }
+
+        @TestMetadata("HigherOrderFunctionWithDefaultArgs.kt")
+        public void testHigherOrderFunctionWithDefaultArgs() throws Exception {
+            runTest("../testData/handlers/basic/highOrderFunctions/HigherOrderFunctionWithDefaultArgs.kt");
         }
 
         @TestMetadata("HigherOrderSuspendFunctionWithArgs.kt")

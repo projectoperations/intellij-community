@@ -1,12 +1,14 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build
 
+import com.intellij.platform.buildData.productInfo.ProductInfoLayoutItem
 import io.opentelemetry.api.trace.Span
 import io.opentelemetry.api.trace.SpanBuilder
 import kotlinx.collections.immutable.PersistentMap
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.serialization.Serializable
+import org.jetbrains.intellij.build.impl.plugins.PluginAutoPublishList
 import org.jetbrains.intellij.build.io.DEFAULT_TIMEOUT
 import org.jetbrains.intellij.build.productRunner.IntellijProductRunner
 import org.jetbrains.intellij.build.telemetry.use
@@ -143,9 +145,9 @@ interface BuildContext : CompilationContext {
     proprietaryBuildTools.signTool.signFiles(files = files, context = this, options = options)
   }
 
-  suspend fun getJetBrainsClientModuleFilter(): JetBrainsClientModuleFilter
+  suspend fun getFrontendModuleFilter(): FrontendModuleFilter
 
-  val isEmbeddedJetBrainsClientEnabled: Boolean
+  val isEmbeddedFrontendEnabled: Boolean
 
   fun shouldBuildDistributions(): Boolean
 
@@ -172,6 +174,10 @@ interface BuildContext : CompilationContext {
     additionalEnvVariables: Map<String, String> = emptyMap(),
     attachStdOutToException: Boolean = false,
   )
+
+  val pluginAutoPublishList: PluginAutoPublishList
+
+  val isNightlyBuild: Boolean
 }
 
 suspend inline fun <T> BuildContext.executeStep(
@@ -212,19 +218,6 @@ class BuiltinModulesFileData(
   @JvmField var layout: List<ProductInfoLayoutItem> = emptyList(),
   @JvmField val fileExtensions: MutableList<String> = mutableListOf(),
 )
-
-@Serializable
-data class ProductInfoLayoutItem(
-  @JvmField val name: String,
-  @JvmField val kind: ProductInfoLayoutItemKind,
-  @JvmField val classPath: List<String> = emptyList(),
-)
-
-@Suppress("EnumEntryName")
-@Serializable
-enum class ProductInfoLayoutItemKind {
-  plugin, pluginAlias, productModuleV2, moduleV2
-}
 
 sealed interface DistFileContent {
   fun readAsStringForDebug(): String

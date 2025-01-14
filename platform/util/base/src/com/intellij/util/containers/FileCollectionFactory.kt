@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.containers
 
 import com.intellij.openapi.util.io.FileUtilRt
@@ -61,6 +61,9 @@ object FileCollectionFactory {
   fun createCanonicalPathSet(files: Collection<Path>): MutableSet<Path> = ObjectOpenCustomHashSet(files, PathHashStrategy)
 
   @JvmStatic
+  fun createCanonicalPathSet(size: Int): MutableSet<Path> = ObjectOpenCustomHashSet(size, PathHashStrategy)
+
+  @JvmStatic
   fun createCanonicalFilePathSet(): MutableSet<String> = ObjectOpenCustomHashSet(FastUtilHashingStrategies.FILE_PATH_HASH_STRATEGY)
 
   @JvmStatic
@@ -74,7 +77,8 @@ object FileHashStrategy : Hash.Strategy<File>, Serializable {
   override fun equals(a: File?, b: File?): Boolean = FileUtilRt.pathsEqual(a?.path, b?.path)
 }
 
-private object PathHashStrategy : Hash.Strategy<Path>, Serializable {
+@Internal
+object PathHashStrategy : Hash.Strategy<Path>, Serializable {
   override fun hashCode(o: Path?): Int = FileUtilRt.pathHashCode(o?.toString())
 
   override fun equals(a: Path?, b: Path?): Boolean = FileUtilRt.pathsEqual(a?.toString(), b?.toString())

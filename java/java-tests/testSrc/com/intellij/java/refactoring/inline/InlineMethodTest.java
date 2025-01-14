@@ -580,6 +580,9 @@ public class InlineMethodTest extends LightRefactoringTestCase {
   public void testAndChainLambda() { doTest(); }
   public void testAndChainLambdaSingleLine() { doTest(); }
 
+  public void testInlineDoubleCall() { doTest(); }
+  public void testInlineNestedCall() { doTest(); }
+
   public void testTernaryBranch() { doTest(); }
   public void testTernaryBranchCollapsible() { doTest(); }
 
@@ -612,6 +615,16 @@ public class InlineMethodTest extends LightRefactoringTestCase {
   public void testInlineSingleImplementationGenericMethod() {
     TestDialogManager.setTestDialog(TestDialog.YES, getTestRootDisposable());
     BaseRefactoringProcessor.ConflictsInTestsException.withIgnoredConflicts(() -> doTest());
+  }
+  
+  public void testInlineSingleImplementationCastOnThis() {
+    TestDialogManager.setTestDialog(TestDialog.YES, getTestRootDisposable());
+    doTest();
+  }
+  
+  public void testInlineSingleImplementationCastOnThisUnnecessary() {
+    TestDialogManager.setTestDialog(TestDialog.YES, getTestRootDisposable());
+    doTest();
   }
 
   @Override

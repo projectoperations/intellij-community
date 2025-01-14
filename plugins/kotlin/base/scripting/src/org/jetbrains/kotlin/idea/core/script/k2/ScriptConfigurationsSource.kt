@@ -8,7 +8,6 @@ import com.intellij.openapi.application.writeAction
 import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.project.waitForSmartMode
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.workspace.storage.MutableEntityStorage
@@ -31,7 +30,7 @@ class ScriptConfigurations(
     val configurations: Map<VirtualFile, ResultWithDiagnostics<ScriptCompilationConfigurationWrapper>> = mapOf(),
     val sdks: Map<Path, Sdk> = mutableMapOf(),
 ) {
-    fun compose(other: ScriptConfigurations): ScriptConfigurations = ScriptConfigurations(
+    operator fun plus(other: ScriptConfigurations): ScriptConfigurations = ScriptConfigurations(
         configurations + other.configurations, sdks + other.sdks
     )
 }
@@ -41,21 +40,17 @@ abstract class ScriptConfigurationsSource<T : BaseScriptModel>(open val project:
 
     abstract fun getScriptDefinitionsSource(): ScriptDefinitionsSource?
 
-    open fun getScriptConfigurations(virtualFile: VirtualFile): ResultWithDiagnostics<ScriptCompilationConfigurationWrapper>? = data.get().configurations[virtualFile]
+    open fun getConfiguration(virtualFile: VirtualFile): ResultWithDiagnostics<ScriptCompilationConfigurationWrapper>? =
+        data.get().configurations[virtualFile]
 
-    protected abstract suspend fun resolveDependencies(scripts: Iterable<T>): ScriptConfigurations
+    protected abstract suspend fun updateConfigurations(scripts: Iterable<T>)
 
-    protected abstract suspend fun updateModules(configurationsData: ScriptConfigurations, storage: MutableEntityStorage? = null)
+    protected abstract suspend fun updateModules(storage: MutableEntityStorage? = null)
 
     suspend fun updateDependenciesAndCreateModules(scripts: Iterable<T>, storage: MutableEntityStorage? = null) {
-        project.waitForSmartMode()
-        val configurationData = resolveDependencies(scripts)
+        updateConfigurations(scripts)
 
-        if (configurationData.configurations.all { it.value is ResultWithDiagnostics.Success }) {
-            updateModules(configurationData, storage)
-        }
-
-        data.set(configurationData)
+        updateModules(storage)
 
         ScriptConfigurationsProviderImpl.getInstance(project).notifySourceUpdated()
 

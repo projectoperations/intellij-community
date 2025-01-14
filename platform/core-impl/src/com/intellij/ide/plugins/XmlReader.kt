@@ -30,7 +30,6 @@ import javax.xml.stream.XMLStreamConstants
 import javax.xml.stream.XMLStreamException
 import javax.xml.stream.XMLStreamReader
 import javax.xml.stream.events.XMLEvent
-import kotlin.Throws
 
 @ApiStatus.Internal const val PACKAGE_ATTRIBUTE: String = "package"
 @ApiStatus.Internal const val IMPLEMENTATION_DETAIL_ATTRIBUTE: String = "implementation-detail"
@@ -198,16 +197,10 @@ fun isKotlinPlugin(pluginId: PluginId): Boolean =
   pluginId.idString in KNOWN_KOTLIN_PLUGIN_IDS
 
 private val K2_ALLOWED_PLUGIN_IDS = Java11Shim.INSTANCE.copyOf(KNOWN_KOTLIN_PLUGIN_IDS + listOf(
-  "fleet.backend.mercury",
-  "fleet.backend.mercury.macos",
-  "fleet.backend.mercury.kotlin.macos",
   "org.jetbrains.android",
   "androidx.compose.plugins.idea",
-  "org.jetbrains.compose.desktop.ide",
-  "org.jetbrains.plugins.kotlin.jupyter",
   "com.intellij.kmm",
   "com.jetbrains.kotlin.ocswift",
-  "kotlin.gradle.gradle-java"
 ))
 
 private fun readRootElementChild(
@@ -746,6 +739,7 @@ private fun readContent(reader: XMLStreamReader2, descriptor: RawPluginDescripto
           loadingRule = when (loading) {
             "optional" -> ModuleLoadingRule.OPTIONAL
             "required" -> ModuleLoadingRule.REQUIRED
+            "embedded" -> ModuleLoadingRule.EMBEDDED
             "on-demand" -> ModuleLoadingRule.ON_DEMAND
             else -> error("Unexpected value '$loading' of 'loading' attribute at ${reader.location}")
           }
@@ -832,7 +826,10 @@ private fun readDependencies(reader: XMLStreamReader2, descriptor: RawPluginDesc
     reader.skipElement()
   }
 
-  descriptor.dependencies = ModuleDependenciesDescriptor(modules, plugins)
+  val oldDependencies = descriptor.dependencies
+  val newModules = if (oldDependencies.modules.isEmpty()) modules else oldDependencies.modules + modules
+  val newPlugins = if (oldDependencies.plugins.isEmpty()) plugins else oldDependencies.plugins + plugins
+  descriptor.dependencies = ModuleDependenciesDescriptor(newModules, newPlugins) 
   assert(reader.isEndElement)
 }
 

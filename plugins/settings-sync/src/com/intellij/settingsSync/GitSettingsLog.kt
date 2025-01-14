@@ -9,6 +9,7 @@ import com.intellij.openapi.util.io.FileUtil
 import com.intellij.settingsSync.SettingsSnapshot.MetaInfo
 import com.intellij.settingsSync.SettingsSnapshotZipSerializer.deserializeSettingsProviders
 import com.intellij.settingsSync.SettingsSnapshotZipSerializer.serializeSettingsProviders
+import com.intellij.settingsSync.communicator.SettingsSyncUserData
 import com.intellij.settingsSync.notification.NotificationService
 import com.intellij.settingsSync.plugins.SettingsSyncPluginsState
 import com.intellij.settingsSync.plugins.SettingsSyncPluginsStateMerger.mergePluginStates
@@ -45,7 +46,7 @@ import kotlin.io.path.*
 class GitSettingsLog(private val settingsSyncStorage: Path,
                               private val rootConfigPath: Path,
                               parentDisposable: Disposable,
-                              private val userDataProvider: () -> JBAccountInfoService.JBAData?,
+                              private val userDataProvider: () -> SettingsSyncUserData?,
                               private val initialSnapshotProvider: (SettingsSnapshot) -> SettingsSnapshot
 ) : SettingsLog, Disposable {
 
@@ -107,7 +108,12 @@ class GitSettingsLog(private val settingsSyncStorage: Path,
 
   private fun checkLocks(dotGit: Path) {
     val rootLockEntries = dotGit.listDirectoryEntries("*.lock")
-    val headsLockEntries = (dotGit / "refs" / "heads").listDirectoryEntries("*.lock")
+    val refsHeads = dotGit / "refs" / "heads"
+    if (!refsHeads.exists()) {
+      LOG.warn("refs/heads is absent under ${dotGit}. Will reinitialize the repo from scratch")
+      return
+    }
+    val headsLockEntries = refsHeads.listDirectoryEntries("*.lock")
     for (lock in rootLockEntries + headsLockEntries) {
       if (System.currentTimeMillis() - lock.getLastModifiedTime().toMillis() > FIVE_SECONDS) {
         FileUtil.delete(lock)
@@ -280,7 +286,7 @@ class GitSettingsLog(private val settingsSyncStorage: Path,
         .setSign(false)
 
       userDataProvider()?.let {
-        val personIdent = PersonIdent(it.loginName ?: "", it.email ?: "<>")
+        val personIdent = PersonIdent(it.name ?: "", it.email ?: "<>")
         commitData.author = personIdent
         commitData.committer = personIdent
       }

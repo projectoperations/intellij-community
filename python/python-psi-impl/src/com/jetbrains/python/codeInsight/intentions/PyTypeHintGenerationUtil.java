@@ -108,8 +108,7 @@ public final class PyTypeHintGenerationUtil {
     });
   }
 
-  @Nullable
-  private static PsiElement findPrecedingAnchorForAttributeDeclaration(@NotNull PyClass pyClass) {
+  private static @Nullable PsiElement findPrecedingAnchorForAttributeDeclaration(@NotNull PyClass pyClass) {
     final PyStatement firstStatement = pyClass.getStatementList().getStatements()[0];
     final PyStringLiteralExpression classDocstring = pyClass.getDocStringExpression();
     if (firstStatement instanceof PyExpressionStatement && classDocstring == ((PyExpressionStatement)firstStatement).getExpression()) {
@@ -336,16 +335,9 @@ public final class PyTypeHintGenerationUtil {
         typingTypes.add("Tuple");
       }
       else if (type instanceof PyTypedDictType typedDictType) {
-        if (typedDictType.isInferred()) {
-          if (useGenericAliasFromTyping) {
-            typingTypes.add("Dict");
-          }
-        }
-        else {
-          symbols.add((PsiNamedElement)typedDictType.getDeclarationElement());
-          // Don't go through its type arguments
-          return;
-        }
+        symbols.add((PsiNamedElement)typedDictType.getDeclarationElement());
+        // Don't go through its type arguments
+        return;
       }
       for (PyType pyType : ((PyCollectionType)type).getElementTypes()) {
         collectImportTargetsFromType(pyType, context, symbols, typingTypes);
@@ -433,18 +425,15 @@ public final class PyTypeHintGenerationUtil {
       myTypeRanges = typeRanges;
     }
 
-    @NotNull
-    public String getAnnotationText() {
+    public @NotNull String getAnnotationText() {
       return myAnnotationText;
     }
 
-    @NotNull
-    public List<PyType> getTypes() {
+    public @NotNull List<PyType> getTypes() {
       return myTypes;
     }
 
-    @NotNull
-    public List<TextRange> getTypeRanges() {
+    public @NotNull List<TextRange> getTypeRanges() {
       return myTypeRanges;
     }
   }

@@ -3,6 +3,7 @@ package com.jetbrains.rhizomedb
 
 import org.jetbrains.annotations.TestOnly
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.jvm.JvmStatic
 
 //fun getStack(): Throwable = Throwable("dbcontext creation stack")
 
@@ -25,6 +26,9 @@ class DbContext<out QQ : Q>(
         else -> q as QQ
       }
     }
+  
+  val poison: Throwable?  
+    get() = privateValue as? Throwable
 
   fun set(q: Q) {
     //    stack = getStack()

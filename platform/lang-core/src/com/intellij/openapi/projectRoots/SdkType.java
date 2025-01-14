@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.projectRoots;
 
 import com.intellij.openapi.extensions.ExtensionPointName;
@@ -17,6 +17,7 @@ import org.jdom.Element;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
 
 import javax.swing.*;
 import java.io.File;
@@ -61,8 +62,8 @@ public abstract class SdkType implements SdkTypeId {
    * for more advanced scenarios
    *
    * @param path Any path which belongs to the file system where the search for SDK should occur.
-   *             It can be any local path, but when JDK should be searched for in a container,
-   *             then it should be a path pointing to somewhere within a container.
+   *             It can be any local path, but when JDK should be searched for in a containerized environment,
+   *             then it should be a path pointing to somewhere within that environment.
    * @see #suggestHomePaths()
    */
   public @Nullable String suggestHomePath(@NotNull Path path) {
@@ -82,7 +83,7 @@ public abstract class SdkType implements SdkTypeId {
    * @deprecated Use {@link #suggestHomePaths(Project)}
    */
   @Deprecated
-  public @NotNull Collection<String> suggestHomePaths() {
+  public @Unmodifiable @NotNull Collection<String> suggestHomePaths() {
     String home = suggestHomePath();
     return ContainerUtil.createMaybeSingletonList(home);
   }
@@ -96,7 +97,7 @@ public abstract class SdkType implements SdkTypeId {
    * for possible interruption request. It is not recommended to call this method from a ETD thread. See
    * an alternative {@link #suggestHomePath()} method for EDT-friendly calls.
    */
-  public @NotNull Collection<String> suggestHomePaths(@Nullable Project project) {
+  public @Unmodifiable @NotNull Collection<String> suggestHomePaths(@Nullable Project project) {
     return suggestHomePaths();
   }
 

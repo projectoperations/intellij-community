@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi.stubs;
 
 import com.intellij.openapi.application.AppUIExecutor;
@@ -124,7 +124,8 @@ final class StubTreeLoaderImpl extends StubTreeLoader {
         stub = stubTree.getStub();
       }
       catch (SerializerNotFoundException e) {
-        return processError(vFile, "No stub serializer: " + vFile.getPresentableUrl() + ": " + e.getMessage(), e);
+        var message = "No stub serializer: " + vFile.getPresentableUrl() + ": " + e.getMessage();
+        return processError(vFile, new Exception(message, e));
       }
       if (stub == SerializedStubTree.NO_STUB) {
         return null;
@@ -183,6 +184,8 @@ final class StubTreeLoaderImpl extends StubTreeLoader {
           message += " (this)";
         }
         message += " shouldBeIndexed=" + IndexableFilesIndex.getInstance(project).shouldBeIndexed(vFile);
+        // Should return the same as above. Why do we need two different API?
+        message += " shouldBeIndexed2=" + ((FileBasedIndexImpl)FileBasedIndex.getInstance()).belongsToProjectIndexableFiles(vFile, project);
         message += "\n";
       }
     }
@@ -192,7 +195,7 @@ final class StubTreeLoaderImpl extends StubTreeLoader {
       message += getPhysicalFileReport(nioPath);
     }
 
-    processError(vFile, message, new Exception());
+    processError(vFile, new Exception(message));
   }
 
   private static String getPhysicalFileReport(@NotNull Path file) {
@@ -238,8 +241,8 @@ final class StubTreeLoaderImpl extends StubTreeLoader {
     return -1;
   }
 
-  private static ObjectStubTree<?> processError(final VirtualFile vFile, String message, @Nullable Exception e) {
-    LOG.error(message, e);
+  private static ObjectStubTree<?> processError(final VirtualFile vFile, @NotNull Exception e) {
+    LOG.error(e);
 
     AppUIExecutor.onWriteThread(ModalityState.nonModal()).later().submit(() -> {
       final Document doc = FileDocumentManager.getInstance().getCachedDocument(vFile);

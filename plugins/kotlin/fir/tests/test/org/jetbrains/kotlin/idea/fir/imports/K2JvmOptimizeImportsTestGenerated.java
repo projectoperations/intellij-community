@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.kotlin.idea.fir.imports;
 
@@ -217,6 +217,16 @@ public abstract class K2JvmOptimizeImportsTestGenerated extends AbstractK2JvmOpt
             @TestMetadata("FromCompanionObjectGeneric.kt")
             public void testFromCompanionObjectGeneric() throws Exception {
                 runTest("../../idea/tests/testData/editor/optimizeImports/jvm/FromCompanionObjectGeneric.kt");
+            }
+
+            @TestMetadata("JavaLangDeprecated_annotationPosition.kt")
+            public void testJavaLangDeprecated_annotationPosition() throws Exception {
+                runTest("../../idea/tests/testData/editor/optimizeImports/jvm/JavaLangDeprecated_annotationPosition.kt");
+            }
+
+            @TestMetadata("JavaLangDeprecated_expressionPosition.kt")
+            public void testJavaLangDeprecated_expressionPosition() throws Exception {
+                runTest("../../idea/tests/testData/editor/optimizeImports/jvm/JavaLangDeprecated_expressionPosition.kt");
             }
 
             @TestMetadata("JavaStaticField.kt")

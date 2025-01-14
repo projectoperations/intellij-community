@@ -44,7 +44,10 @@ import com.intellij.openapi.editor.impl.stickyLines.VisualStickyLines;
 import com.intellij.openapi.editor.impl.stickyLines.ui.StickyLineShadowPainter;
 import com.intellij.openapi.editor.impl.stickyLines.ui.StickyLinesPanel;
 import com.intellij.openapi.editor.impl.view.EditorView;
-import com.intellij.openapi.editor.markup.*;
+import com.intellij.openapi.editor.markup.GutterDraggableObject;
+import com.intellij.openapi.editor.markup.GutterIconRenderer;
+import com.intellij.openapi.editor.markup.RangeHighlighter;
+import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.editor.state.ObservableStateListener;
 import com.intellij.openapi.editor.toolbar.floating.EditorFloatingToolbar;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
@@ -92,8 +95,8 @@ import org.intellij.lang.annotations.JdkConstants;
 import org.intellij.lang.annotations.MagicConstant;
 import org.jetbrains.annotations.*;
 
-import javax.swing.Timer;
 import javax.swing.*;
+import javax.swing.Timer;
 import javax.swing.border.Border;
 import javax.swing.plaf.ScrollBarUI;
 import javax.swing.plaf.ScrollPaneUI;
@@ -120,8 +123,8 @@ import java.lang.invoke.MethodHandle;
 import java.text.AttributedCharacterIterator;
 import java.text.AttributedString;
 import java.text.CharacterIterator;
-import java.util.List;
 import java.util.*;
+import java.util.List;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -226,7 +229,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   private final PropertyChangeSupport myPropertyChangeSupport = new PropertyChangeSupport(this);
   private MyEditable myEditable;
 
-  private @NotNull EditorColorsScheme myScheme;
+  private @NotNull MyColorSchemeDelegate myScheme;
   private final @NotNull SelectionModelImpl mySelectionModel;
   private final @NotNull EditorMarkupModelImpl myMarkupModel;
   private final @NotNull EditorFilteringMarkupModelEx myEditorFilteringMarkupModel;
@@ -373,7 +376,14 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     myVirtualFile = file;
     myState = new EditorState();
     myState.refreshAll();
-    myScheme = createBoundColorSchemeDelegate(null);
+    final EditorColorsScheme boundColorScheme = createBoundColorSchemeDelegate(null);
+    if (boundColorScheme instanceof MyColorSchemeDelegate) {
+      myScheme = (MyColorSchemeDelegate)boundColorScheme;
+    } else {
+      LOG.warn("createBoundColorSchemeDelegate created delegate of type '%s'. Will wrap it with MyColorSchemeDelegate".formatted(boundColorScheme.getClass()),
+                new Throwable());
+      myScheme = new MyColorSchemeDelegate(boundColorScheme);
+    }
     myScrollPane = new MyScrollPane(); // create UI after scheme initialization
     myScrollPane.setBackground(JBColor.lazy(this::getBackgroundColor));
     myState.setViewer(viewer);
@@ -1032,14 +1042,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
   @RequiresEdt
   void reinitSettings(boolean updateGutterSize, boolean reinitSettings) {
-    for (EditorColorsScheme scheme = myScheme;
-         scheme instanceof DelegateColorScheme;
-         scheme = ((DelegateColorScheme)scheme).getDelegate()) {
-      if (scheme instanceof MyColorSchemeDelegate) {
-        ((MyColorSchemeDelegate)scheme).updateGlobalScheme();
-        break;
-      }
-    }
+    myScheme.updateGlobalScheme();
 
     boolean softWrapsUsedBefore = mySoftWrapModel.isSoftWrappingEnabled();
 
@@ -1153,7 +1156,10 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
       myGutterComponent.removeMouseMotionListener(myMouseMotionListener);
 
       Disposer.dispose(myDisposable);
-      myVerticalScrollBar.setPersistentUI(JBScrollBar.createUI(null)); // clear error panel's cached image
+
+      // clear error panel's cached image
+      // replace UI with default to release resources (e.g. coroutines) of a custom UI correctly
+      myVerticalScrollBar.setPersistentUI(JBScrollBar.createDefaultUI());
     });
   }
 
@@ -2877,16 +2883,14 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     return result;
   }
 
-  @NotNull
-  private VisualPosition nextSelectionVisualPosition(@NotNull VisualPosition pos) {
+  private @NotNull VisualPosition nextSelectionVisualPosition(@NotNull VisualPosition pos) {
     if (!isColumnMode() && pos.column >= EditorUtil.getLastVisualLineColumnNumber(this, pos.line)) {
       return new VisualPosition(pos.line + 1, 0, false);
     }
     return new VisualPosition(pos.line, pos.column + 1, false);
   }
 
-  @NotNull
-  private VisualPosition prevSelectionVisualPosition(@NotNull VisualPosition pos) {
+  private @NotNull VisualPosition prevSelectionVisualPosition(@NotNull VisualPosition pos) {
     int prevColumn = pos.column - 1;
     if (prevColumn >= 0) {
       return new VisualPosition(pos.line, prevColumn, true);
@@ -3176,11 +3180,9 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   }
 
   public static final class CaretRectangle {
-    @NotNull
-    public final Point2D myPoint;
+    public final @NotNull Point2D myPoint;
     public final float myWidth;
-    @Nullable
-    public final Caret myCaret;
+    public final @Nullable Caret myCaret;
     public final boolean myIsRtl;
 
     private CaretRectangle(@NotNull Point2D point, float width, @Nullable Caret caret, boolean isRtl) {
@@ -3605,38 +3607,44 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     }
   }
 
+  /**
+   * This method doesn't set the scheme itself, but the delegate
+   * @param scheme - original scheme
+   * @see EditorImpl.MyColorSchemeDelegate
+   */
   @Override
-  public void setColorsScheme(@NotNull EditorColorsScheme scheme) {
+  public void setColorsScheme(final @NotNull EditorColorsScheme scheme) {
     assertIsDispatchThread();
+    final EditorImpl finalEditor = this;
     ReadAction.run(() -> {
-      logSchemeChangeIfNeeded(scheme);
-      myScheme = scheme;
+      final EditorColorsManager colorsManager = ApplicationManager.getApplication().getServiceIfCreated(EditorColorsManager.class);
+      if (colorsManager == null) {
+        LOG.info("Skipping attempt to set color scheme without EditorColorsManager");
+        return;
+      }
+      final EditorColorsScheme globalScheme = colorsManager.getGlobalScheme();
+      EditorColorsScheme rawScheme = scheme;
+      boolean isGlobal = (rawScheme == globalScheme);
+      boolean isBounded = (rawScheme instanceof MyColorSchemeDelegate);
+      while (!isGlobal && !isBounded && rawScheme instanceof DelegateColorScheme) {
+        rawScheme = ((DelegateColorScheme)rawScheme).getDelegate();
+        if (rawScheme == globalScheme) isGlobal = true;
+        if (rawScheme instanceof MyColorSchemeDelegate) {
+          isBounded = true;
+        }
+      }
+      if (isGlobal && !isBounded) {
+        LOG.warn("Attempted to set unbounded global scheme to editor '%s' (presentationMode=%b)"
+                    .formatted(finalEditor, UISettings.getInstance().getPresentationMode()));
+        LOG.debug(ExceptionUtil.currentStackTrace());
+      }
+      if (rawScheme instanceof MyColorSchemeDelegate) {
+        myScheme = (MyColorSchemeDelegate)rawScheme;
+      } else {
+        myScheme = new MyColorSchemeDelegate(rawScheme);
+      }
       reinitSettings();
     });
-  }
-
-  private static void logSchemeChangeIfNeeded(@NotNull EditorColorsScheme scheme) {
-    if (!LOG.isDebugEnabled()) return;
-    EditorColorsManager colorsManager = ApplicationManager.getApplication().getServiceIfCreated(EditorColorsManager.class);
-    if (colorsManager == null) return;
-
-    EditorColorsScheme globalScheme = colorsManager.getGlobalScheme();
-    boolean isGlobal = (scheme == globalScheme);
-    boolean isBounded = (scheme instanceof MyColorSchemeDelegate);
-
-    while (!isGlobal && !isBounded && scheme instanceof DelegateColorScheme) {
-      scheme = ((DelegateColorScheme)scheme).getDelegate();
-      if (scheme == globalScheme) isGlobal = true;
-      if (scheme instanceof MyColorSchemeDelegate) {
-        isBounded = true;
-      }
-    }
-
-    if (isGlobal && !isBounded) {
-      LOG.debug("Will set the unbounded global scheme to editor (presentationMode=%b)"
-                  .formatted(UISettings.getInstance().getPresentationMode()));
-      LOG.debug(ExceptionUtil.currentStackTrace());
-    }
   }
 
   @Override
@@ -3922,8 +3930,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
 
   static final class MyInputMethodHandleSwingThreadWrapper implements InputMethodRequests {
-    @NotNull
-    private final InputMethodRequests myDelegate;
+    private final @NotNull InputMethodRequests myDelegate;
 
     MyInputMethodHandleSwingThreadWrapper(@NotNull InputMethodRequests delegate) {
       myDelegate = delegate;
@@ -4133,8 +4140,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
       return text == null ? null : new AttributedString(text).getIterator();
     }
 
-    @NotNull
-    private static String createComposedString(int composedIndex, @NotNull AttributedCharacterIterator text) {
+    private static @NotNull String createComposedString(int composedIndex, @NotNull AttributedCharacterIterator text) {
       StringBuilder strBuf = new StringBuilder();
 
       // create attributed string with no attributes
@@ -5777,9 +5783,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
   public void adjustGlobalFontSize(float size) {
     EditorColorsManager.getInstance().getGlobalScheme().setEditorFontSize(size);
-    if (myScheme instanceof MyColorSchemeDelegate) {
-      ((MyColorSchemeDelegate)myScheme).resetEditorFontSize();
-    }
+    myScheme.resetEditorFontSize();
     EditorColorsManagerImpl.fireGlobalSchemeChange(null);
   }
 

@@ -125,14 +125,12 @@ public class InlineMethodProcessor extends BaseRefactoringProcessor {
   }
 
   @Override
-  @NotNull
-  protected String getCommandName() {
+  protected @NotNull String getCommandName() {
     return RefactoringBundle.message("inline.method.command", myDescriptiveName);
   }
 
   @Override
-  @NotNull
-  protected UsageViewDescriptor createUsageViewDescriptor(UsageInfo @NotNull [] usages) {
+  protected @NotNull UsageViewDescriptor createUsageViewDescriptor(UsageInfo @NotNull [] usages) {
     return new InlineViewDescriptor(myMethod);
   }
 
@@ -581,7 +579,7 @@ public class InlineMethodProcessor extends BaseRefactoringProcessor {
         System.arraycopy(instanceCreationArguments, 0, exprs, 0, parameters.length - 1);
         StringBuilder varargs = new StringBuilder();
         for (int i = parameters.length - 1; i < instanceCreationArguments.length; i++) {
-          if (varargs.length() > 0) varargs.append(", ");
+          if (!varargs.isEmpty()) varargs.append(", ");
           varargs.append(instanceCreationArguments[i].getText());
         }
 
@@ -734,11 +732,10 @@ public class InlineMethodProcessor extends BaseRefactoringProcessor {
     ChangeContextUtil.clearContextInfo(anchorParent);
   }
 
-  @Nullable
-  static PsiReferenceExpression replaceCall(@NotNull PsiElementFactory factory,
-                                            @NotNull PsiMethodCallExpression methodCall,
-                                            @Nullable PsiElement firstAdded,
-                                            @Nullable PsiLocalVariable resultVar) {
+  static @Nullable PsiReferenceExpression replaceCall(@NotNull PsiElementFactory factory,
+                                                      @NotNull PsiMethodCallExpression methodCall,
+                                                      @Nullable PsiElement firstAdded,
+                                                      @Nullable PsiLocalVariable resultVar) {
     if (resultVar != null) {
       PsiExpression expr = factory.createExpressionFromText(resultVar.getName(), null);
       return (PsiReferenceExpression)new CommentTracker().replaceAndRestoreComments(methodCall, expr);
@@ -800,8 +797,7 @@ public class InlineMethodProcessor extends BaseRefactoringProcessor {
     return new BlockData(block, thisVar, parmVars, resultVar);
   }
 
-  @Nullable
-  private PsiLocalVariable declareThis(PsiSubstitutor callSubstitutor, PsiCodeBlock block) {
+  private @Nullable PsiLocalVariable declareThis(PsiSubstitutor callSubstitutor, PsiCodeBlock block) {
     PsiClass containingClass = myMethod.getContainingClass();
     if (myMethod.hasModifierProperty(PsiModifier.STATIC) || containingClass == null || containingClass instanceof PsiImplicitClass) return null;
     PsiType thisType = GenericsUtil.getVariableTypeByExpressionType(myFactory.createType(containingClass, callSubstitutor));
@@ -892,7 +888,13 @@ public class InlineMethodProcessor extends BaseRefactoringProcessor {
       else if (qualifier instanceof PsiSuperExpression) {
         qualifier = myFactory.createExpressionFromText("this", null);
       }
-      thisVar.getInitializer().replace(qualifier);
+      else if (qualifier.getType() != null && !thisVar.getType().isAssignableFrom(qualifier.getType())) {
+        PsiTypeCastExpression cast = (PsiTypeCastExpression)myFactory.createExpressionFromText("(A)b", null);
+        Objects.requireNonNull(cast.getOperand()).replace(qualifier);
+        Objects.requireNonNull(cast.getCastType()).replace(myFactory.createTypeElement(thisVar.getType()));
+        qualifier = cast;
+      }
+      Objects.requireNonNull(thisVar.getInitializer()).replace(qualifier);
     }
   }
 
@@ -1030,8 +1032,7 @@ public class InlineMethodProcessor extends BaseRefactoringProcessor {
   private record BlockData(PsiCodeBlock block, PsiLocalVariable thisVar, PsiLocalVariable[] parmVars, PsiLocalVariable resultVar) {}
 
   @Override
-  @NotNull
-  protected Collection<? extends PsiElement> getElementsToWrite(@NotNull final UsageViewDescriptor descriptor) {
+  protected @NotNull Collection<? extends PsiElement> getElementsToWrite(final @NotNull UsageViewDescriptor descriptor) {
     if (myInlineThisOnly) {
       return Collections.singletonList(myReference.getElement());
     }

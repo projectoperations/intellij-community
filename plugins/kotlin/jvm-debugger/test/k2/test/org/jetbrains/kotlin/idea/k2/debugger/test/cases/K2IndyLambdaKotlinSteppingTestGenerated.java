@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.kotlin.idea.k2.debugger.test.cases;
 
@@ -1521,6 +1521,11 @@ public abstract class K2IndyLambdaKotlinSteppingTestGenerated extends AbstractK2
         @TestMetadata("idea335263.kt")
         public void testIdea335263() throws Exception {
             runTest("../testData/stepping/custom/idea335263.kt");
+        }
+
+        @TestMetadata("idea362864.kt")
+        public void testIdea362864() throws Exception {
+            runTest("../testData/stepping/custom/idea362864.kt");
         }
 
         @TestMetadata("initBlocks.kt")

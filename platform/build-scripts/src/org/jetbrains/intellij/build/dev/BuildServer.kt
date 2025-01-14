@@ -52,6 +52,7 @@ fun getIdeSystemProperties(runDir: Path): VmProperties {
       "jna.noclasspath" to "true",
       "jb.vmOptionsFile" to "${Files.newDirectoryStream(runDir.resolve("bin"), "*.vmoptions").use { it.single() }}",
       "compose.swing.render.on.graphics" to "true",
+      "io.netty.allocator.type" to "pooled",
     )
   )
   return VmProperties(result)
@@ -94,7 +95,7 @@ private fun createConfiguration(productionClassOutput: Path, homePath: Path): Co
   return Json.decodeFromString(Configuration.serializer(), Files.readString(projectPropertiesPath))
 }
 
-private fun getProductPropertiesPath(homePath: Path): Path {
+internal fun getProductPropertiesPath(homePath: Path): Path {
   // handle a custom product properties path
   val customPath = System.getProperty(CUSTOM_PRODUCT_PROPERTIES_PATH)?.let { homePath.resolve(it) }
   if (customPath != null && Files.exists(customPath)) {

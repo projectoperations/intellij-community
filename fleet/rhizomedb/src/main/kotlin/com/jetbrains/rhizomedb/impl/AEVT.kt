@@ -2,6 +2,9 @@
 package com.jetbrains.rhizomedb.impl
 
 import com.jetbrains.rhizomedb.*
+import fleet.util.radixTrie.*
+import fleet.util.reducible.*
+import kotlin.jvm.JvmInline
 
 /**
  * last Any here is either Map<T, TX> or Versioned<T> depending on Cardinality

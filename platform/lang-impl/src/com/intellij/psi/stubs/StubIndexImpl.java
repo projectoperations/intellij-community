@@ -14,6 +14,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.ModificationTracker;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.psi.tree.IFileElementType;
 import com.intellij.psi.tree.StubFileElementType;
 import com.intellij.serviceContainer.AlreadyDisposedException;
 import com.intellij.util.SystemProperties;
@@ -38,7 +39,6 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.locks.Lock;
 
 @ApiStatus.Internal
 public final class StubIndexImpl extends StubIndexEx {
@@ -48,7 +48,9 @@ public final class StubIndexImpl extends StubIndexEx {
     Disabled,
     ChangedFilesCollector
   }
+
   public static final PerFileElementTypeStubChangeTrackingSource PER_FILE_ELEMENT_TYPE_STUB_CHANGE_TRACKING_SOURCE;
+
   static {
     int sourceId = SystemProperties.getIntProperty("stub.index.per.file.element.type.stub.change.tracking.source", 1);
     PER_FILE_ELEMENT_TYPE_STUB_CHANGE_TRACKING_SOURCE = PerFileElementTypeStubChangeTrackingSource.values()[sourceId];
@@ -130,8 +132,8 @@ public final class StubIndexImpl extends StubIndexEx {
 
     Path indexRootDir = IndexInfrastructure.getIndexRootDir(indexKey);
     IndexVersion.IndexVersionDiff versionDiff = forceClean
-                                                 ? new IndexVersion.IndexVersionDiff.InitialBuild(version)
-                                                 : IndexVersion.versionDiffers(indexKey, version);
+                                                ? new IndexVersion.IndexVersionDiff.InitialBuild(version)
+                                                : IndexVersion.versionDiffers(indexKey, version);
 
     registrationResultSink.setIndexVersionDiff(indexKey, versionDiff);
     if (versionDiff != IndexVersion.IndexVersionDiff.UP_TO_DATE) {
@@ -255,7 +257,8 @@ public final class StubIndexImpl extends StubIndexEx {
           LOG.error(e);
         }
       }), false);
-    } finally {
+    }
+    finally {
       clearState();
     }
   }
@@ -279,16 +282,9 @@ public final class StubIndexImpl extends StubIndexEx {
 
   @Override
   void cleanupMemoryStorage() {
-    UpdatableIndex<Integer, SerializedStubTree, FileContent, ?> stubUpdatingIndex = getStubUpdatingIndex();
-    Lock mainIndexWriteLock = stubUpdatingIndex.getLock().writeLock();
-    mainIndexWriteLock.lock();
-    try {
-      for (UpdatableIndex<?, ?, ?, ?> index : getAsyncState().myIndices.values()) {
-        index.cleanupMemoryStorage();
-      }
-    }
-    finally {
-      mainIndexWriteLock.unlock();
+    //'eventually consistent'
+    for (UpdatableIndex<?, ?, ?, ?> index : getAsyncState().myIndices.values()) {
+      index.cleanupMemoryStorage();
     }
   }
 
@@ -392,7 +388,7 @@ public final class StubIndexImpl extends StubIndexEx {
         extensionsIterator = Collections.emptyIterator();
       }
 
-      boolean forceClean = Boolean.TRUE == myForcedClean.getAndSet(false);
+      boolean forceClean = myForcedClean.getAndSet(false);
       List<ThrowableRunnable<?>> tasks = new ArrayList<>();
       while (extensionsIterator.hasNext()) {
         StubIndexExtension<?, ?> extension = extensionsIterator.next();
@@ -414,7 +410,7 @@ public final class StubIndexImpl extends StubIndexEx {
   }
 
   @Override
-  public @NotNull ModificationTracker getPerFileElementTypeModificationTracker(@NotNull StubFileElementType<?> fileElementType) {
+  public @NotNull ModificationTracker getPerFileElementTypeModificationTracker(@NotNull IFileElementType fileElementType) {
     return () -> {
       if (PER_FILE_ELEMENT_TYPE_STUB_CHANGE_TRACKING_SOURCE == PerFileElementTypeStubChangeTrackingSource.ChangedFilesCollector) {
         ReadAction.run(() -> {

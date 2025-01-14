@@ -1,0 +1,32 @@
+### auto-generated section `build intellij.devkit.workspaceModel.tests` start
+load("@rules_java//java:defs.bzl", "java_library")
+load("@rules_jvm//:jvm.bzl", "jvm_test")
+
+jvm_test(
+  name = "devkit-workspaceModel-tests_test",
+  srcs = glob(["testSrc/**/*.kt", "testSrc/**/*.java"], allow_empty = True),
+  deps = [
+    "@lib//:junit5",
+    "//platform/testFramework",
+    "//platform/testFramework:testFramework_test_lib",
+    "//java/testFramework",
+    "//java/openapi:java",
+    "//plugins/devkit/intellij.devkit.workspaceModel:workspaceModel",
+    "//plugins/kotlin/test-framework:test-framework_test_lib",
+    "//plugins/kotlin/formatter",
+    "//plugins/kotlin/tests-common:tests-common_test_lib",
+    "//plugins/kotlin/plugin/k1:kotlin-plugin-k1",
+    "@lib//:kotlinc-kotlin-compiler-common",
+    "//plugins/kotlin/base/test:kotlin-base-test_test_lib",
+    "@lib//:kotlinx-coroutines-core",
+    "//platform/workspace/jps",
+    "//platform/workspace/jps/tests:workspace-jps-tests",
+    "//platform/workspace/jps/tests:workspace-jps-tests_test_lib",
+    "@lib//:workspace-model-codegen",
+    "//platform/backend/workspace",
+    "//plugins/kotlin/base/facet:kotlin-base-facet",
+    "@lib//:kotlinc-kotlin-jps-common-provided",
+  ],
+  runtime_deps = ["//plugins/devkit/intellij.devkit:devkit"]
+)
+### auto-generated section `build intellij.devkit.workspaceModel.tests` end

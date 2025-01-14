@@ -201,11 +201,20 @@
             key="redundant.constructor.keyword" bundle="messages.KotlinBundle"/>
 
     <localInspection
+            implementationClass="org.jetbrains.kotlin.idea.codeInsight.inspections.shared.KotlinBigDecimalEqualsInspection"
+            groupPath="Kotlin"
+            groupBundle="messages.KotlinBundle" groupKey="group.names.numeric.issues"
+            enabledByDefault="false"
+            cleanupTool="true"
+            level="WARNING"
+            language="kotlin" editorAttributes="NOT_USED_ELEMENT_ATTRIBUTES"
+            key="big.decimal.equals" bundle="messages.KotlinBundle"/>
+
+    <localInspection
             implementationClass="org.jetbrains.kotlin.idea.inspections.EnumValuesSoftDeprecateInJavaInspection"
             groupPath="Kotlin"
             groupBundle="messages.KotlinBundle" groupKey="group.names.other.problems"
             enabledByDefault="true"
-            cleanupTool="false"
             level="WARNING"
             language="JAVA"
             key="inspection.enum.values.method.soft.deprecate.in.java.display.name" bundle="messages.KotlinBundle"/>
@@ -217,6 +226,7 @@
             enabledByDefault="false"
             level="WEAK WARNING"
             language="kotlin"
+            cleanupTool="true"
             key="inspection.redundant.value.argument.display.name" bundle="messages.KotlinBundle"/>
 
     <localInspection
@@ -366,6 +376,31 @@
                      level="WEAK WARNING"
                      language="kotlin"
                      key="inspection.suspicious.collection.reassignment.display.name" bundle="messages.KotlinBundle"/>
+
+    <localInspection implementationClass="org.jetbrains.kotlin.idea.codeInsight.inspections.shared.ConstantConditionIfInspection"
+                     groupPath="Kotlin"
+                     groupBundle="messages.KotlinBundle" groupKey="group.names.redundant.constructs"
+                     enabledByDefault="true"
+                     level="WEAK WARNING"
+                     language="kotlin"
+                     key="inspection.constant.condition.if.display.name" bundle="messages.KotlinBundle"/>
+
+    <localInspection implementationClass="org.jetbrains.kotlin.idea.codeInsight.inspections.shared.SimplifyBooleanWithConstantsInspection"
+                     groupPath="Kotlin"
+                     groupBundle="messages.KotlinBundle" groupKey="group.names.style.issues"
+                     enabledByDefault="true"
+                     level="WEAK WARNING"
+                     language="kotlin"
+                     key="inspection.simplify.boolean.with.constants.display.name" bundle="messages.KotlinBundle"/>
+
+    <localInspection implementationClass="org.jetbrains.kotlin.idea.codeInsight.inspections.shared.SimplifyWhenWithBooleanConstantConditionInspection"
+                     groupPath="Kotlin"
+                     groupBundle="messages.KotlinBundle" groupKey="group.names.redundant.constructs"
+                     enabledByDefault="true"
+                     level="WEAK WARNING"
+                     language="kotlin"
+                     key="inspection.simplify.when.with.boolean.constant.condition.display.name" bundle="messages.KotlinBundle"/>
+
 
     <globalInspection groupPath="Kotlin" language="kotlin"
                       groupBundle="messages.KotlinBundle"

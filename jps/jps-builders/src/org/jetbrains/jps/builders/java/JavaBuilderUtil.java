@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.jps.builders.java;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -9,10 +9,7 @@ import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.CollectionFactory;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.FileCollectionFactory;
-import org.jetbrains.annotations.ApiStatus;
-import org.jetbrains.annotations.Nls;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.*;
 import org.jetbrains.jps.ModuleChunk;
 import org.jetbrains.jps.api.GlobalOptions;
 import org.jetbrains.jps.builders.*;
@@ -45,6 +42,7 @@ import java.io.File;
 import java.io.FileFilter;
 import java.io.IOException;
 import java.util.*;
+import java.util.function.Supplier;
 
 public final class JavaBuilderUtil {
 
@@ -57,6 +55,7 @@ public final class JavaBuilderUtil {
   private static final Key<List<FileFilter>> SKIP_MARKING_DIRTY_FILTERS_KEY = Key.create("_skip_marking_dirty_filters_");
   private static final Key<Pair<Mappings, Callbacks.Backend>> MAPPINGS_DELTA_KEY = Key.create("_mappings_delta_");
   private static final Key<BackendCallbackToGraphDeltaAdapter> GRAPH_DELTA_CALLBACK_KEY = Key.create("_graph_delta_");
+  private static final Key<Set<NodeSource>> ALL_AFFECTED_NODE_SOURCES_KEY = Key.create("_all_compiled_node_sources_");
 
   private static final String MODULE_INFO_FILE = "module-info.java";
 
@@ -326,7 +325,7 @@ public final class JavaBuilderUtil {
                   }
                 }
                 else {
-                  FSOperations.markDirtyIfNotDeleted(context, markDirtyRound, file);
+                  FSOperations.markDirtyIfNotDeleted(context, markDirtyRound, file.toPath());
                 }
               }
 
@@ -435,6 +434,19 @@ public final class JavaBuilderUtil {
 
     final boolean compilingIncrementally = isCompileJavaIncrementally(context);
 
+    if (compilingIncrementally && !errorsDetected && differentiateParams.isCalculateAffected() && diffResult.isIncremental()) {
+      // some compilers (and compiler plugins) may produce different outputs for the same set of inputs.
+      // This might cause corresponding graph Nodes to be considered as always 'changed'. In some scenarios this may lead to endless build loops
+      // This fallback logic detects such loops and recompiles the whole module chunk instead.
+      Set<NodeSource> affectedForChunk = Iterators.collect(Iterators.filter(diffResult.getAffectedSources(), differentiateParams.belongsToCurrentCompilationChunk()::test), new HashSet<>());
+      if (!affectedForChunk.isEmpty() && !getOrCreate(context, ALL_AFFECTED_NODE_SOURCES_KEY, HashSet::new).addAll(affectedForChunk)) {
+        // all affected files in this round have already been affected in previous rounds. This might indicate a build cycle => recompiling whole chunk
+        LOG.info("Build cycle detected for " + chunk.getName() + "; recompiling whole module chunk");
+        FSOperations.markDirty(context, markDirtyRound, chunk, null);
+        return true;
+      }
+    }
+
     if (diffResult.isIncremental()) {
       final Set<File> affectedFiles = Iterators.collect(
         Iterators.filter(Iterators.map(diffResult.getAffectedSources(), src -> pathMapper.toPath(src).toFile()), f -> skipMarkDirtyFilter == null || !skipMarkDirtyFilter.accept(f)),
@@ -481,7 +493,7 @@ public final class JavaBuilderUtil {
             }
           }
           else {
-            FSOperations.markDirtyIfNotDeleted(context, markDirtyRound, file);
+            FSOperations.markDirtyIfNotDeleted(context, markDirtyRound, file.toPath());
           }
         }
 
@@ -525,6 +537,10 @@ public final class JavaBuilderUtil {
       FSOperations.markDirtyRecursively(context, markDirtyRound, chunk, toBeMarkedFilter);
     }
 
+    if (!additionalPassRequired) {
+      ALL_AFFECTED_NODE_SOURCES_KEY.set(context, null); // cleanup
+    }
+
     if (errorsDetected) {
       return false;
     }
@@ -558,9 +574,9 @@ public final class JavaBuilderUtil {
     };
   }
 
-  private static void removeFilesAcceptedByFilter(@NotNull Set<? extends File> files, @Nullable FileFilter filter) {
+  private static void removeFilesAcceptedByFilter(@NotNull Set<File> files, @Nullable FileFilter filter) {
     if (filter != null) {
-      for (final Iterator<? extends File> it = files.iterator(); it.hasNext();) {
+      for (Iterator<File> it = files.iterator(); it.hasNext();) {
         if (filter.accept(it.next())) {
           it.remove();
         }
@@ -582,7 +598,11 @@ public final class JavaBuilderUtil {
     return scope.isBuildIncrementally(JavaModuleBuildTargetType.PRODUCTION) || scope.isBuildIncrementally(JavaModuleBuildTargetType.TEST);
   }
 
-  private static List<Pair<File, JpsModule>> checkAffectedFilesInCorrectModules(CompileContext context, Collection<? extends File> affected, ModulesBasedFileFilter moduleBasedFilter) {
+  private static @NotNull @Unmodifiable List<Pair<File, JpsModule>> checkAffectedFilesInCorrectModules(
+    CompileContext context,
+    Collection<File> affected,
+    ModulesBasedFileFilter moduleBasedFilter
+  ) {
     if (affected.isEmpty()) {
       return Collections.emptyList();
     }
@@ -591,26 +611,31 @@ public final class JavaBuilderUtil {
     for (File file : affected) {
       if (!moduleBasedFilter.accept(file)) {
         final JavaSourceRootDescriptor moduleAndRoot = rootIndex.findJavaRootDescriptor(context, file);
-        result.add(Pair.create(file, moduleAndRoot != null ? moduleAndRoot.target.getModule() : null));
+        result.add(new Pair<>(file, moduleAndRoot != null ? moduleAndRoot.target.getModule() : null));
       }
     }
     return result;
   }
 
   private static @NotNull Set<File> getFilesContainer(CompileContext context, final Key<Set<File>> dataKey) {
-    Set<File> files = dataKey.get(context);
-    if (files == null) {
-      files = FileCollectionFactory.createCanonicalFileSet();
-      dataKey.set(context, files);
-    }
-    return files;
+    return getOrCreate(context, dataKey, FileCollectionFactory::createCanonicalFileSet);
   }
 
-  private static Set<String> getRemovedPaths(ModuleChunk chunk, DirtyFilesHolder<JavaSourceRootDescriptor, ModuleBuildTarget> dirtyFilesHolder) {
-    if (!dirtyFilesHolder.hasRemovedFiles()) {
-      return Collections.emptySet();
+  private static @NotNull <T> T getOrCreate(CompileContext context, Key<T> dataKey, Supplier<T> factory) {
+    T value = dataKey.get(context, null);
+    if (value == null) {
+      dataKey.set(context, value = factory.get());
     }
-    final Set<String> removed = CollectionFactory.createFilePathSet();
+    return value;
+  }
+
+  private static @NotNull Set<String> getRemovedPaths(ModuleChunk chunk,
+                                                      DirtyFilesHolder<JavaSourceRootDescriptor, ModuleBuildTarget> dirtyFilesHolder) {
+    if (!dirtyFilesHolder.hasRemovedFiles()) {
+      return Set.of();
+    }
+
+    Set<String> removed = CollectionFactory.createFilePathSet();
     for (ModuleBuildTarget target : chunk.getTargets()) {
       removed.addAll(dirtyFilesHolder.getRemovedFiles(target));
     }

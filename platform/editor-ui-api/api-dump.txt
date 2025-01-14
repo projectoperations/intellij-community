@@ -977,6 +977,15 @@ com.intellij.ide.util.treeView.smartTree.TreeModel
 - a:getGroupers():com.intellij.ide.util.treeView.smartTree.Grouper[]
 - a:getRoot():com.intellij.ide.util.treeView.smartTree.TreeElement
 - a:getSorters():com.intellij.ide.util.treeView.smartTree.Sorter[]
+com.intellij.injected.editor.EditorWindow
+- com.intellij.openapi.editor.Editor
+- com.intellij.openapi.util.UserDataHolderEx
+- a:getDelegate():com.intellij.openapi.editor.Editor
+- a:getDocument():com.intellij.injected.editor.DocumentWindow
+- a:getInjectedFile():com.intellij.psi.PsiFile
+- a:hostToInjected(com.intellij.openapi.editor.LogicalPosition):com.intellij.openapi.editor.LogicalPosition
+- a:injectedToHost(com.intellij.openapi.editor.LogicalPosition):com.intellij.openapi.editor.LogicalPosition
+- a:isValid():Z
 com.intellij.injected.editor.InjectedFileChangesHandler
 - com.intellij.openapi.Disposable
 - a:commitToOriginal(com.intellij.openapi.editor.event.DocumentEvent):V
@@ -2090,6 +2099,7 @@ f:com.intellij.openapi.editor.VisualPosition
 - leanRight(Z):com.intellij.openapi.editor.VisualPosition
 f:com.intellij.openapi.editor.actions.LanguageWordBoundaryFilter
 - com.intellij.lang.LanguageExtension
+- sf:INSTANCE:com.intellij.openapi.editor.actions.LanguageWordBoundaryFilter
 - s:getInstance():com.intellij.openapi.editor.actions.LanguageWordBoundaryFilter
 c:com.intellij.openapi.editor.actions.WordBoundaryFilter
 - <init>():V
@@ -2681,7 +2691,7 @@ f:com.intellij.openapi.fileTypes.SyntaxHighlighterLanguageFactory
 - com.intellij.lang.LanguageExtension
 com.intellij.openapi.fileTypes.SyntaxHighlighterProvider
 - a:create(com.intellij.openapi.fileTypes.FileType,com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile):com.intellij.openapi.fileTypes.SyntaxHighlighter
-a:com.intellij.openapi.ide.CopyPasteManager
+Fa:com.intellij.openapi.ide.CopyPasteManager
 - sf:CUT_COLOR:java.awt.Color
 - a:addContentChangedListener(com.intellij.openapi.ide.CopyPasteManager$ContentChangedListener):V
 - a:addContentChangedListener(com.intellij.openapi.ide.CopyPasteManager$ContentChangedListener,com.intellij.openapi.Disposable):V

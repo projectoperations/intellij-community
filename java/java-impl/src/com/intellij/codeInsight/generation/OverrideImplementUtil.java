@@ -60,6 +60,7 @@ import com.intellij.util.ui.EDT;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
 
 import javax.swing.*;
 import java.awt.event.ActionEvent;
@@ -268,10 +269,10 @@ public final class OverrideImplementUtil extends OverrideImplementExploreUtil {
     }
   }
 
-  public static @NotNull List<PsiGenerationInfo<PsiMethod>> overrideOrImplementMethods(@NotNull PsiClass aClass,
-                                                                                       @NotNull Collection<? extends PsiMethodMember> candidates,
-                                                                                       boolean toCopyJavaDoc,
-                                                                                       boolean toInsertAtOverride)
+  public static @Unmodifiable @NotNull List<PsiGenerationInfo<PsiMethod>> overrideOrImplementMethods(@NotNull PsiClass aClass,
+                                                                                                     @NotNull Collection<? extends PsiMethodMember> candidates,
+                                                                                                     boolean toCopyJavaDoc,
+                                                                                                     boolean toInsertAtOverride)
     throws IncorrectOperationException {
     List<CandidateInfo> candidateInfos = ContainerUtil.map(candidates, s -> new CandidateInfo(s.getElement(), s.getSubstitutor()));
     final List<PsiMethod> methods = overrideOrImplementMethodCandidates(aClass, candidateInfos, toCopyJavaDoc, toInsertAtOverride);
@@ -292,7 +293,7 @@ public final class OverrideImplementUtil extends OverrideImplementExploreUtil {
     return result;
   }
 
-  public static @NotNull List<PsiGenerationInfo<PsiMethod>> convert2GenerationInfos(@NotNull Collection<? extends PsiMethod> methods) {
+  public static @Unmodifiable @NotNull List<PsiGenerationInfo<PsiMethod>> convert2GenerationInfos(@NotNull Collection<? extends PsiMethod> methods) {
     return ContainerUtil.map(methods, s -> createGenerationInfo(s));
   }
 

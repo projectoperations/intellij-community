@@ -303,7 +303,7 @@ public abstract class LightPlatformTestCase extends UsefulTestCase implements Da
       connection.subscribe(ModuleListener.TOPIC, new ModuleListener() {
         @Override
         public void moduleAdded(@NotNull Project project, @NotNull Module module) {
-          fail("Adding modules is not permitted in light tests.");
+          fail("Adding modules is not permitted in light tests: " + module.getName());
         }
       });
 
@@ -333,7 +333,7 @@ public abstract class LightPlatformTestCase extends UsefulTestCase implements Da
       if (manager instanceof FileDocumentManagerImpl) {
         Document[] unsavedDocuments = manager.getUnsavedDocuments();
         manager.saveAllDocuments();
-        app.runWriteAction(((FileDocumentManagerImpl)manager)::dropAllUnsavedDocuments);
+        app.runWriteAction(() -> ((FileDocumentManagerImpl)manager).dropAllUnsavedDocuments());
 
         assertEmpty("There are unsaved documents", Arrays.asList(unsavedDocuments));
       }

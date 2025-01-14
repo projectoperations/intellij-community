@@ -10,23 +10,29 @@ internal class StylesCollectingTerminalLinesCollector(
   private val delegate: StringCollector,
   private val stylesConsumer: (StyleRange) -> Unit,
 ) : TerminalLinesCollector {
+  private var previousLineWrapped: Boolean = true
 
   override fun addLine(line: TerminalLine) {
+    // Add line break only if the previous line is not wrapped and we received an additional line
+    if (!previousLineWrapped) {
+      delegate.newline()
+    }
+
     line.forEachEntry { entry ->
       val text = entry.text.normalize()
-      if (text.isNotEmpty() && !entry.isNul) {
-        delegate.write(text)
+      if (text.isNotEmpty() && (!entry.isNul || entry.style != TextStyle.EMPTY)) {
+        val nonNullText = if (entry.isNul) " ".repeat(text.length) else text
+        delegate.write(nonNullText)
         if (entry.style != TextStyle.EMPTY) {
           val endOffset = delegate.length()
-          val startOffset = endOffset - text.length
+          val startOffset = endOffset - nonNullText.length
           val style = StyleRange(startOffset, endOffset, entry.style)
           stylesConsumer(style)
         }
       }
     }
-    if (!line.isWrapped) {
-      delegate.newline()
-    }
+
+    previousLineWrapped = line.isWrapped
   }
 
 }

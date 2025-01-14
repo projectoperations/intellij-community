@@ -19,31 +19,32 @@ import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.VisibleForTesting
 import org.jetbrains.plugins.gradle.service.execution.GradleDaemonJvmCriteria
 import org.jetbrains.plugins.gradle.util.GradleBundle
+import org.jetbrains.plugins.gradle.util.toJvmVendor
 import javax.swing.JPanel
 
 @ApiStatus.Internal
 class GradleDaemonJvmCriteriaView(
-  version: String?,
-  vendor: String?,
+  criteria: GradleDaemonJvmCriteria,
   private val versionsDropdownList: IntRange,
   private val vendorDropdownList: List<JvmVendor.KnownJvmVendor>,
   private val displayAdvancedSettings: Boolean,
   disposable: Disposable,
 ): JPanel(VerticalLayout(0)) {
 
-  private var initialVersion: VersionItem? = when (version) {
+  private var initialVersion: VersionItem? = when (val version = criteria.version) {
     null -> null
-    else -> when (val knownVersion = versionsDropdownList.find { it.toString() == version }) {
+    else -> when (val knownVersion = version.toIntOrNull()) {
       null -> VersionItem.Custom(version)
-      else -> VersionItem.Default(knownVersion)
+      in versionsDropdownList -> VersionItem.Default(knownVersion)
+      else -> VersionItem.Custom(version)
     }
   }
 
-  private var initialVendor: VendorItem? = when (vendor) {
+  private var initialVendor: VendorItem? = when (val vendor = criteria.vendor) {
     null -> VendorItem.Any
-    else -> when (val knownVendor = vendorDropdownList.find { it.name == vendor }) {
-      null -> VendorItem.Custom(vendor)
-      else -> VendorItem.Default(knownVendor)
+    else -> when (val knownVendor = vendor.knownVendor) {
+      in vendorDropdownList -> VendorItem.Default(knownVendor)
+      else -> VendorItem.Custom(vendor.rawVendor)
     }
   }
 
@@ -61,8 +62,8 @@ class GradleDaemonJvmCriteriaView(
           null -> null
           VendorItem.Any -> null
           VendorItem.SelectCustom -> null
-          is VendorItem.Default -> vendor.vendor.name
-          is VendorItem.Custom -> vendor.value.trim().nullize()
+          is VendorItem.Default -> vendor.vendor.asJvmVendor()
+          is VendorItem.Custom -> vendor.value.trim().nullize()?.toJvmVendor()
         }
       }
     )

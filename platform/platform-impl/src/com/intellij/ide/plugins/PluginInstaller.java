@@ -89,7 +89,9 @@ public final class PluginInstaller {
     if (pluginDescriptor.isBundled()) {
       throw new IllegalArgumentException("Plugin is bundled: " + pluginDescriptor.getPluginId());
     }
-    addActionCommand(new DeleteCommand(pluginDescriptor.getPluginPath()));
+    // Make sure this method does not interfere with installAfterRestart by adding the DeleteCommand to the beginning of the script.
+    // This way plugin installation always takes place after plugin uninstallation.
+    addActionCommandsToBeginning(List.of(new DeleteCommand(pluginDescriptor.getPluginPath())));
   }
 
   @ApiStatus.Internal
@@ -424,7 +426,10 @@ public final class PluginInstaller {
       if (dependency.isOptional()) continue;
 
       var pluginId = dependency.getPluginId();
-      if (installedDependencies.contains(pluginId) || model.isLoaded(pluginId) || PluginManagerCore.isModuleDependency(pluginId)) {
+      if (installedDependencies.contains(pluginId) ||
+          model.isLoaded(pluginId) ||
+          PluginManagerCore.isModuleDependency(pluginId) ||
+          PluginManagerCore.INSTANCE.findPluginByModuleDependency(pluginId) != null) {
         continue;
       }
 

@@ -3,11 +3,11 @@ package org.jetbrains.kotlin.idea.k2.codeinsight.intentions
 
 import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiElement
-import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.asJava.classes.KtLightClass
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.k2.codeinsight.intentions.ImplementAbstractMemberIntentionBase.ImplementableMember.JavaImplementableMember
 import org.jetbrains.kotlin.idea.k2.codeinsight.intentions.ImplementAbstractMemberIntentionBase.ImplementableMember.KtImplementableMember
+import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtEnumEntry
 import org.jetbrains.kotlin.psi.KtNamedDeclaration
 import org.jetbrains.kotlin.psi.KtNamedFunction
@@ -21,20 +21,18 @@ internal class ImplementAbstractMemberIntention : ImplementAbstractMemberIntenti
         else -> null
     }
 
-    override fun KaSession.createImplementableMember(
+    override fun createImplementableMember(
         targetClass: PsiElement,
         abstractMember: KtNamedDeclaration,
     ): ImplementableMember? {
         return when (targetClass) {
-            is KtLightClass -> KtImplementableMember.from(
-                analysisSession = this,
+            is KtEnumEntry -> KtImplementableMember.from(
                 targetClass = targetClass,
                 abstractMember = abstractMember,
                 preferConstructorParameters = false,
             )
 
-            is KtEnumEntry -> KtImplementableMember.from(
-                analysisSession = this,
+            is KtClass -> KtImplementableMember.from(
                 targetClass = targetClass,
                 abstractMember = abstractMember,
                 preferConstructorParameters = false,

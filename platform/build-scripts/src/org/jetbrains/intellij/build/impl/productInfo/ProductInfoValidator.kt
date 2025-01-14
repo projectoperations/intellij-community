@@ -3,6 +3,7 @@ package org.jetbrains.intellij.build.impl.productInfo
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.intellij.openapi.util.io.FileUtilRt
+import com.intellij.platform.buildData.productInfo.ProductInfoData
 import com.networknt.schema.JsonSchemaFactory
 import com.networknt.schema.SpecVersion
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
@@ -44,7 +45,7 @@ internal fun validateProductJson(jsonText: String,
                                  installationArchives: List<Pair<Path, String>>,
                                  context: CompilationContext) {
   val schemaPath = context.paths.communityHomeDir
-    .resolve("platform/build-scripts/src/org/jetbrains/intellij/build/product-info.schema.json")
+    .resolve("platform/buildData/resources/product-info.schema.json")
   val messages = context.messages
   verifyJsonBySchema(jsonText, schemaPath, messages)
   val productJson = jsonEncoder.decodeFromString<ProductInfoData>(jsonText)

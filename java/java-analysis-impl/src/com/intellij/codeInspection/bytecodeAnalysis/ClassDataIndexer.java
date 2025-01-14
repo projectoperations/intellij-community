@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInspection.bytecodeAnalysis;
 
 import com.intellij.codeInspection.bytecodeAnalysis.asm.*;
@@ -12,6 +12,7 @@ import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.CachedValue;
 import com.intellij.psi.util.CachedValueProvider;
 import com.intellij.util.CachedValueImpl;
+import com.intellij.util.ConcurrencyUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.gist.GistManager;
 import com.intellij.util.gist.VirtualFileGist;
@@ -21,6 +22,7 @@ import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
 import org.jetbrains.org.objectweb.asm.*;
 import org.jetbrains.org.objectweb.asm.tree.FieldInsnNode;
 import org.jetbrains.org.objectweb.asm.tree.InsnList;
@@ -62,9 +64,8 @@ public class ClassDataIndexer implements VirtualFileGist.GistCalculator<Map<HMem
   private static final VirtualFileGist<Map<HMember, Equations>> ourGist = GistManager.getInstance().newVirtualFileGist(
     "BytecodeAnalysisIndex", FINAL_VERSION, new BytecodeAnalysisIndex.EquationsExternalizer(), new ClassDataIndexer());
 
-  @Nullable
   @Override
-  public Map<HMember, Equations> calcData(Project project, @NotNull VirtualFile file) {
+  public @Nullable Map<HMember, Equations> calcData(Project project, @NotNull VirtualFile file) {
     HashMap<HMember, Equations> map = new HashMap<>();
     if (isFileExcluded(file)) {
       return map;
@@ -133,8 +134,7 @@ public class ClassDataIndexer implements VirtualFileGist.GistCalculator<Map<HMem
     map.replaceAll((key, eqs) -> updatePurity(key, eqs, solver));
   }
 
-  @NotNull
-  private static Equations updatePurity(EKey key, Equations eqs, PuritySolver solver) {
+  private static @NotNull Equations updatePurity(EKey key, Equations eqs, PuritySolver solver) {
     for (int i = 0; i < eqs.results.size(); i++) {
       DirectionResultPair drp = eqs.results.get(i);
       if (drp.directionKey == Pure.asInt() || drp.directionKey == Volatile.asInt()) {
@@ -195,8 +195,7 @@ public class ClassDataIndexer implements VirtualFileGist.GistCalculator<Map<HMem
     return effect;
   }
 
-  @NotNull
-  private static Equations convertEquations(EKey methodKey, List<Equation> rawMethodEquations) {
+  private static @NotNull Equations convertEquations(EKey methodKey, List<Equation> rawMethodEquations) {
     List<DirectionResultPair> compressedMethodEquations =
       ContainerUtil.map(rawMethodEquations, equation -> new DirectionResultPair(equation.key.dirKey, equation.result));
     return new Equations(compressedMethodEquations, methodKey.stable);
@@ -264,16 +263,12 @@ public class ClassDataIndexer implements VirtualFileGist.GistCalculator<Map<HMem
   private static final Key<CachedValue<Map<HMember, Equations>>> EQUATIONS =
     Key.create("com.intellij.codeInspection.bytecodeAnalysis.ClassDataIndexer.Equations");
 
-  @NotNull
-  static List<Equations> getEquations(GlobalSearchScope scope, HMember key) {
+  static @NotNull @Unmodifiable List<Equations> getEquations(GlobalSearchScope scope, HMember key) {
     return ContainerUtil.mapNotNull(
       FileBasedIndex.getInstance().getContainingFiles(BytecodeAnalysisIndex.NAME, key, scope),
       file -> {
-        CachedValue<Map<HMember, Equations>> equations = file.getUserData(EQUATIONS);
-        if (equations == null) {
-          equations = new CachedValueImpl<>(() -> CachedValueProvider.Result.create(ourGist.getFileData(null, file), file));
-          file.putUserDataIfAbsent(EQUATIONS, equations);
-        }
+        CachedValue<Map<HMember, Equations>> equations = ConcurrencyUtil.computeIfAbsent(file, EQUATIONS, () ->
+          new CachedValueImpl<>(() -> CachedValueProvider.Result.create(ourGist.getFileData(null, file), file)));
         return equations.getValue().get(key);
       });
   }
@@ -765,8 +760,7 @@ public class ClassDataIndexer implements VirtualFileGist.GistCalculator<Map<HMem
       return result;
     }
 
-    @NotNull
-    private static LeakingParameters leakingParametersAndFrames(Member method, MethodNode methodNode, Type[] argumentTypes, boolean jsr)
+    private static @NotNull LeakingParameters leakingParametersAndFrames(Member method, MethodNode methodNode, Type[] argumentTypes, boolean jsr)
       throws AnalyzerException {
       return argumentTypes.length < 32 ?
               LeakingParameters.buildFast(method.internalClassName, methodNode, jsr) :

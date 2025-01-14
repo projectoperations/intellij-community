@@ -16,8 +16,8 @@ import java.util.zip.ZipException;
 
 @ApiStatus.Internal
 public final class ImmutableZipEntry {
-  final static byte STORED = 0;
-  final static byte DEFLATED = 8;
+  static final byte STORED = 0;
+  static final byte DEFLATED = 8;
 
   final int uncompressedSize;
   final int compressedSize;
@@ -61,6 +61,7 @@ public final class ImmutableZipEntry {
     return uncompressedSize == -2;
   }
 
+  @Override
   public int hashCode() {
     return name.hashCode();
   }

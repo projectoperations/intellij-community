@@ -1,4 +1,4 @@
-<!--suppress PluginXmlDynamicPlugin -->
+<!--suppress PluginXmlDynamicPlugin, PluginXmlRegistrationCheck -->
 <idea-plugin>
   <extensionPoints>
     <!-- only bundled plugin can define extension -->
@@ -21,6 +21,10 @@
       serviceImplementation="com.intellij.codeInsight.daemon.impl.WolfTheProblemSolverImpl"
       headlessImplementation="com.intellij.codeInsight.daemon.impl.MockWolfTheProblemSolver"
     />
+    <applicationService serviceInterface="com.intellij.concurrency.JobLauncher"
+                        serviceImplementation="com.intellij.concurrency.JobLauncherImpl"/>
+    <applicationService serviceInterface="com.intellij.codeInsight.daemon.DaemonCodeAnalyzerSettings"
+                        serviceImplementation="com.intellij.codeInsight.daemon.DaemonCodeAnalyzerSettingsImpl"/>
     <!-- no preload="await" - requested by DaemonListeners -->
     <projectService
       serviceInterface="com.intellij.codeInsight.daemon.DaemonCodeAnalyzer"
@@ -106,12 +110,12 @@
     <registryKey
       key="auto.hide.all.tool.windows.on.focus.change"
       description="If enabled, hide all auto-hide tool windows on any focus change, otherwise hide only the one that lost focus"
-      defaultValue="false"
+      defaultValue="true"
     />
     <registryKey
       key="auto.hide.all.tool.windows.on.any.action"
       description="If enabled, any action will cause auto-hide tool windows to be hidden"
-      defaultValue="false"
+      defaultValue="true"
     />
 
     <projectService serviceInterface="com.intellij.toolWindow.ToolWindowStripeManager"
@@ -157,8 +161,8 @@
       serviceImplementation="com.intellij.formatting.visualLayer.VisualFormattingLayerServiceImpl" />
 
     <applicationService
-      serviceInterface="com.intellij.formatting.visualLayer.VirtualFormattingIndentGuideInfo"
-      serviceImplementation="com.intellij.formatting.visualLayer.PlatformVirtualFormattingIndentGuideInfo" />
+      serviceInterface="com.intellij.formatting.visualLayer.VirtualFormattingInlaysInfo"
+      serviceImplementation="com.intellij.formatting.visualLayer.PlatformVirtualFormattingInlaysInfo" />
 
     <applicationService serviceInterface="com.intellij.refactoring.RefactoringUiService" serviceImplementation="com.intellij.refactoring.RefactoringUiServiceImpl"/>
     
@@ -234,9 +238,6 @@
     <listener class="com.intellij.internal.statistic.local.ActionsLocalSummaryListener"
               topic="com.intellij.openapi.actionSystem.ex.AnActionListener"/>
 
-    <listener class="com.intellij.ide.GeneratedSourceFileChangeTrackerImpl$MyProjectManagerListener"
-              topic="com.intellij.openapi.project.ProjectManagerListener"/>
-
     <listener class="com.intellij.notification.impl.MacEventReader" topic="com.intellij.notification.Notifications" os="mac"
               activeInHeadlessMode="false"/>
     <listener class="com.intellij.notification.impl.NotificationsBeeper" topic="com.intellij.notification.Notifications"
@@ -274,8 +275,6 @@
 
     <listener class="com.intellij.notification.impl.NotificationsToolWindowNotificationListener"
               topic="com.intellij.notification.Notifications"/>
-    <listener class="com.intellij.execution.lineMarker.RunnableStatusListener"
-              topic="com.intellij.codeInsight.daemon.DaemonCodeAnalyzer$DaemonListener"/>
     <listener class="com.intellij.internal.statistic.collectors.fus.fileTypes.FileTypeUsageServiceFileEditorManagerListener"
               topic="com.intellij.openapi.fileEditor.FileEditorManagerListener"/>
 

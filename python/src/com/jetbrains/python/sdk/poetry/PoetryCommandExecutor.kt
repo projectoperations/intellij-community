@@ -3,7 +3,6 @@ package com.jetbrains.python.sdk.poetry
 
 import com.intellij.execution.ExecutionException
 import com.intellij.execution.configurations.PathEnvironmentVariableUtil
-import com.intellij.execution.process.ProcessOutput
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.components.service
@@ -16,8 +15,12 @@ import com.intellij.openapi.util.io.FileUtil
 import com.intellij.platform.ide.progress.withBackgroundProgress
 import com.intellij.util.SystemProperties
 import com.jetbrains.python.PyBundle
-import com.jetbrains.python.packaging.PyExecutionException
+import com.jetbrains.python.packaging.PyPackage
 import com.jetbrains.python.packaging.PyPackageManager
+import com.jetbrains.python.packaging.PyRequirement
+import com.jetbrains.python.packaging.PyRequirementParser
+import com.jetbrains.python.packaging.common.PythonOutdatedPackage
+import com.jetbrains.python.packaging.common.PythonPackage
 import com.jetbrains.python.packaging.management.PythonPackageManager
 import com.jetbrains.python.pathValidation.PlatformAndRoot
 import com.jetbrains.python.pathValidation.ValidationRequest
@@ -39,7 +42,7 @@ import kotlin.io.path.pathString
  */
 private const val POETRY_PATH_SETTING: String = "PyCharm.Poetry.Path"
 private const val REPLACE_PYTHON_VERSION = """import re,sys;f=open("pyproject.toml", "r+");orig=f.read();f.seek(0);f.write(re.sub(r"(python = \"\^)[^\"]+(\")", "\g<1>"+'.'.join(str(v) for v in sys.version_info[:2])+"\g<2>", orig))"""
-private val poetryNotFoundException: PyExecutionException = PyExecutionException(PyBundle.message("python.sdk.poetry.execution.exception.no.poetry.message"), "poetry", emptyList(), ProcessOutput())
+private val poetryNotFoundException: Throwable = Throwable(PyBundle.message("python.sdk.poetry.execution.exception.no.poetry.message"))
 
 @Internal
 suspend fun runPoetry(projectPath: Path?, vararg args: String): Result<String> {
@@ -149,9 +152,9 @@ internal fun runPoetryInBackground(module: Module, args: List<String>, @NlsSafe 
   }
 }
 
-internal suspend fun detectPoetryEnvs(module: Module?, existingSdkPaths: Set<String>, projectPath: @SystemIndependent @NonNls String?): List<PyDetectedSdk> {
+internal suspend fun detectPoetryEnvs(module: Module?, existingSdkPaths: Set<String>?, projectPath: @SystemIndependent @NonNls String?): List<PyDetectedSdk> {
   val path = module?.basePath?.let { Path.of(it) } ?: projectPath?.let { Path.of(it) } ?: return emptyList()
-  return getPoetryEnvs(path).filter { existingSdkPaths.contains(getPythonExecutable(it)) }.map { PyDetectedSdk(getPythonExecutable(it)) }
+  return getPoetryEnvs(path).filter { existingSdkPaths?.contains(getPythonExecutable(it)) != false }.map { PyDetectedSdk(getPythonExecutable(it)) }
 }
 
 internal suspend fun getPoetryVersion(): String? = runPoetry(null, "--version").getOrNull()?.split(' ')?.lastOrNull()
@@ -184,10 +187,102 @@ suspend fun poetryInstallPackage(sdk: Sdk, pkg: String, extraArgs: List<String>)
 suspend fun poetryUninstallPackage(sdk: Sdk, pkg: String): Result<String> = runPoetryWithSdk(sdk, "remove", pkg)
 
 @Internal
-suspend fun poetryReloadPackages(sdk: Sdk): Result<String> {
-  runPoetryWithSdk(sdk, "update").onFailure { return Result.failure(it) }
-  runPoetryWithSdk(sdk, "install", "--no-root").onFailure { return Result.failure(it) }
-  return runPoetryWithSdk(sdk, "show")
+suspend fun poetryShowPackages(sdk: Sdk): Result<List<PythonPackage>> {
+  val output = runPoetryWithSdk(sdk, "show").getOrElse {
+    return Result.failure(it)
+  }
+
+  return parsePoetryShow(output).let { Result.success(it) }
+}
+
+@Internal
+fun parsePoetryShow(input: String): List<PythonPackage> {
+  val result = mutableListOf<PythonPackage>()
+  input.split("\n").forEach { line ->
+    if (line.isNotBlank()) {
+      val packageInfo = line.trim().split(" ").map { it.trim() }.filter { it.isNotBlank() && it != "(!)" }
+      result.add(PythonPackage(packageInfo[0], packageInfo[1], false))
+    }
+  }
+
+  return result
+}
+
+@Internal
+suspend fun poetryShowOutdated(sdk: Sdk): Result<Map<String, PythonOutdatedPackage>> {
+  val output = runPoetryWithSdk(sdk, "show", "--outdated").getOrElse {
+    return Result.failure(it)
+  }
+
+  return parsePoetryShowOutdated(output).let { Result.success(it) }
+}
+
+@Internal
+suspend fun poetryListPackages(sdk: Sdk): Result<Pair<List<PyPackage>, List<PyRequirement>>> {
+  // Just in case there were any changes to pyproject.toml
+  if (runPoetryWithSdk(sdk, "lock", "--check").isFailure) {
+    runPoetryWithSdk(sdk, "lock", "--no-update")
+  }
+
+  val output = runPoetryWithSdk(sdk, "install", "--dry-run", "--no-root").getOrElse {
+    return Result.failure(it)
+  }
+
+  return parsePoetryInstallDryRun(output).let {
+    Result.success(it)
+  }
+}
+
+@Internal
+fun parsePoetryInstallDryRun(input: String): Pair<List<PyPackage>, List<PyRequirement>> {
+  val installedLines = listOf("Already installed", "Skipping", "Updating")
+
+  fun getNameAndVersion(line: String): Triple<String, String, String> {
+    return line.split(" ").let {
+      val installedVersion = it[5].replace(Regex("[():]"), "")
+      val requiredVersion = when {
+        it.size > 7 && it[6] == "->" -> it[7].replace(Regex("[():]"), "")
+        else -> installedVersion
+      }
+      Triple(it[4], installedVersion, requiredVersion)
+    }
+  }
+
+  fun getVersion(version: String): String {
+    return if (Regex("^[0-9]").containsMatchIn(version)) "==$version" else version
+  }
+
+  val pyPackages = mutableListOf<PyPackage>()
+  val pyRequirements = mutableListOf<PyRequirement>()
+  input
+    .lineSequence()
+    .filter { listOf(")", "Already installed").any { lastWords -> it.endsWith(lastWords) } }
+    .forEach { line ->
+      getNameAndVersion(line).also {
+        if (installedLines.any { installedLine -> line.contains(installedLine) }) {
+          pyPackages.add(PyPackage(it.first, it.second, null, emptyList()))
+          PyRequirementParser.fromLine(it.first + getVersion(it.third))?.let { pyRequirement -> pyRequirements.add(pyRequirement) }
+        }
+        else if (line.contains("Installing")) {
+          PyRequirementParser.fromLine(it.first + getVersion(it.third))?.let { pyRequirement -> pyRequirements.add(pyRequirement) }
+        }
+      }
+    }
+
+  return Pair(pyPackages.distinct().toList(), pyRequirements.distinct().toList())
+}
+
+/**
+ * Configures the Poetry environment for the specified module path with the given arguments.
+ * Runs command: GeneralCommandLine("poetry config [args]").withWorkingDirectory([modulePath])
+ *
+ * @param [modulePath] The path to the module where the Poetry environment is to be configured.
+ * Can be null, in which case the global Poetry environment will be configured.
+ * @param [args] A vararg array of String arguments to pass to the Poetry configuration command.
+ */
+@Internal
+suspend fun configurePoetryEnvironment(modulePath: Path?, vararg args: String) {
+  runPoetry(modulePath, "config", *args)
 }
 
 private suspend fun getPoetryEnvs(projectPath: Path): List<String> {

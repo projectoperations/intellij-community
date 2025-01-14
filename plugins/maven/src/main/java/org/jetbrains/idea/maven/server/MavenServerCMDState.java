@@ -20,6 +20,11 @@ import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.util.text.StringUtilRt;
+import com.intellij.platform.diagnostic.telemetry.OtlpConfiguration;
+import com.intellij.platform.diagnostic.telemetry.impl.agent.AgentConfiguration;
+import com.intellij.platform.diagnostic.telemetry.impl.agent.TelemetryAgentProvider;
+import com.intellij.platform.diagnostic.telemetry.impl.agent.TelemetryAgentResolver;
+import com.intellij.platform.diagnostic.telemetry.rt.context.TelemetryContext;
 import com.intellij.util.PathUtil;
 import com.intellij.util.containers.ContainerUtil;
 import org.jdom.Element;
@@ -35,6 +40,8 @@ import org.jetbrains.idea.maven.utils.MavenUtil;
 import org.slf4j.Logger;
 import org.slf4j.jul.JDK14LoggerFactory;
 
+import java.net.URI;
+import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -46,7 +53,7 @@ public class MavenServerCMDState extends CommandLineState {
     .Logger.getInstance(MavenServerCMDState.class);
   private static boolean setupThrowMainClass = false;
 
-  @NonNls private static final String MAIN_CLASS_WITH_EXCEPTION_FOR_TESTS =
+  private static final @NonNls String MAIN_CLASS_WITH_EXCEPTION_FOR_TESTS =
     "org.jetbrains.idea.maven.server.RemoteMavenServerThrowsExceptionForTests";
 
 
@@ -190,6 +197,10 @@ public class MavenServerCMDState extends CommandLineState {
     //workaround for JDK-4716483
     params.getVMParametersList().addProperty("sun.rmi.server.exceptionTrace", "true");
 
+    if (Registry.is("maven.server.opentelemetry.agent.enabled", false)) {
+      attachTelemetryAgent(params);
+    }
+
     setupMainExt(params);
     return params;
   }
@@ -219,12 +230,32 @@ public class MavenServerCMDState extends CommandLineState {
     }
   }
 
+  private static void attachTelemetryAgent(@NotNull SimpleJavaParameters params) {
+    URI traceEndpoint = OtlpConfiguration.getTraceEndpointURI();
+    if (traceEndpoint == null) {
+      return;
+    }
+    Path agentLocation = TelemetryAgentResolver.getAgentLocation();
+    if (agentLocation == null) {
+      return;
+    }
+    AgentConfiguration configuration = AgentConfiguration.forService(
+      "MavenServer",
+      TelemetryContext.current(),
+      traceEndpoint,
+      agentLocation,
+      AgentConfiguration.Settings.withoutMetrics()
+    );
+    List<String> args = TelemetryAgentProvider.getJvmArgs(configuration);
+    ParametersList parametersList = params.getVMParametersList();
+    parametersList.addAll(args);
+  }
+
   protected Map<String, String> getMavenOpts() {
     return MavenUtil.getPropertiesFromMavenOpts();
   }
 
-  @NotNull
-  protected String getWorkingDirectory() {
+  protected @NotNull String getWorkingDirectory() {
     return PathManager.getBinPath();
   }
 
@@ -250,16 +281,14 @@ public class MavenServerCMDState extends CommandLineState {
     }
   }
 
-  @NotNull
   @Override
-  public ExecutionResult execute(@NotNull Executor executor, @NotNull ProgramRunner<?> runner) throws ExecutionException {
+  public @NotNull ExecutionResult execute(@NotNull Executor executor, @NotNull ProgramRunner<?> runner) throws ExecutionException {
     ProcessHandler processHandler = startProcess();
     return new DefaultExecutionResult(processHandler);
   }
 
   @Override
-  @NotNull
-  protected ProcessHandler startProcess() throws ExecutionException {
+  protected @NotNull ProcessHandler startProcess() throws ExecutionException {
     SimpleJavaParameters params = createJavaParameters();
     GeneralCommandLine commandLine = params.toCommandLine();
     OSProcessHandler processHandler = new OSProcessHandler.Silent(commandLine);
@@ -279,8 +308,7 @@ public class MavenServerCMDState extends CommandLineState {
   }
 
 
-  @Nullable
-  static String getMaxXmxStringValue(@Nullable String memoryValueA, @Nullable String memoryValueB) {
+  static @Nullable String getMaxXmxStringValue(@Nullable String memoryValueA, @Nullable String memoryValueB) {
     MemoryProperty propertyA = MemoryProperty.valueOf(memoryValueA);
     MemoryProperty propertyB = MemoryProperty.valueOf(memoryValueB);
     if (propertyA != null && propertyB != null) {
@@ -305,13 +333,11 @@ public class MavenServerCMDState extends CommandLineState {
       this.valueBytes = value * this.unit.ratio;
     }
 
-    @NotNull
-    public static MemoryProperty of(@NotNull MemoryPropertyType propertyType, long bytes) {
+    public static @NotNull MemoryProperty of(@NotNull MemoryPropertyType propertyType, long bytes) {
       return new MemoryProperty(propertyType.type, bytes, MemoryUnit.B.name());
     }
 
-    @Nullable
-    public static MemoryProperty valueOf(@Nullable String value) {
+    public static @Nullable MemoryProperty valueOf(@Nullable String value) {
       if (value == null) return null;
       Matcher matcher = MEMORY_PROPERTY_PATTERN.matcher(value);
       if (matcher.find()) {

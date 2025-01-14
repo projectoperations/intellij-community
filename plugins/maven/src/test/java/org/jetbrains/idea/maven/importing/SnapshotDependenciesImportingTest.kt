@@ -3,13 +3,15 @@ package org.jetbrains.idea.maven.importing
 
 import com.intellij.maven.testFramework.MavenMultiVersionImportingTestCase
 import com.intellij.openapi.util.io.FileUtil
+import com.intellij.util.io.createDirectories
 import kotlinx.coroutines.runBlocking
 import org.junit.Test
 import java.io.File
+import java.nio.file.Path
 import kotlin.io.path.exists
 
 class SnapshotDependenciesImportingTest : MavenMultiVersionImportingTestCase() {
-  private var remoteRepoDir: File? = null
+  private var remoteRepoDir: Path? = null
 
   override fun setUp() {
     super.setUp()
@@ -20,8 +22,8 @@ class SnapshotDependenciesImportingTest : MavenMultiVersionImportingTestCase() {
   override fun setUpInWriteAction() {
     super.setUpInWriteAction()
 
-    remoteRepoDir = File(dir, "remote")
-    remoteRepoDir!!.mkdirs()
+    remoteRepoDir = dir.resolve("remote")
+    remoteRepoDir!!.createDirectories()
   }
 
   @Test
@@ -294,8 +296,7 @@ ${repositoriesSection()}<dependencies>
     return """<repositories>
   <repository>
     <id>internal</id>
-    <url>file:///""" + FileUtil.toSystemIndependentName(
-      remoteRepoDir!!.path) + "</url>\n" +
+    <url>file:///""" + FileUtil.toSystemIndependentName(remoteRepoDir!!.toString()) + "</url>\n" +
            "    <snapshots>\n" +
            "      <enabled>true</enabled>\n" +
            "      <updatePolicy>always</updatePolicy>\n" +
@@ -308,8 +309,7 @@ ${repositoriesSection()}<dependencies>
     return """<distributionManagement>
   <snapshotRepository>
     <id>internal</id>
-    <url>file:///""" + FileUtil.toSystemIndependentName(
-      remoteRepoDir!!.path) + "</url>\n" +
+    <url>file:///""" + FileUtil.toSystemIndependentName(remoteRepoDir!!.toString()) + "</url>\n" +
            "  </snapshotRepository>\n" +
            "</distributionManagement>"
   }

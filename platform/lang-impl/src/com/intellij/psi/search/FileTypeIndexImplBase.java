@@ -10,10 +10,7 @@ import com.intellij.openapi.util.Ref;
 import com.intellij.util.Processor;
 import com.intellij.util.containers.ConcurrentIntObjectMap;
 import com.intellij.util.indexing.*;
-import com.intellij.util.indexing.impl.UpdateData;
-import com.intellij.util.indexing.impl.InputData;
-import com.intellij.util.indexing.impl.InputDataDiffBuilder;
-import com.intellij.util.indexing.impl.ValueContainerImpl;
+import com.intellij.util.indexing.impl.*;
 import com.intellij.util.io.MeasurableIndexStore;
 import com.intellij.util.io.SimpleStringPersistentEnumerator;
 import org.jetbrains.annotations.ApiStatus.Internal;
@@ -26,6 +23,7 @@ import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.IntConsumer;
@@ -123,11 +121,6 @@ public abstract class FileTypeIndexImplBase implements UpdatableIndex<FileType, 
   }
 
   @Override
-  public @NotNull ReadWriteLock getLock() {
-    return myLock;
-  }
-
-  @Override
   public @NotNull Map<FileType, Void> getIndexedFileData(int fileId) throws StorageException {
     int foundData = getIndexedFileTypeId(fileId);
     if (foundData == 0) {
@@ -221,19 +214,20 @@ public abstract class FileTypeIndexImplBase implements UpdatableIndex<FileType, 
   }
 
   @Override
-  public @NotNull ValueContainer<Void> getData(@NotNull FileType type) throws StorageException {
+  public <E extends Exception> boolean withData(@NotNull FileType type,
+                                                @NotNull ValueContainerProcessor<Void, E> processor) throws StorageException, E {
     int fileTypeId = getFileTypeId(type);
-    ValueContainerImpl<Void> result = ValueContainerImpl.createNewValueContainer();
 
-    myLock.readLock().lock();
+    ValueContainerImpl<Void> container = ValueContainerImpl.createNewValueContainer();
+    Lock readLock = myLock.readLock();
+    readLock.lock();
     try {
-      processFileIdsForFileTypeId(fileTypeId, id -> result.addValue(id, null));
+      processFileIdsForFileTypeId(fileTypeId, id -> container.addValue(id, null));
+      return processor.process(container);
     }
     finally {
-      myLock.readLock().unlock();
+      readLock.unlock();
     }
-
-    return result;
   }
 
   protected void notifyInvertedIndexChangedForFileTypeId(int id) {

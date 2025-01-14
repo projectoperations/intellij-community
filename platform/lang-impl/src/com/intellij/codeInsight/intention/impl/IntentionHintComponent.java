@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.intention.impl;
 
 import com.intellij.codeInsight.CodeInsightBundle;
@@ -256,14 +256,14 @@ public final class IntentionHintComponent implements Disposable, ScrollAwareHint
 
   @RequiresEdt
   private void showPopup(boolean mouseClick) {
-    if (mouseClick && myLightBulbPanel.isShowing()) {
-      showPopup(findPositionForBulbButton(), IntentionSource.LIGHT_BULB);
-      return;
-    }
     CodeFloatingToolbar.temporarilyDisable(false);
     CodeFloatingToolbar toolbar = getFloatingToolbar();
     if (toolbar != null && toolbar.canBeShownAtCurrentSelection()) {
       showPopupFromToolbar(toolbar);
+      return;
+    }
+    if (mouseClick && myLightBulbPanel.isShowing()) {
+      showPopup(findPositionForBulbButton(), IntentionSource.LIGHT_BULB);
       return;
     }
     showPopup(null, IntentionSource.CONTEXT_ACTIONS);
@@ -290,7 +290,6 @@ public final class IntentionHintComponent implements Disposable, ScrollAwareHint
   }
 
   private @Nullable CodeFloatingToolbar getFloatingToolbar() {
-    if (!myEditor.getSelectionModel().hasSelection()) return null;
     return CodeFloatingToolbar.getToolbar(myEditor);
   }
 
@@ -577,7 +576,7 @@ public final class IntentionHintComponent implements Disposable, ScrollAwareHint
       add(myIconLabel, BorderLayout.CENTER);
       setBorder(LightBulbUtil.createInactiveBorder(editor));
       CodeFloatingToolbar floatingToolbar = CodeFloatingToolbar.getToolbar(editor);
-      if (floatingToolbar != null && floatingToolbar.canBeShownAtCurrentSelection()) {
+      if (floatingToolbar != null && editor.getSelectionModel().hasSelection() && floatingToolbar.canBeShownAtCurrentSelection()) {
         setVisible(false);
       }
     }
@@ -911,7 +910,10 @@ public final class IntentionHintComponent implements Disposable, ScrollAwareHint
             PsiElement at = injectedFile.findElementAt(injectedEditor.getCaretModel().getOffset());
             PsiElement container = suppressAction.getContainer(at);
             if (container != null) {
-              return () -> injectionHighlighter.highlight(container, Collections.singletonList(container));
+              return () -> {
+                highlighter.dropHighlight();
+                injectionHighlighter.highlight(container, Collections.singletonList(container));
+              };
             }
           }
           else {

@@ -45,10 +45,7 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.io.Decompressor;
 import com.intellij.util.text.VersionComparatorUtil;
 import com.intellij.util.ui.IoErrorText;
-import org.jetbrains.annotations.ApiStatus;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.VisibleForTesting;
+import org.jetbrains.annotations.*;
 
 import javax.swing.*;
 import java.awt.*;
@@ -62,8 +59,8 @@ import java.nio.file.attribute.DosFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.List;
 import java.util.*;
+import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -546,6 +543,7 @@ public final class ConfigImportHelper {
       this.fromSameProduct = fromSameProduct;
     }
 
+    @Unmodifiable
     @NotNull List<Path> getPaths() {
       return ContainerUtil.map(directories, it -> it.first);
     }
@@ -918,8 +916,7 @@ public final class ConfigImportHelper {
       this.mergeVmOptions = mergeVmOptions;
     }
 
-    @Nullable
-    public ProgressIndicator getHeadlessProgressIndicator() {
+    public @Nullable ProgressIndicator getHeadlessProgressIndicator() {
       return headlessProgressIndicator;
     }
 

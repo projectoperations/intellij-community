@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.kotlin.idea.intentions
 
@@ -9,14 +9,14 @@ import com.intellij.modcommand.ActionContext
 import com.intellij.modcommand.ModCommand
 import com.intellij.modcommand.ModCommandAction
 import com.intellij.modcommand.ModCommandExecutor
+import com.intellij.modcommand.ModDisplayMessage
+import com.intellij.openapi.application.impl.NonBlockingReadActionImpl
 import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.ThrowableComputable
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.text.StringUtil
-import com.intellij.platform.testFramework.core.FileComparisonFailedError
 import com.intellij.psi.PsiFile
 import com.intellij.refactoring.BaseRefactoringProcessor
 import com.intellij.refactoring.util.CommonRefactoringUtil
@@ -30,16 +30,17 @@ import org.jetbrains.kotlin.idea.KotlinLanguage
 import org.jetbrains.kotlin.idea.base.test.IgnoreTests
 import org.jetbrains.kotlin.idea.base.test.InTextDirectivesUtils
 import org.jetbrains.kotlin.idea.base.test.KotlinTestHelpers
+import org.jetbrains.kotlin.idea.base.test.registerDirectiveBasedChooserOptionInterceptor
 import org.jetbrains.kotlin.idea.codeInsight.hints.KotlinAbstractHintsProvider
 import org.jetbrains.kotlin.idea.core.script.ScriptConfigurationManager
 import org.jetbrains.kotlin.idea.test.*
 import org.jetbrains.kotlin.idea.util.application.executeCommand
 import org.jetbrains.kotlin.idea.util.application.executeWriteCommand
 import org.jetbrains.kotlin.psi.KtFile
+import org.jetbrains.kotlin.utils.addToStdlib.ifFalse
 import org.junit.Assert
 import java.io.File
 import java.util.concurrent.ExecutionException
-import kotlin.Throws
 
 abstract class AbstractIntentionTestBase : KotlinLightCodeInsightFixtureTestCase() {
     protected open fun intentionFileName(): String = ".intention"
@@ -142,7 +143,7 @@ abstract class AbstractIntentionTestBase : KotlinLightCodeInsightFixtureTestCase
                         TestCase.assertTrue("\"<caret>\" is missing in file \"$mainFile\"", fileText.contains("<caret>"))
 
                         InTextDirectivesUtils.findStringWithPrefixes(fileText, "// MIN_JAVA_VERSION: ")?.let { minJavaVersion ->
-                            if (!SystemInfo.isJavaVersionAtLeast(minJavaVersion)) return@configureRegistryAndRun
+                            if (Runtime.version().feature() < minJavaVersion.toInt()) return@configureRegistryAndRun
                         }
 
                         checkForErrorsBefore(fileText)
@@ -227,7 +228,9 @@ abstract class AbstractIntentionTestBase : KotlinLightCodeInsightFixtureTestCase
 
         try {
             if (isApplicableExpected) {
-                KotlinTestHelpers.registerChooserInterceptor(myFixture.testRootDisposable) { options -> options.last() }
+                registerDirectiveBasedChooserOptionInterceptor(fileText, myFixture.testRootDisposable).ifFalse {
+                    KotlinTestHelpers.registerChooserInterceptor(myFixture.testRootDisposable) { options -> options.last() }
+                }
 
                 val action = { intentionAction.invoke(project, editor, file) }
                 if (intentionAction.startInWriteAction()) {
@@ -242,12 +245,19 @@ abstract class AbstractIntentionTestBase : KotlinLightCodeInsightFixtureTestCase
                                 modCommandAction.perform(actionContext)
                             }
                         }
-                        project.executeCommand(intentionAction.text, null) {
-                            ModCommandExecutor.getInstance().executeInteractively(actionContext, command, editor)
+
+                        if (command is ModDisplayMessage) {
+                            TestCase.assertEquals("Failure message mismatch.", shouldFailString, command.messageText().replace('\n', ' '))
+                            return
+                        } else {
+                            project.executeCommand(intentionAction.text, null) {
+                                ModCommandExecutor.getInstance().executeInteractively(actionContext, command, editor)
+                            }
                         }
                     }
                 }
                 UIUtil.dispatchAllInvocationEvents()
+                NonBlockingReadActionImpl.waitForAsyncTaskCompletion()
 
                 // Don't bother checking if it should have failed.
                 if (shouldFailString.isEmpty()) {
@@ -255,11 +265,7 @@ abstract class AbstractIntentionTestBase : KotlinLightCodeInsightFixtureTestCase
                         val canonicalPathToExpectedFile = filePath + afterFileNameSuffix(mainFile)
                         val afterFile = dataFile(canonicalPathToExpectedFile)
                         if (filePath == mainFilePath) {
-                            try {
-                                myFixture.checkResultByFile(canonicalPathToExpectedFile)
-                            } catch (_: FileComparisonFailedError) {
-                                KotlinTestUtils.assertEqualsToFile(afterFile, editor.document.text)
-                            }
+                            myFixture.checkResultByFile(canonicalPathToExpectedFile)
                         } else {
                             KotlinTestUtils.assertEqualsToFile(afterFile, value.text)
                         }

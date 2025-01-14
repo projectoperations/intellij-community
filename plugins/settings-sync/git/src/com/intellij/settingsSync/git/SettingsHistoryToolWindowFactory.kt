@@ -21,7 +21,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 
-class SettingsHistoryToolWindowFactory(private val corotineScope: CoroutineScope) : ToolWindowFactory, DumbAware {
+internal class SettingsHistoryToolWindowFactory(private val corotineScope: CoroutineScope) : ToolWindowFactory, DumbAware {
   companion object {
     const val ID = "Backup and Sync History"
   }
@@ -66,7 +66,6 @@ class SettingsHistoryToolWindowFactory(private val corotineScope: CoroutineScope
   private fun isApplicable(): Boolean {
     return Registry.`is`("settingsSync.ui.new.toolwindow.show")
            && SettingsSyncMain.isAvailable()
-           && isSettingsSyncEnabledByKey()
            && isSettingsSyncEnabledInSettings()
   }
 

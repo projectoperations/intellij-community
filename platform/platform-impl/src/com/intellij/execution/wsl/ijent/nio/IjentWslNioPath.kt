@@ -10,6 +10,10 @@ class IjentWslNioPath(
   val delegate: Path,
   cachedAttributes: IjentNioPosixFileAttributesWithDosAdapter?,
 ) : Path, BasicFileAttributesHolder2.Impl(cachedAttributes) {
+  init {
+    require(delegate !is IjentWslNioPath) { "IjentWslNioPath should be a wrapper over other instances of path, namely WindowsPath or IjentNioPath" }
+  }
+
   override fun getFileSystem(): IjentWslNioFileSystem = fileSystem
 
   override fun isAbsolute(): Boolean = delegate.isAbsolute
@@ -41,6 +45,12 @@ class IjentWslNioPath(
   override fun toAbsolutePath(): IjentWslNioPath = delegate.toAbsolutePath().toIjentWslPath()
 
   override fun toRealPath(vararg options: LinkOption): IjentWslNioPath {
+    when (normalize().toString()) {
+      "\\\\wsl$\\${fileSystem.wslId}\\", "\\\\wsl.localhost\\${fileSystem.wslId}\\" -> {
+        return this
+      }
+    }
+
     val ijentNioPath = fileSystem.provider().toIjentNioPath(this)
     val ijentNioRealPath = ijentNioPath.toRealPath(*options)
     val originalPath = fileSystem.provider().toOriginalPath(ijentNioRealPath)

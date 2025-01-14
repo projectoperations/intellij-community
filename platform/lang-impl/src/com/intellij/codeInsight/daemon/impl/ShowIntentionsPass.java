@@ -37,6 +37,7 @@ import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.util.CommonProcessors;
 import com.intellij.util.concurrency.ThreadingAssertions;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -93,7 +94,8 @@ public final class ShowIntentionsPass extends TextEditorHighlightingPass impleme
     }
   }
 
-  private static void addAvailableFixesForGroups(@NotNull HighlightInfo info,
+  @ApiStatus.Internal
+  public static void addAvailableFixesForGroups(@NotNull HighlightInfo info,
                                                  @NotNull Editor editor,
                                                  @NotNull PsiFile file,
                                                  @NotNull List<? super HighlightInfo.IntentionActionDescriptor> outList,
@@ -298,7 +300,7 @@ public final class ShowIntentionsPass extends TextEditorHighlightingPass impleme
     intentions.setOffset(offset);
 
     List<HighlightInfo.IntentionActionDescriptor> fixes = new ArrayList<>();
-    DaemonCodeAnalyzerImpl.HighlightByOffsetProcessor highestPriorityInfoFinder = new DaemonCodeAnalyzerImpl.HighlightByOffsetProcessor(true);
+    DaemonCodeAnalyzerImpl.HighlightByOffsetProcessor highestPriorityInfoFinder = new DaemonCodeAnalyzerImpl.HighlightByOffsetProcessor(true, true);
     List<HighlightInfo> infos = new ArrayList<>();
     List<HighlightInfo> additionalInfos = new ArrayList<>();
     Document document = hostEditor.getDocument();

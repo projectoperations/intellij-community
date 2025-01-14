@@ -1,7 +1,10 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ui.popup;
 
-import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.actionSystem.ActionUpdateThread;
+import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.ShortcutProvider;
+import com.intellij.openapi.actionSystem.ShortcutSet;
 import com.intellij.openapi.application.WriteIntentReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.DumbAwareAction;
@@ -22,6 +25,7 @@ import com.intellij.ui.speedSearch.SpeedSearch;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.TimerUtil;
 import org.intellij.lang.annotations.JdkConstants;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -188,8 +192,14 @@ public abstract class WizardPopup extends AbstractPopup implements ActionListene
   }
 
   @Override
-  public void show(final @NotNull Component owner, final int aScreenX, final int aScreenY, final boolean considerForcedXY) {
+  @ApiStatus.Internal
+  protected void showImpl(@NotNull PopupShowOptionsBuilder showOptions) {
     if (UiInterceptors.tryIntercept(this)) return;
+
+    PopupShowOptionsImpl options = showOptions.build();
+    Component owner = options.getOwner();
+    var aScreenX = options.getScreenX();
+    var aScreenY = options.getScreenY();
 
     LOG.assertTrue (!isDisposed());
     Dimension size = getContent().getPreferredSize();
@@ -220,7 +230,12 @@ public abstract class WizardPopup extends AbstractPopup implements ActionListene
     }
 
     LOG.assertTrue (!isDisposed(), "Disposed popup, parent="+getParent());
-    super.show(owner, targetBounds.x, targetBounds.y, true);
+    super.showImpl(
+      new PopupShowOptionsBuilder()
+        .withOwner(owner)
+        .withScreenXY(targetBounds.x, targetBounds.y)
+        .withForcedXY(true)
+    );
   }
 
   @Override

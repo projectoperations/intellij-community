@@ -1,3 +1,4 @@
+<!--suppress PluginXmlRegistrationCheck -->
 <idea-plugin>
   <actions>
     <action id="RunConfiguration" class="com.intellij.execution.actions.RunConfigurationsComboBoxAction"/>
@@ -84,7 +85,7 @@
     <group id="RunConfigurationsActionGroup" class="com.intellij.execution.ui.RunConfigurationsActionGroup"/>
 
     <group id="ExecutionTargetsToolbarGroup" searchable="false" popup="false">
-      <reference id="ExecutionTargets"/>
+      <reference ref="ExecutionTargets"/>
       <add-to-group group-id="MainToolbarRight" anchor="before" relative-to-action="NewUiRunWidget"/>
     </group>
 
@@ -180,6 +181,8 @@
       <add-to-group group-id="ActivateToolWindowActions"/>
     </action>
 
+    <group id="ToolbarPanel.MoreActions" searchable="false"/>
+
     <!--region TouchBar -->
     <group id="TouchBarDebug">
       <reference ref="Rerun"/>
@@ -218,7 +221,7 @@
       <add-to-group group-id="TouchBarDefault" anchor="first"/>
     </group>
 
-    <reference id="ToggleLineBreakpoint">
+    <reference ref="ToggleLineBreakpoint">
       <add-to-group group-id="TouchBarDefault_cmd" anchor="last"/>
     </reference>
     <!--endregion-->

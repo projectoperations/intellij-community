@@ -25,6 +25,7 @@ import com.intellij.openapi.projectRoots.ex.JavaSdkUtil;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.platform.eel.provider.utils.EelPathUtils;
 import com.intellij.util.PathUtil;
 import com.intellij.util.PathsList;
 import com.intellij.util.SlowOperations;
@@ -35,10 +36,11 @@ import org.jetbrains.intellij.build.BuildDependenciesJps;
 import org.jetbrains.intellij.build.dependencies.BuildDependenciesCommunityRoot;
 
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Properties;
 
 public class RemoteConnectionBuilder {
@@ -138,13 +140,29 @@ public class RemoteConnectionBuilder {
   }
 
   private static void addRtJar(@NotNull PathsList pathsList) {
-    if (PluginManagerCore.isRunningFromSources()) {
-      String path = DebuggerUtilsImpl.getIdeaRtPath();
-      pathsList.remove(JavaSdkUtil.getIdeaRtJarPath());
-      pathsList.addTail(path);
-    }
-    else {
-      JavaSdkUtil.addRtJar(pathsList);
+    if (Registry.is("debugger.add.rt.jar", true)) {
+      if (PluginManagerCore.isRunningFromSources()) {
+        // When running from sources, rt.jar from sources should be preferred
+        String path = DebuggerUtilsImpl.getIdeaRtPath();
+        pathsList.remove(JavaSdkUtil.getIdeaRtJarPath());
+        pathsList.addTail(path);
+        LOG.debug("Running from sources IDE, add rt.jar: " + path);
+      }
+      else {
+        // Works for IDEA/dev build/test configurations
+        boolean isIdeaBuild = ContainerUtil.exists(pathsList.getPathList(), p -> p.contains("intellij.java.rt"));
+        if (isIdeaBuild) {
+          // When building IDEA itself, idea_rt.jar should not be taken from sources,
+          // as IDEA expects to use the matching idea_rt.jar from the installation dir.
+          String path = JavaSdkUtil.getIdeaRtJarPath();
+          pathsList.addFirst(path);
+          LOG.debug("Running IDEA from release IDE, add rt.jar: " + path);
+        }
+        else {
+          JavaSdkUtil.addRtJar(pathsList);
+          LOG.debug("Running from release IDE, add rt.jar");
+        }
+      }
     }
   }
 
@@ -172,12 +190,13 @@ public class RemoteConnectionBuilder {
         }
         Path agentArtifactPath;
 
+        String relevantJarsRoot = PathManager.getArchivedCompliedClassesLocation();
         Path classesRoot = Path.of(PathUtil.getJarPathForClass(DebuggerManagerImpl.class));
         // isDirectory(classesRoot) is used instead of `PluginManagerCore.isRunningFromSources()`
         // because we want to use installer's layout when running "IDEA (dev build)" run configuration
         // where the layout is quite the same as in installers.
         // but `PluginManagerCore.isRunningFromSources()` still returns `true` in this case
-        if (Files.isDirectory(classesRoot)) {
+        if (Files.isDirectory(classesRoot) || (relevantJarsRoot != null && classesRoot.startsWith(relevantJarsRoot))) {
           // Code runs from IDEA run configuration (code from .class file in out/ directory)
           try {
             // The agent file must have a fixed name (AGENT_JAR_NAME) which is mentioned in MANIFEST.MF inside
@@ -240,10 +259,10 @@ public class RemoteConnectionBuilder {
     }
     if (!properties.isEmpty()) {
       try {
-        File file = FileUtil.createTempFile("capture", ".props");
-        try (FileOutputStream out = new FileOutputStream(file)) {
+        Path path = EelPathUtils.createTemporaryFile(project, "capture", ".props", true);
+        try (OutputStream out = Files.newOutputStream(path)) {
           properties.store(out, null);
-          return "=" + file.toURI().toASCIIString();
+          return "=" + EelPathUtils.getUriLocalToEel(path).toASCIIString();
         }
       }
       catch (IOException e) {

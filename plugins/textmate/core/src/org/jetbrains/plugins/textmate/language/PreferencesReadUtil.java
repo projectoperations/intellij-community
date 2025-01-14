@@ -1,16 +1,16 @@
 package org.jetbrains.plugins.textmate.language;
 
-import com.intellij.util.containers.Interner;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.textmate.Constants;
-import org.jetbrains.plugins.textmate.bundles.TextMateBundleReader;
-import org.jetbrains.plugins.textmate.language.preferences.*;
+import org.jetbrains.plugins.textmate.language.preferences.IndentationRules;
+import org.jetbrains.plugins.textmate.language.preferences.ShellVariablesRegistry;
+import org.jetbrains.plugins.textmate.language.preferences.TextMateBracePair;
+import org.jetbrains.plugins.textmate.language.preferences.TextMateShellVariable;
 import org.jetbrains.plugins.textmate.language.syntax.lexer.TextMateScope;
 import org.jetbrains.plugins.textmate.plist.PListValue;
 import org.jetbrains.plugins.textmate.plist.Plist;
 
-import java.io.File;
 import java.util.*;
 
 public final class PreferencesReadUtil {
@@ -18,8 +18,7 @@ public final class PreferencesReadUtil {
    * @return pair <scopeName, settingsPlist> or null if rootPlist doesn't contain 'settings' child
    * or scopeName is null or empty
    */
-  @Nullable
-  public static Map.Entry<String, Plist> retrieveSettingsPlist(Plist rootPlist) {
+  public static @Nullable Map.Entry<String, Plist> retrieveSettingsPlist(Plist rootPlist) {
     String scopeName = null;
     Plist settingsValuePlist = null;
     final PListValue value = rootPlist.getPlistValue(Constants.SCOPE_KEY);
@@ -33,8 +32,7 @@ public final class PreferencesReadUtil {
     return settingsValuePlist != null ? Map.entry(scopeName, settingsValuePlist) : null;
   }
 
-  @Nullable
-  public static Set<TextMateBracePair> readPairs(@Nullable PListValue pairsValue) {
+  public static @Nullable Set<TextMateBracePair> readPairs(@Nullable PListValue pairsValue) {
     if (pairsValue == null) {
       return null;
     }
@@ -54,25 +52,7 @@ public final class PreferencesReadUtil {
     return result.isEmpty() ? Collections.emptySet() : result;
   }
 
-  @Nullable
-  private static TextMateSnippet loadTextMateSnippet(@NotNull Plist plist,
-                                                     @NotNull String explicitUuid,
-                                                     @NotNull Interner<CharSequence> interner) {
-    String name = plist.getPlistValue(Constants.NAME_KEY, "").getString();
-    String key = plist.getPlistValue(Constants.TAB_TRIGGER_KEY, "").getString();
-    String content = plist.getPlistValue(Constants.StringKey.CONTENT.value, "").getString();
-    String scope = plist.getPlistValue(Constants.SCOPE_KEY, "").getString();
-    String description = plist.getPlistValue(Constants.DESCRIPTION_KEY, "").getString(); //NON-NLS
-    String uuid = plist.getPlistValue(Constants.UUID_KEY, explicitUuid).getString();
-    if (!key.isEmpty() && !content.isEmpty()) {
-      if (name.isEmpty()) name = key;
-      return new TextMateSnippet(key, content, interner.intern(scope), name, description, uuid);
-    }
-    return null;
-  }
-
-  @NotNull
-  public static <K, V> Map<K, V> compactMap(@NotNull Map<K, V> map) {
+  public static @NotNull <K, V> Map<K, V> compactMap(@NotNull Map<K, V> map) {
     if (map.isEmpty()) {
       return Collections.emptyMap();
     }
@@ -91,26 +71,13 @@ public final class PreferencesReadUtil {
   private PreferencesReadUtil() {
   }
 
-  /**
-   * @deprecated use {@link TextMateBundleReader#readSnippets()} instead
-   */
-  @Deprecated(forRemoval = true)
-  @Nullable
-  public static TextMateSnippet loadSnippet(@NotNull File snippetFile, @NotNull Plist plist, @NotNull Interner<CharSequence> interner) {
-    return snippetFile.getName().endsWith("." + Constants.SUBLIME_SNIPPET_EXTENSION)
-           ? null //not supported yet
-           : loadTextMateSnippet(plist, snippetFile.getAbsolutePath(), interner);
-  }
-
-  @Nullable
-  private static String getPattern(@NotNull String name, @NotNull Plist from) {
+  private static @Nullable String getPattern(@NotNull String name, @NotNull Plist from) {
     final PListValue value = from.getPlistValue(name);
     if (value == null) return null;
     return value.getString();
   }
 
-  @NotNull
-  public static IndentationRules loadIndentationRules(@NotNull Plist plist) {
+  public static @NotNull IndentationRules loadIndentationRules(@NotNull Plist plist) {
     final PListValue rulesValue = plist.getPlistValue(Constants.INDENTATION_RULES);
     if (rulesValue == null) return IndentationRules.empty();
     final Plist rules = rulesValue.getPlist();
@@ -122,9 +89,8 @@ public final class PreferencesReadUtil {
     );
   }
 
-  @NotNull
-  public static TextMateCommentPrefixes readCommentPrefixes(@NotNull final ShellVariablesRegistry registry,
-                                                                      @NotNull final TextMateScope scope) {
+  public static @NotNull TextMateCommentPrefixes readCommentPrefixes(final @NotNull ShellVariablesRegistry registry,
+                                                                     final @NotNull TextMateScope scope) {
 
     String lineCommentPrefix = null;
     TextMateBlockCommentPair blockCommentPair = null;

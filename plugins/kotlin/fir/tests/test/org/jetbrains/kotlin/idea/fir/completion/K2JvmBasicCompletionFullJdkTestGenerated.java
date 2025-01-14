@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.kotlin.idea.fir.completion;
 
@@ -19,24 +19,147 @@ import org.junit.runner.RunWith;
 @TestDataPath("$CONTENT_ROOT")
 @RunWith(JUnit3RunnerWithInners.class)
 @TestMetadata("../../completion/testData/basic/fullJdk")
-public class K2JvmBasicCompletionFullJdkTestGenerated extends AbstractK2JvmBasicCompletionFullJdkTest {
-    @java.lang.Override
-    @org.jetbrains.annotations.NotNull
-    public final KotlinPluginMode getPluginMode() {
-        return KotlinPluginMode.K2;
+public abstract class K2JvmBasicCompletionFullJdkTestGenerated extends AbstractK2JvmBasicCompletionFullJdkTest {
+    @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../../completion/testData/basic/fullJdk/lambdaSignature")
+    public static class LambdaSignature extends AbstractK2JvmBasicCompletionFullJdkTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("ParameterName1.kt")
+        public void testParameterName1() throws Exception {
+            runTest("../../completion/testData/basic/fullJdk/lambdaSignature/ParameterName1.kt");
+        }
+
+        @TestMetadata("ParameterName10.kt")
+        public void testParameterName10() throws Exception {
+            runTest("../../completion/testData/basic/fullJdk/lambdaSignature/ParameterName10.kt");
+        }
+
+        @TestMetadata("ParameterName11.kt")
+        public void testParameterName11() throws Exception {
+            runTest("../../completion/testData/basic/fullJdk/lambdaSignature/ParameterName11.kt");
+        }
+
+        @TestMetadata("ParameterName12.kt")
+        public void testParameterName12() throws Exception {
+            runTest("../../completion/testData/basic/fullJdk/lambdaSignature/ParameterName12.kt");
+        }
+
+        @TestMetadata("ParameterName13.kt")
+        public void testParameterName13() throws Exception {
+            runTest("../../completion/testData/basic/fullJdk/lambdaSignature/ParameterName13.kt");
+        }
+
+        @TestMetadata("ParameterName2.kt")
+        public void testParameterName2() throws Exception {
+            runTest("../../completion/testData/basic/fullJdk/lambdaSignature/ParameterName2.kt");
+        }
+
+        @TestMetadata("ParameterName3.kt")
+        public void testParameterName3() throws Exception {
+            runTest("../../completion/testData/basic/fullJdk/lambdaSignature/ParameterName3.kt");
+        }
+
+        @TestMetadata("ParameterName4.kt")
+        public void testParameterName4() throws Exception {
+            runTest("../../completion/testData/basic/fullJdk/lambdaSignature/ParameterName4.kt");
+        }
+
+        @TestMetadata("ParameterName5.kt")
+        public void testParameterName5() throws Exception {
+            runTest("../../completion/testData/basic/fullJdk/lambdaSignature/ParameterName5.kt");
+        }
+
+        @TestMetadata("ParameterName6.kt")
+        public void testParameterName6() throws Exception {
+            runTest("../../completion/testData/basic/fullJdk/lambdaSignature/ParameterName6.kt");
+        }
+
+        @TestMetadata("ParameterName7.kt")
+        public void testParameterName7() throws Exception {
+            runTest("../../completion/testData/basic/fullJdk/lambdaSignature/ParameterName7.kt");
+        }
+
+        @TestMetadata("ParameterName8.kt")
+        public void testParameterName8() throws Exception {
+            runTest("../../completion/testData/basic/fullJdk/lambdaSignature/ParameterName8.kt");
+        }
+
+        @TestMetadata("ParameterName9.kt")
+        public void testParameterName9() throws Exception {
+            runTest("../../completion/testData/basic/fullJdk/lambdaSignature/ParameterName9.kt");
+        }
+
+        @TestMetadata("RemainingParameterName1.kt")
+        public void testRemainingParameterName1() throws Exception {
+            runTest("../../completion/testData/basic/fullJdk/lambdaSignature/RemainingParameterName1.kt");
+        }
+
+        @TestMetadata("RemainingParameterName2.kt")
+        public void testRemainingParameterName2() throws Exception {
+            runTest("../../completion/testData/basic/fullJdk/lambdaSignature/RemainingParameterName2.kt");
+        }
+
+        @TestMetadata("RemainingParameterName3.kt")
+        public void testRemainingParameterName3() throws Exception {
+            runTest("../../completion/testData/basic/fullJdk/lambdaSignature/RemainingParameterName3.kt");
+        }
+
+        @TestMetadata("RemainingParameterName4.kt")
+        public void testRemainingParameterName4() throws Exception {
+            runTest("../../completion/testData/basic/fullJdk/lambdaSignature/RemainingParameterName4.kt");
+        }
+
+        @TestMetadata("RemainingParameterName5.kt")
+        public void testRemainingParameterName5() throws Exception {
+            runTest("../../completion/testData/basic/fullJdk/lambdaSignature/RemainingParameterName5.kt");
+        }
+
+        @TestMetadata("RemainingParameterName6.kt")
+        public void testRemainingParameterName6() throws Exception {
+            runTest("../../completion/testData/basic/fullJdk/lambdaSignature/RemainingParameterName6.kt");
+        }
+
+        @TestMetadata("RemainingParameterName7.kt")
+        public void testRemainingParameterName7() throws Exception {
+            runTest("../../completion/testData/basic/fullJdk/lambdaSignature/RemainingParameterName7.kt");
+        }
     }
 
-    private void runTest(String testDataFilePath) throws Exception {
-        KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
-    }
+    @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../../completion/testData/basic/fullJdk")
+    public static class Uncategorized extends AbstractK2JvmBasicCompletionFullJdkTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
 
-    @TestMetadata("JDKEnumEntryCompletion.kt")
-    public void testJDKEnumEntryCompletion() throws Exception {
-        runTest("../../completion/testData/basic/fullJdk/JDKEnumEntryCompletion.kt");
-    }
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
 
-    @TestMetadata("KT-69416.kt")
-    public void testKT_69416() throws Exception {
-        runTest("../../completion/testData/basic/fullJdk/KT-69416.kt");
+        @TestMetadata("JDKEnumEntryCompletion.kt")
+        public void testJDKEnumEntryCompletion() throws Exception {
+            runTest("../../completion/testData/basic/fullJdk/JDKEnumEntryCompletion.kt");
+        }
+
+        @TestMetadata("KTIJ-32439.kt")
+        public void testKTIJ_32439() throws Exception {
+            runTest("../../completion/testData/basic/fullJdk/KTIJ-32439.kt");
+        }
+
+        @TestMetadata("KT-69416.kt")
+        public void testKT_69416() throws Exception {
+            runTest("../../completion/testData/basic/fullJdk/KT-69416.kt");
+        }
     }
 }

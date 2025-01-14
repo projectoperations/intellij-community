@@ -24,7 +24,9 @@ import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import git4idea.GitVcs
 import git4idea.branch.GitBranchSyncStatus
 import git4idea.branch.GitBranchUtil
+import git4idea.config.GitExecutableManager
 import git4idea.config.GitVcsSettings
+import git4idea.config.GitVersion
 import git4idea.i18n.GitBundle
 import git4idea.repo.GitRepository
 import git4idea.ui.branch.GitCurrentBranchPresenter
@@ -107,6 +109,7 @@ internal class GitToolbarWidgetAction : ExpandableComboAction(), DumbAware {
 
     when (state) {
       GitWidgetState.NotActivated,
+      GitWidgetState.NotSupported,
       GitWidgetState.OtherVcs -> {
         e.presentation.isEnabledAndVisible = false
         return
@@ -142,21 +145,17 @@ internal class GitToolbarWidgetAction : ExpandableComboAction(), DumbAware {
       }
     }
 
-    if (!GitMainToolbar.showIncomingOutgoing) {
-      val rightIcons = mutableListOf<Icon>()
-      if (syncStatus?.incoming == true) {
-        rightIcons.add(DvcsImplIcons.Incoming)
-      }
-      if (syncStatus?.outgoing == true) {
-        rightIcons.add(DvcsImplIcons.Outgoing)
-      }
-      e.presentation.putClientProperty(ActionUtil.SECONDARY_ICON, when {
-        rightIcons.isNotEmpty() -> RowIcon(*rightIcons.toTypedArray())
-        else -> null
-      })
-    } else {
-      e.presentation.putClientProperty(ActionUtil.SECONDARY_ICON, null)
+    val rightIcons = mutableListOf<Icon>()
+    if (syncStatus?.incoming == true) {
+      rightIcons.add(DvcsImplIcons.Incoming)
     }
+    if (syncStatus?.outgoing == true) {
+      rightIcons.add(DvcsImplIcons.Outgoing)
+    }
+    e.presentation.putClientProperty(ActionUtil.SECONDARY_ICON, when {
+      rightIcons.isNotEmpty() -> RowIcon(*rightIcons.toTypedArray())
+      else -> null
+    })
   }
 
   companion object {
@@ -176,7 +175,9 @@ internal class GitToolbarWidgetAction : ExpandableComboAction(), DumbAware {
 
       val gitRepository = GitBranchUtil.guessWidgetRepository(project, dataContext)
       if (gitRepository != null) {
-        return GitWidgetState.Repo(gitRepository)
+        val gitVersion = GitExecutableManager.getInstance().getVersion(project)
+        return if (GitVersion.isUnsupportedWslVersion(gitVersion.type)) GitWidgetState.NotSupported
+        else GitWidgetState.Repo(gitRepository)
       }
 
       val allVcss = vcsManager.allActiveVcss
@@ -190,6 +191,7 @@ internal class GitToolbarWidgetAction : ExpandableComboAction(), DumbAware {
 
   internal sealed class GitWidgetState {
     object NotActivated : GitWidgetState()
+    object NotSupported : GitWidgetState()
     object NoVcs : GitWidgetState()
     object OtherVcs : GitWidgetState()
     object GitVcs : GitWidgetState()

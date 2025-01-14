@@ -68,12 +68,13 @@ public final class BindFieldsFromParametersAction implements ModCommandAction {
     return null;
   }
 
-  private static @NotNull List<PsiParameter> getAvailableParameters(@NotNull PsiMethod method) {
+  private static @Unmodifiable @NotNull List<PsiParameter> getAvailableParameters(@NotNull PsiMethod method) {
     return ContainerUtil.filter(method.getParameterList().getParameters(), BindFieldsFromParametersAction::isAvailable);
   }
 
   private static boolean isAvailable(@NotNull PsiParameter psiParameter) {
     PsiType type = FieldFromParameterUtils.getSubstitutedType(psiParameter);
+    if (type != null && !type.isAssignableFrom(psiParameter.getType())) return false;
     PsiClass targetClass = PsiTreeUtil.getParentOfType(psiParameter, PsiClass.class);
     return FieldFromParameterUtils.isAvailable(psiParameter, type, targetClass) &&
            psiParameter.getLanguage().isKindOf(JavaLanguage.INSTANCE);
@@ -132,8 +133,7 @@ public final class BindFieldsFromParametersAction implements ModCommandAction {
   /**
    * Exclude parameters passed to super() or this() calls from initial selection
    */
-  @Unmodifiable
-  private static List<ParameterClassMember> getInitialSelection(@NotNull PsiMethod method,
+  private static @Unmodifiable List<ParameterClassMember> getInitialSelection(@NotNull PsiMethod method,
                                                                 List<@NotNull ParameterClassMember> members) {
     Set<PsiElement> resolvedInSuperOrThis = new HashSet<>();
     PsiCodeBlock body = method.getBody();

@@ -806,6 +806,9 @@ public class ControlFlowAnalyzer extends JavaElementVisitor {
         if (descriptor != null) {
           descriptors.add(descriptor);
         }
+        if (JavaDfaValueFactory.getQualifierOrThisValue(myFactory, expression) instanceof DfaVariableValue dfaVar) {
+          descriptors.add(dfaVar.getDescriptor());
+        }
       }
 
       @Override
@@ -1062,6 +1065,7 @@ public class ControlFlowAnalyzer extends JavaElementVisitor {
             addInstruction(new GotoInstruction(endGuardOffset));
             ((DeferredOffset)targetOffset).setOffset(getInstructionCount());
             guard.accept(this);
+            generateBoxingUnboxingInstructionFor(guard, PsiTypes.booleanType());
             addInstruction(new ResultOfInstruction(new JavaSwitchLabelTakenAnchor(guard)));
             addInstruction(new ConditionalGotoInstruction(offset, DfTypes.TRUE));
             endGuardOffset.setOffset(getInstructionCount());
@@ -1205,7 +1209,8 @@ public class ControlFlowAnalyzer extends JavaElementVisitor {
     checkType = TypeConversionUtil.erasure(checkType);
     if (patternType == null ||
         ((checkType instanceof PsiPrimitiveType || patternType instanceof PsiPrimitiveType) &&
-         (!PsiUtil.isAvailable(JavaFeature.PRIMITIVE_TYPES_IN_PATTERNS, context) || !TypeConversionUtil.areTypesConvertible(checkType, patternType)))) {
+         (!PsiUtil.isAvailable(JavaFeature.PRIMITIVE_TYPES_IN_PATTERNS, context) || !TypeConversionUtil.areTypesConvertible(checkType, patternType))) ||
+        isUnresolvedType(checkType) || isUnresolvedType(patternType)) {
       addInstruction(new PopInstruction());
       pushUnknown();
       return;
@@ -1263,6 +1268,10 @@ public class ControlFlowAnalyzer extends JavaElementVisitor {
       addInstruction(new PushValueInstruction(DfTypes.typedObject(patternType, Nullability.NOT_NULL)));
       addInstruction(new InstanceofInstruction(instanceofAnchor, false));
     }
+  }
+
+  private static boolean isUnresolvedType(@NotNull PsiType type) {
+    return type.getDeepComponentType() instanceof PsiClassType ct && ct.resolve() == null;
   }
 
   private void generateExactTestingConversion(@NotNull PsiElement context,
@@ -1404,7 +1413,7 @@ public class ControlFlowAnalyzer extends JavaElementVisitor {
         addInstruction(new PopInstruction());
       }
     }
-    addInstruction(new MethodCallInstruction(expression, null, List.of()));
+    addInstruction(new MethodCallInstruction(expression, List.of()));
     if (myTrapTracker.shouldHandleException()) {
       addThrows(ExceptionUtil.getOwnUnhandledExceptions(expression));
     }
@@ -1542,8 +1551,7 @@ public class ControlFlowAnalyzer extends JavaElementVisitor {
     finishElement(statement);
   }
 
-  @NotNull
-  private InstructionTransfer createTransfer(PsiElement exitedStatement, PsiElement blockToFlush) {
+  private @NotNull InstructionTransfer createTransfer(PsiElement exitedStatement, PsiElement blockToFlush) {
     List<VariableDescriptor> varsToFlush = ContainerUtil.map(PsiTreeUtil.findChildrenOfType(blockToFlush, PsiVariable.class),
                                                              PlainDescriptor::new);
     return new InstructionTransfer(getEndOffset(exitedStatement), varsToFlush);
@@ -2176,7 +2184,7 @@ public class ControlFlowAnalyzer extends JavaElementVisitor {
         // Do not track contracts if return value is not used
         contracts = Collections.emptyList();
       }
-      addInstruction(new MethodCallInstruction(expression, JavaDfaValueFactory.getExpressionDfaValue(myFactory, expression), contracts));
+      addInstruction(new MethodCallInstruction(expression, contracts));
       anchor = expression;
     }
     processFailResult(method, contracts, anchor);
@@ -2206,7 +2214,7 @@ public class ControlFlowAnalyzer extends JavaElementVisitor {
 
     pushUnknown();
     pushConstructorArguments(enumConstant);
-    addInstruction(new MethodCallInstruction(enumConstant, null, Collections.emptyList()));
+    addInstruction(new MethodCallInstruction(enumConstant, Collections.emptyList()));
     addInstruction(new PopInstruction());
   }
 
@@ -2268,28 +2276,16 @@ public class ControlFlowAnalyzer extends JavaElementVisitor {
       }
 
       addConditionalErrorThrow();
-      DfaValue precalculatedNewValue = getPrecalculatedNewValue(expression);
       List<? extends MethodContract> contracts = constructor == null ? Collections.emptyList() :
                                                  JavaMethodContractUtil.getMethodCallContracts(constructor, null);
       contracts = DfaUtil.addRangeContracts(constructor, contracts);
-      addInstruction(new MethodCallInstruction(expression, precalculatedNewValue, contracts));
+      addInstruction(new MethodCallInstruction(expression, contracts));
       processFailResult(constructor, contracts, expression);
 
       addMethodThrows(constructorOrClass);
     }
 
     finishElement(expression);
-  }
-
-  private DfaValue getPrecalculatedNewValue(PsiNewExpression expression) {
-    PsiType type = expression.getType();
-    if (type != null && ConstructionUtils.isEmptyCollectionInitializer(expression)) {
-      DfType dfType = SpecialField.COLLECTION_SIZE.asDfType(DfTypes.intValue(0))
-        .meet(TypeConstraints.exact(type).asDfType())
-        .meet(DfTypes.LOCAL_OBJECT);
-      return myFactory.fromDfType(dfType);
-    }
-    return null;
   }
 
   private void initializeSmallArray(PsiArrayType type, PsiExpression[] dimensions) {
@@ -2698,8 +2694,7 @@ public class ControlFlowAnalyzer extends JavaElementVisitor {
    * @param useInliners whether to use inliners
    * @return resulting control flow; null if it cannot be built (e.g. if the code block contains unrecoverable errors)
    */
-  @Nullable
-  public static ControlFlow buildFlow(@NotNull PsiElement psiBlock, @NotNull DfaValueFactory targetFactory, boolean useInliners) {
+  public static @Nullable ControlFlow buildFlow(@NotNull PsiElement psiBlock, @NotNull DfaValueFactory targetFactory, boolean useInliners) {
     if (!useInliners) {
       return new ControlFlowAnalyzer(targetFactory, psiBlock, false).buildControlFlow();
     }

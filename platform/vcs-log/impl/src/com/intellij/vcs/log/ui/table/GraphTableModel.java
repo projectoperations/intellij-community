@@ -19,6 +19,7 @@ import com.intellij.vcs.log.visible.VisiblePack;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
 
 import javax.swing.table.AbstractTableModel;
 import java.util.Collections;
@@ -133,7 +134,7 @@ public final class GraphTableModel extends AbstractTableModel implements VcsLogC
     return Collections.emptyList();
   }
 
-  public @NotNull List<VcsRef> getBranchesAtRow(int row) {
+  public @Unmodifiable @NotNull List<VcsRef> getBranchesAtRow(int row) {
     return ContainerUtil.filter(getRefsAtRow(row), ref -> ref.getType().isBranch());
   }
 

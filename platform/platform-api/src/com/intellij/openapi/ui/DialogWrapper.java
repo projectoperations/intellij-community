@@ -50,8 +50,8 @@ import java.awt.event.*;
 import java.beans.PropertyChangeListener;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
-import java.util.List;
 import java.util.*;
+import java.util.List;
 import java.util.function.Function;
 import java.util.stream.IntStream;
 
@@ -170,7 +170,7 @@ public abstract class DialogWrapper {
   private final Map<Action, JButton> myButtonMap = new LinkedHashMap<>();
   private final boolean myCreateSouthSection;
   private final List<JBOptionButton> optionButtons = new ArrayList<>();
-  private final Alarm myValidationAlarm = new Alarm(getValidationThreadToUse(), myDisposable);
+  private final Alarm myValidationAlarm = new Alarm(getContinuousValidationThreadToUse(), myDisposable);
 
   private boolean myClosed;
   private boolean myDisposed;
@@ -197,6 +197,7 @@ public abstract class DialogWrapper {
   private int myValidationDelay = 300;
   private boolean myValidationStarted;
   private boolean myKeepPopupsOpen;
+  @Nls private @NonNls @Nullable String invocationPlace = null;
 
   protected Action myOKAction;
   protected Action myCancelAction;
@@ -370,7 +371,18 @@ public abstract class DialogWrapper {
     myDoNotAsk = doNotAsk;
   }
 
-  protected @NotNull Alarm.ThreadToUse getValidationThreadToUse() {
+  /**
+   * Determines the thread to use for continuous validation
+   * <p>
+   *   Subclasses should override this to perform continuous validation on a BGT.
+   *   Note that it doesn't affect the final validation performed on the OK action,
+   *   it's always done on the EDT.
+   *   See {@link #doValidateAll()} for details.
+   * </p>
+   * @see #doValidateAll()
+   * @return the EDT in the default implementation
+   */
+  protected @NotNull Alarm.ThreadToUse getContinuousValidationThreadToUse() {
     return Alarm.ThreadToUse.SWING_THREAD;
   }
 
@@ -387,6 +399,7 @@ public abstract class DialogWrapper {
    * Allows disabling continuous validation.
    * When disabled {@link #initValidation()} needs to be invoked after every change of the dialog to validate.
    *
+   * @see #getContinuousValidationThreadToUse()
    * @return {@code false} to disable continuous validation
    */
   protected boolean continuousValidation() {
@@ -396,9 +409,13 @@ public abstract class DialogWrapper {
   /**
    * Validates user input and returns {@code null} if everything is fine
    * or validation description with component where problem has been found.
+   * <p>
+   *   See {@link #doValidateAll()} for threading guarantees
+   * </p>
    *
    * @return {@code null} if everything is OK or validation descriptor
    *
+   * @see #doValidateAll()
    * @see <a href="https://plugins.jetbrains.com/docs/intellij/validation-errors.html">Validation errors guidelines</a>
    */
   protected @Nullable ValidationInfo doValidate() {
@@ -411,6 +428,14 @@ public abstract class DialogWrapper {
    * the list contains all invalid fields with error messages.
    * This method should preferably be used when validating forms with multiply
    * fields that require validation.
+   * <p>
+   *   This method and {@link #doValidate()} are called continuously with some interval
+   *   unless {@link #continuousValidation() continous validation} is disabled.
+   *   This method is also called on the OK action to perform the final validation.
+   *   When called during continuous validation, the thread on which it's called is determined by
+   *   {@link #getContinuousValidationThreadToUse()}.
+   *   When called on the OK action, it's always invoked on the EDT.
+   * </p>
    *
    * @return {@code List<ValidationInfo>} of invalid fields. List
    * is empty if no errors found.
@@ -583,6 +608,7 @@ public abstract class DialogWrapper {
     return result;
   }
 
+  @Contract(mutates = "param1")
   protected void sortActionsOnMac(@NotNull List<Action> actions) {
     actions.sort(Comparator.comparing(action -> Objects.<Integer>requireNonNullElse(
       (Integer)action.getValue(MAC_ACTION_ORDER), action.getValue(DEFAULT_ACTION) == null ? 0 : DEFAULT_ACTION_ORDER)));
@@ -605,7 +631,7 @@ public abstract class DialogWrapper {
       }
     });
     helpButton.getAccessibleContext().setAccessibleName(UIBundle.message("dialog.options.help.button.accessible.name"));
-    helpButton.getAccessibleContext().setAccessibleDescription(ActionsBundle.message("action.HelpTopics.description"));
+    helpButton.getAccessibleContext().setAccessibleDescription(ActionsBundle.actionDescription("HelpTopics"));
     return helpButton;
   }
 
@@ -1457,7 +1483,7 @@ public abstract class DialogWrapper {
       }
     };
 
-    if (getValidationThreadToUse() == Alarm.ThreadToUse.SWING_THREAD) {
+    if (getContinuousValidationThreadToUse() == Alarm.ThreadToUse.SWING_THREAD) {
       // null if headless
       JRootPane rootPane = getRootPane();
       myValidationAlarm.addRequest(validateRequest, myValidationDelay,
@@ -1865,20 +1891,20 @@ public abstract class DialogWrapper {
   private void logCloseDialogEvent(int exitCode) {
     boolean canRecord = canRecordDialogId();
     if (canRecord) {
-      FeatureUsageUiEventsKt.getUiEventLogger().logCloseDialog(getClass(), exitCode);
+      FeatureUsageUiEventsKt.getUiEventLogger().logCloseDialog(getClass(), exitCode, invocationPlace);
     }
   }
 
   private void logShowDialogEvent() {
     boolean canRecord = canRecordDialogId();
     if (canRecord) {
-      FeatureUsageUiEventsKt.getUiEventLogger().logShowDialog(getClass());
+      FeatureUsageUiEventsKt.getUiEventLogger().logShowDialog(getClass(), invocationPlace);
     }
   }
 
   private void logClickOnHelpDialogEvent() {
     if (!canRecordDialogId()) return;
-    FeatureUsageUiEventsKt.getUiEventLogger().logClickOnHelpDialog(getClass());
+    FeatureUsageUiEventsKt.getUiEventLogger().logClickOnHelpDialog(getClass(), invocationPlace);
   }
 
   /**
@@ -1886,6 +1912,11 @@ public abstract class DialogWrapper {
    */
   protected boolean canRecordDialogId() {
     return true;
+  }
+
+  @ApiStatus.Internal
+  public void setInvocationPlace(@Nullable @NonNls String invocationPlace) {
+     this.invocationPlace = invocationPlace;
   }
 
   /**

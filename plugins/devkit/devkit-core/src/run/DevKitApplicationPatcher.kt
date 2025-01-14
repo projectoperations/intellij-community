@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.idea.devkit.run
 
 import com.intellij.compiler.options.MakeProjectStepBeforeRun
@@ -14,6 +14,7 @@ import com.intellij.openapi.project.IntelliJProjectUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.io.FileUtilRt
+import com.intellij.platform.eel.provider.asEelPath
 import com.intellij.platform.ijent.community.buildConstants.IJENT_BOOT_CLASSPATH_MODULE
 import com.intellij.platform.ijent.community.buildConstants.IJENT_REQUIRED_DEFAULT_NIO_FS_PROVIDER_CLASS
 import com.intellij.platform.ijent.community.buildConstants.IJENT_WSL_FILE_SYSTEM_REGISTRY_KEY
@@ -32,7 +33,7 @@ import java.nio.file.Path
 import kotlin.io.path.invariantSeparatorsPathString
 
 @Suppress("SpellCheckingInspection")
-internal class DevKitApplicationPatcher : RunConfigurationExtension() {
+private class DevKitApplicationPatcher : RunConfigurationExtension() {
   override fun <T : RunConfigurationBase<*>> updateJavaParameters(
     configuration: T,
     javaParameters: JavaParameters,
@@ -149,7 +150,9 @@ internal class DevKitApplicationPatcher : RunConfigurationExtension() {
     }
 
     if (!vmParameters.hasProperty("idea.config.path")) {
-      val dir = FileUtilRt.toSystemIndependentName("${configuration.workingDirectory}/out/dev-data/${productClassifier.lowercase()}")
+      val path = Path.of(configuration.workingDirectory!!)
+      val configDirPath = path.asEelPath().toString()
+      val dir = FileUtilRt.toSystemIndependentName("$configDirPath/out/dev-data/${productClassifier.lowercase()}")
       vmParameters.addProperty("idea.config.path", "$dir/config")
       vmParameters.addProperty("idea.system.path", "$dir/system")
     }

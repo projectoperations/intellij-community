@@ -4,6 +4,7 @@ package org.jetbrains.kotlin.idea.k2.codeinsight.hints
 import com.intellij.codeInsight.hints.declarative.*
 import com.intellij.codeInsight.hints.filtering.Matcher
 import com.intellij.codeInsight.hints.filtering.MatcherConstructor
+import com.intellij.openapi.util.registry.Registry
 import com.intellij.psi.PsiComment
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiWhiteSpace
@@ -26,7 +27,7 @@ import org.jetbrains.kotlin.psi.KtValueArgumentList
 import org.jetbrains.kotlin.psi.psiUtil.startOffset
 
 class KtParameterHintsProvider : AbstractKtInlayHintsProvider() {
-    private val blackListMatchers: List<Matcher> =
+    private val excludeListMatchers: List<Matcher> =
         listOf(
             "*listOf", "*setOf", "*arrayOf", "*ListOf", "*SetOf", "*ArrayOf", "*assert*(*)", "*mapOf", "*MapOf",
             "kotlin.require*(*)", "kotlin.check*(*)", "*contains*(value)", "*containsKey(key)", "kotlin.lazyOf(value)",
@@ -71,7 +72,7 @@ class KtParameterHintsProvider : AbstractKtInlayHintsProvider() {
         val functionSymbol: KaFunctionSymbol = functionCall.symbol
         val valueParameters: List<KaValueParameterSymbol> = functionSymbol.valueParameters
 
-        val blackListed = functionSymbol.isBlackListed(valueParameters)
+        val excludeListed = functionSymbol.isExcludeListed(excludeListMatchers)
         // TODO: IDEA-347315 has to be fixed
         //sink.whenOptionEnabled(SHOW_BLACKLISTED_PARAMETERS.name) {
         //    if (blackListed) {
@@ -79,22 +80,12 @@ class KtParameterHintsProvider : AbstractKtInlayHintsProvider() {
         //    }
         //}
 
-        if (!blackListed) {
+        if (!excludeListed) {
             // TODO: KTIJ-30439 it should respect parameter names when KT-65846 is fixed
             if ((functionSymbol as? KaNamedFunctionSymbol)?.isBuiltinFunctionInvoke != true) {
                 collectFromParameters(functionCall.argumentMapping, valueParameters, sink)
             }
         }
-    }
-
-    context(KaSession)
-    private fun KaFunctionSymbol.isBlackListed(valueParameters: List<KaValueParameterSymbol>): Boolean {
-        val blackListed = callableId?.let {
-            val callableId = it.asSingleFqName().toString()
-            val parameterNames = valueParameters.map { it.name.asString() }
-            blackListMatchers.any { it.isMatching(callableId, parameterNames) }
-        }
-        return blackListed == true
     }
 
     context(KaSession)
@@ -107,7 +98,10 @@ class KtParameterHintsProvider : AbstractKtInlayHintsProvider() {
             val symbolName = symbol.name
             val name: Name = symbolName
             val arg = args.filter { (_, signature) -> signature.symbol == symbol }.keys.firstOrNull() ?: continue
-            val argument = arg.parent as? KtValueArgument ?: continue
+            val argument = arg.parent as? KtValueArgument
+
+            // do not show inlay hint for lambda parameter out of parenthesis
+            if (argument?.parent !is KtValueArgumentList) continue
 
             // do not put inlay hints for a named argument
             if (argument.isNamed()) {
@@ -129,15 +123,24 @@ class KtParameterHintsProvider : AbstractKtInlayHintsProvider() {
                                  PsiPointerInlayActionNavigationHandler.HANDLER_ID
                              )
                          })
-                    text(":")
+                    if (Registry.`is`("kotlin.k2.equals.in.parameter.names.inlay.hints", true)) {
+                        text(" =")
+                    } else {
+                        text(":")
+                    }
                 }
             }
         }
     }
 
     private fun KtValueArgument.isArgumentNamed(symbol: KaValueParameterSymbol): Boolean {
-        // avoid cases like "`value:` value"
-        if (this.text == symbol.name.asString()) return true
+        // avoid cases like "`value =` value"
+        val argumentText = this.text
+        val symbolName = symbol.name.asString()
+        if (argumentText == symbolName) return true
+
+        // avoid cases like "`value =` myValue"
+        if (symbolName.length > 1 && argumentText.endsWith(symbolName[0].uppercaseChar() + symbolName.substring(1))) return true
 
         // avoid cases like "/* value = */ value"
         var sibling: PsiElement? = this.prevSibling
@@ -154,4 +157,11 @@ class KtParameterHintsProvider : AbstractKtInlayHintsProvider() {
 
         return false
     }
+}
+
+context(KaSession)
+internal fun KaFunctionSymbol.isExcludeListed(excludeListMatchers: List<Matcher>): Boolean {
+    val callableFqName = callableId?.asSingleFqName()?.asString() ?: return false
+    val parameterNames = valueParameters.map { it.name.asString() }
+    return excludeListMatchers.any { it.isMatching(callableFqName, parameterNames) }
 }

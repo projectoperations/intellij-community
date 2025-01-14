@@ -17,6 +17,7 @@ import com.intellij.psi.search.searches.ReferencesSearch
 import com.intellij.util.Processor
 import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
+import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.resolution.singleFunctionCallOrNull
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
 import org.jetbrains.kotlin.analysis.api.symbols.*
@@ -76,7 +77,7 @@ object K2UnusedSymbolUtil {
                   if (containingClass.isValue() && declaration.hasValOrVar()) return false
                   // constructor parameters-fields of inline class are considered used because they are implicitly used in equals() (???)
                   if (containingClass.isInline() && declaration.hasValOrVar()) return false
-                  if (isExpectedOrActual(containingClass)) return false;
+                  if (isExpectedOrActual(containingClass)) return false
               }
           }
           else if (ownerFunction is KtFunctionLiteral) {
@@ -294,7 +295,7 @@ object K2UnusedSymbolUtil {
               declaration.body?.declarations?.isNotEmpty() == true) ||
               hasReferences(declaration, declarationContainingClass, symbol, restrictedScope) ||
               hasOverrides(declaration, restrictedScope) ||
-              hasFakeOverrides(declaration, restrictedScope, symbol) ||
+              hasFakeOverrides(declaration, restrictedScope) ||
               hasPlatformImplementations(declaration)
   }
 
@@ -584,28 +585,41 @@ object K2UnusedSymbolUtil {
           is KtClass -> declaration.findAllInheritors(useScope)
           else -> null
       }
+
       return overrides?.firstOrNull() != null
   }
 
-  context(KaSession)
-  private fun hasFakeOverrides(declaration: KtNamedDeclaration, useScope: SearchScope, symbol: KaDeclarationSymbol?): Boolean {
+  private fun hasFakeOverrides(declaration: KtNamedDeclaration, useScope: SearchScope): Boolean {
       val ownerClass = declaration.containingClassOrObject as? KtClass ?: return false
       if (!ownerClass.isInheritable()) return false
-      val callableSymbol = symbol as? KaCallableSymbol ?: return false
-      if (callableSymbol.modality == KaSymbolModality.ABSTRACT) return false
+      val callableName = analyze(declaration) {
+          val symbol = declaration.symbol
+          if (symbol !is KaCallableSymbol) return false
+          val modality = symbol.modality
+          if (modality == KaSymbolModality.ABSTRACT) return false
+          symbol.callableId?.callableName
+      } ?: return false
+
       return ownerClass.findAllInheritors(useScope).any { element: PsiElement ->
           when (element) {
               is KtClassOrObject -> {
-                  val overridingCallableSymbol = element.classSymbol?.memberScope
-                      ?.callables { name -> name == callableSymbol.callableId?.callableName }?.filter {
-                          it.fakeOverrideOriginal == callableSymbol
-                      }?.singleOrNull() ?: return@any false
-                  overridingCallableSymbol != callableSymbol && overridingCallableSymbol.intersectionOverriddenSymbols
-                      .any { it != callableSymbol }
+                  analyze(element) {
+                      if (!element.canBeAnalysed()) return@any false
+
+                      val callableSymbol = declaration.symbol as KaCallableSymbol
+                      val overridingCallableSymbol = element.classSymbol
+                          ?.memberScope
+                          ?.callables(callableName)
+                          ?.singleOrNull {
+                              it.fakeOverrideOriginal == callableSymbol
+                          }
+                          ?: return@any false
+
+                      overridingCallableSymbol != callableSymbol && overridingCallableSymbol.intersectionOverriddenSymbols.any { it != callableSymbol }
+                  }
               }
               is PsiClass ->
                   declaration.toLightMethods().any { lightMethod ->
-
                       val sameMethods = element.findMethodsBySignature(lightMethod, true)
                       sameMethods.all { it.containingClass != element } &&
                               sameMethods.any { it.containingClass != lightMethod.containingClass }

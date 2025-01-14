@@ -2,7 +2,9 @@ package com.intellij.driver.sdk.ui.components
 
 import com.intellij.driver.client.Remote
 import com.intellij.driver.client.impl.DriverCallException
+import com.intellij.driver.client.impl.RefWrapper
 import com.intellij.driver.model.OnDispatcher
+import com.intellij.driver.model.RdTarget
 import com.intellij.driver.model.RemoteMouseButton
 import com.intellij.driver.sdk.*
 import com.intellij.driver.sdk.remoteDev.BeControlClass
@@ -10,8 +12,10 @@ import com.intellij.driver.sdk.remoteDev.EditorComponentImplBeControlBuilder
 import com.intellij.driver.sdk.ui.Finder
 import com.intellij.driver.sdk.ui.center
 import com.intellij.driver.sdk.ui.remote.Component
+import com.intellij.driver.sdk.ui.xQuery
 import org.intellij.lang.annotations.Language
 import java.awt.Point
+import kotlin.time.Duration.Companion.seconds
 
 fun Finder.editor(@Language("xpath") xpath: String? = null): JEditorUiComponent {
   return x(xpath ?: "//div[@class='EditorComponentImpl']",
@@ -32,7 +36,7 @@ fun Finder.editor(@Language("xpath") xpath: String? = null, action: JEditorUiCom
   x(xpath ?: "//div[@class='EditorComponentImpl']", JEditorUiComponent::class.java).action()
 }
 
-class JEditorUiComponent(data: ComponentData) : UiComponent(data) {
+open class JEditorUiComponent(data: ComponentData) : UiComponent(data) {
   private val editorComponent get() = driver.cast(component, EditorComponentImpl::class)
   private val document: Document by lazy { editor.getDocument() }
   private val caretPosition
@@ -82,6 +86,12 @@ class JEditorUiComponent(data: ComponentData) : UiComponent(data) {
     }
   }
 
+  fun getSelection(): String? {
+    return interact {
+      getSelectionModel().getSelectedText()
+    }
+  }
+
 
   fun deleteFile() {
     driver.withWriteAction {
@@ -98,19 +108,19 @@ class JEditorUiComponent(data: ComponentData) : UiComponent(data) {
 
   fun getFontSize() = editor.getColorsScheme().getEditorFontSize()
 
-  fun clickOn(text: String, button: RemoteMouseButton) {
-    val o = this.text.indexOf(text) + text.length / 2
+  fun clickOn(text: String, button: RemoteMouseButton, times: Int = 1) {
+    val offset = this.text.indexOf(text) + text.length / 2
     val point = interact {
-      val p = offsetToVisualPosition(o)
+      val p = offsetToVisualPosition(offset)
       visualPositionToXY(p)
     }
-    robot.click(component, point, button, 1)
+    robot.click(component, point, button, times)
   }
 
   fun setCaretPosition(line: Int, column: Int) {
     click()
     interact {
-      getCaretModel().moveToLogicalPosition(driver.logicalPosition(line - 1, column - 1))
+      getCaretModel().moveToLogicalPosition(driver.logicalPosition(line - 1, column - 1, (this as? RefWrapper)?.getRef()?.rdTarget ?: RdTarget.DEFAULT))
     }
   }
 
@@ -201,6 +211,11 @@ class GutterUiComponent(data: ComponentData) : UiComponent(data) {
     get() = gutter.getIconAreaOffset()
 
 
+  fun getGutterIcons(): List<GutterIcon> {
+    waitFor  { this.icons.isNotEmpty() }
+    return this.icons
+  }
+
   fun getIconName(line: Int) =
     icons.firstOrNull { it.line == line - 1 }?.mark?.getIcon().toString().substringAfterLast("/")
 
@@ -223,8 +238,32 @@ class GutterUiComponent(data: ComponentData) : UiComponent(data) {
     fun click() {
       click(location)
     }
+    fun getIconPath(): String {
+      return mark
+        .getIcon()
+        .toString()
+        .split(',', '(', ')')
+        .findLast { it.trim().startsWith("path") }!!.split('=')[1]
+    }
   }
 }
+
+enum class GutterIcon(val path: String) {
+  RUN("expui/gutter/run.svg"),
+  RUNSUCCESS("expui/gutter/runSuccess.svg"),
+  RUNERROR("expui/gutter/runError.svg"),
+  RERUN("expui/gutter/rerun.svg"),
+  BREAKPOINT("expui/breakpoints/breakpointValid.svg"),
+  NEXT_STATEMENT("expui/debugger/nextStatement.svg"),
+  GOTO("icons/expui/assocFile@14x14.svg"),
+  IMPLEMENT("expui/gutter/implementingMethod.svg")
+}
+
+data class GutterState(
+  val lineNumber: Int,
+  val iconPath: String = "",
+)
+
 
 class InlayHint(val offset: Int, val text: String)
 

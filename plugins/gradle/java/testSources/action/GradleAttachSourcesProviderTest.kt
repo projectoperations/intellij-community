@@ -4,11 +4,9 @@ package org.jetbrains.plugins.gradle.action
 import com.intellij.buildsystem.model.unified.UnifiedCoordinates
 import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.externalSystem.model.project.LibraryPathType
-import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskId
-import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskNotificationListener
-import com.intellij.openapi.externalSystem.service.notification.ExternalSystemProgressNotificationManager
 import com.intellij.openapi.roots.LibraryOrderEntry
 import com.intellij.openapi.roots.OrderRootType
+import com.intellij.openapi.util.io.toCanonicalPath
 import com.intellij.platform.backend.workspace.WorkspaceModelChangeListener
 import com.intellij.platform.backend.workspace.WorkspaceModelTopics
 import com.intellij.platform.workspace.jps.entities.LibraryEntity
@@ -20,7 +18,10 @@ import com.intellij.psi.JavaPsiFacade
 import com.intellij.psi.search.GlobalSearchScope
 import org.assertj.core.api.Assertions.assertThat
 import org.jetbrains.plugins.gradle.importing.GradleImportingTestCase
+import org.jetbrains.plugins.gradle.internal.daemon.DaemonState
+import org.jetbrains.plugins.gradle.internal.daemon.getDaemonsStatus
 import org.jetbrains.plugins.gradle.service.cache.GradleLocalCacheHelper
+import org.jetbrains.plugins.gradle.testFramework.util.ExternalSystemExecutionTracer
 import org.jetbrains.plugins.gradle.testFramework.util.createBuildFile
 import org.jetbrains.plugins.gradle.testFramework.util.importProject
 import org.jetbrains.plugins.gradle.tooling.annotation.TargetVersions
@@ -48,6 +49,48 @@ class GradleAttachSourcesProviderTest : GradleImportingTestCase() {
   override fun setUp() {
     super.setUp()
     removeCachedLibrary()
+  }
+
+  @Test
+  @TargetVersions("6.0+") // The Gradle Daemon below version 6.0 is unstable and causes test fluctuations
+  fun `test daemon reused for source downloading`() {
+    // a custom Gradle User Home is required to isolate execution of the test from different tests running at the same time
+    overrideGradleUserHome("test-daemon-reused-for-source-downloading")
+
+    val libraryGroup = "org.apache.commons"
+    val libraryName = "commons-lang3"
+    val libraryVersion = "3.17.0"
+    val libraryHash = "f409092a9f723034a839327029255900a19742b4"
+    removeCachedLibrary(
+      "caches/modules-2/files-2.1/$libraryGroup/$libraryName/$libraryVersion/$libraryHash/$libraryName-$libraryVersion-sources.jar"
+    )
+
+    assertNull(findDaemon())
+    importProject {
+      withJavaPlugin()
+      withMavenCentral()
+      addTestImplementationDependency(DEPENDENCY)
+      addTestImplementationDependency("$libraryGroup:$libraryName:$libraryVersion")
+    }
+
+    val daemonUsedForSync = findDaemon()
+    assertNotNull(daemonUsedForSync)
+
+    assertSourcesDownloadedAndAttached(targetModule = "project.test")
+    daemonUsedForSync!!.assertReused()
+
+    assertSourcesDownloadedAndAttached(
+      targetModule = "project.test",
+      dependencyName = "Gradle: $libraryGroup:$libraryName:$libraryVersion",
+      dependencyJar = "$libraryName-$libraryVersion.jar",
+      dependencySourcesJar = "$libraryName-$libraryVersion-sources.jar",
+      classFromDependency = "org.apache.commons.lang3.StringUtils"
+    )
+    daemonUsedForSync.assertReused()
+  }
+
+  private fun DaemonState.assertReused() {
+    assertEquals(this, findDaemon())
   }
 
   @Test
@@ -153,26 +196,18 @@ class GradleAttachSourcesProviderTest : GradleImportingTestCase() {
       JavaPsiFacade.getInstance(myProject).findClass(classFromDependency, GlobalSearchScope.allScope(myProject))!!.containingFile
     }
 
-    val output = mutableListOf<String>()
-    val listener = object : ExternalSystemTaskNotificationListener {
-      override fun onTaskOutput(id: ExternalSystemTaskId, text: String, stdOut: Boolean) {
-        output += text
+    val tracker = ExternalSystemExecutionTracer()
+    tracker.traceExecution(ExternalSystemExecutionTracer.PrintOutputMode.ON_EXCEPTION) {
+      waitUntilSourcesAttached(dependencyName) {
+        val attachSourcesProvider = GradleAttachSourcesProvider()
+        val attachSourcesActions = attachSourcesProvider.getActions(mutableListOf(library), psiFile)
+        val attachSourcesAction = attachSourcesActions.single()
+        val attachSourcesCallback = attachSourcesAction.perform(mutableListOf(library))
+        attachSourcesCallback.waitFor(actionExecutionDeadlineMs)
+        assertNull(attachSourcesCallback.error)
       }
     }
-    waitUntilSourcesAttached {
-      try {
-        ExternalSystemProgressNotificationManager.getInstance().addNotificationListener(listener)
-        val callback = GradleAttachSourcesProvider().getActions(mutableListOf(library), psiFile)
-          .single()
-          .perform(mutableListOf(library))
-          .apply { waitFor(actionExecutionDeadlineMs) }
-        assertNull(callback.error)
-      }
-      finally {
-        ExternalSystemProgressNotificationManager.getInstance().removeNotificationListener(listener)
-      }
-    }
-    assertThat(output)
+    assertThat(tracker.output)
       .filteredOn { it.startsWith("Sources were downloaded to") }
       .hasSize(1)
       .allSatisfy(Consumer { assertThat(it).endsWith(dependencySourcesJar) })
@@ -203,7 +238,25 @@ class GradleAttachSourcesProviderTest : GradleImportingTestCase() {
       })
     action.invoke()
     if (!latch.await(10, TimeUnit.SECONDS)) {
-      LOG.error("A timeout has been reached while waiting for the library sources")
+      throw AssertionError("A timeout has been reached while waiting for the library sources")
+    }
+  }
+
+  private fun findDaemon(): DaemonState? {
+    val daemons = getDaemonsStatus(setOf(gradleUserHome.toCanonicalPath()))
+    if (daemons.isEmpty()) {
+      return null
+    }
+    return daemons.find {
+      if (gradleVersion != it.version) {
+        return@find false
+      }
+      val daemonUserHome = it.registryDir?.toPath() ?: throw IllegalStateException("Gradle daemon user home should not be null")
+      if (daemonUserHome != gradleUserHome.resolve("daemon")) {
+        return@find false
+      }
+      val daemonJdkHome = it.javaHome?.canonicalPath ?: throw IllegalStateException("Gradle JDK should never be null")
+      gradleJdkHome == daemonJdkHome
     }
   }
 }

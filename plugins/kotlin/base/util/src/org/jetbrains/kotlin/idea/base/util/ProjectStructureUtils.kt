@@ -171,11 +171,22 @@ fun PsiElement.isUnderKotlinSourceRootTypes(): Boolean {
     return projectFileIndex.isUnderSourceRootOfType(file, KOTLIN_AWARE_SOURCE_ROOT_TYPES)
 }
 
-private val GRADLE_SYSTEM_ID = ProjectSystemId("GRADLE")
+/* We use this constant in the Kotlin plugin because we can't use GradleConstants.SYSTEM_ID now because we don't have plugin.xml in this
+ module.
+ Can be fixed when there is order in module dependencies.
+ See IDEA-353391 Use correct project system ids for Gradle and Maven */
+val GRADLE_SYSTEM_ID: ProjectSystemId = ProjectSystemId("GRADLE")
 
 val Module.isGradleModule: Boolean
     get() = ExternalSystemApiUtil.isExternalSystemAwareModule(GRADLE_SYSTEM_ID, this)
 
+/*
+This constant should be "MAVEN" but changing it breaks the tests:
+org.jetbrains.kotlin.idea.maven.MavenUpdateConfigurationQuickFixTest12.testAddKotlinReflect
+org.jetbrains.kotlin.idea.maven.MavenKotlinBuildSystemDependencyManagerTest.testMavenDependencyManagerIsApplicable
+
+Should be fixed in the scope of IDEA-353391 Use correct project system ids for Gradle and Maven
+ */
 private val MAVEN_SYSTEM_ID = ProjectSystemId("Maven")
 
 val Module.isMavenModule: Boolean

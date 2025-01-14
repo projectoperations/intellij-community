@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.options;
 
 import com.intellij.ide.ui.search.BooleanOptionDescription;
@@ -12,10 +12,7 @@ import com.intellij.ui.dsl.builder.Panel;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.JBIterable;
 import kotlin.reflect.KMutableProperty0;
-import org.jetbrains.annotations.Nls;
-import org.jetbrains.annotations.NonNls;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.*;
 
 import javax.swing.*;
 import java.lang.reflect.Field;
@@ -286,8 +283,8 @@ public abstract class BeanConfigurable<T> implements UnnamedConfigurable, Config
   }
 
   @Override
-  public @NotNull List<OptionDescription> getOptionDescriptors(@NotNull String configurableId,
-                                                               @NotNull Function<? super String, @Nls String> nameConverter) {
+  public @Unmodifiable @NotNull List<OptionDescription> getOptionDescriptors(@NotNull String configurableId,
+                                                                             @NotNull Function<? super String, @Nls String> nameConverter) {
     List<CheckboxField> boxes = JBIterable.from(myFields).filter(CheckboxField.class).toList();
     Object instance = getInstance();
     return ContainerUtil.map(boxes, box -> new BooleanOptionDescription(nameConverter.apply(box.getTitle()), configurableId) {
@@ -335,7 +332,7 @@ public abstract class BeanConfigurable<T> implements UnnamedConfigurable, Config
     }
   }
 
-  private List<JComponent> getComponents() {
+  private @Unmodifiable List<JComponent> getComponents() {
     return ContainerUtil.map(myFields, field -> field.getComponent());
   }
 }

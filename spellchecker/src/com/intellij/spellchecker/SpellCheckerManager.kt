@@ -26,7 +26,7 @@ import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.io.FileUtilRt
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vfs.*
-import com.intellij.project.getProjectStoreDirectory
+import com.intellij.project.stateStore
 import com.intellij.spellchecker.SpellCheckerManager.Companion.restartInspections
 import com.intellij.spellchecker.dictionary.*
 import com.intellij.spellchecker.engine.SpellCheckerEngine
@@ -55,8 +55,13 @@ class SpellCheckerManager @Internal constructor(@Internal val project: Project, 
   private var projectDictionary: ProjectDictionary? = null
   private var appDictionary: EditableDictionary? = null
 
-  internal val projectDictionaryPath: String
-  internal val appDictionaryPath: String
+  internal val projectDictionaryPath: String by lazy {
+    val projectStoreDir = project.takeIf { !it.isDefault }?.stateStore?.directoryStorePath
+    projectStoreDir?.toAbsolutePath()?.resolve(PROJECT_DICTIONARY_PATH)?.toString() ?: ""
+  }
+  internal val appDictionaryPath: String by lazy {
+    PathManager.getOptionsPath() + File.separator + CACHED_DICTIONARY_FILE
+  }
 
   private val userDictionaryListenerEventDispatcher = EventDispatcher.create(DictionaryStateListener::class.java)
 
@@ -73,10 +78,7 @@ class SpellCheckerManager @Internal constructor(@Internal val project: Project, 
     }
 
     fullConfigurationReload()
-    @Suppress("DEPRECATION")
-    val projectStoreDir = project.baseDir?.let { getProjectStoreDirectory(it) }
-    projectDictionaryPath = if (projectStoreDir == null) "" else projectStoreDir.path + File.separator + PROJECT_DICTIONARY_PATH
-    appDictionaryPath = PathManager.getOptionsPath() + File.separator + CACHED_DICTIONARY_FILE
+
     LocalFileSystem.getInstance().addVirtualFileListener(CustomDictFileListener(project = project, manager = this), this)
     BUNDLED_EP_NAME.addChangeListener({ fillEngineDictionary(spellChecker!!) }, this)
     RuntimeDictionaryProvider.EP_NAME.addChangeListener(coroutineScope) { fillEngineDictionary(spellChecker!!) }

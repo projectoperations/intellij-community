@@ -293,8 +293,6 @@ public final class BackgroundUpdateHighlightersUtil {
     TextAttributes infoAttributes = info.getTextAttributes(psiFile, colorsScheme);
     Consumer<RangeHighlighterEx> changeAttributes = finalHighlighter -> {
       changeAttributes(finalHighlighter, info, colorsScheme, psiFile, infoAttributes);
-
-      range2markerCache.put(finalInfoRange, finalHighlighter);
       info.updateQuickFixFields(document, range2markerCache, finalInfoRange);
     };
 
@@ -314,12 +312,13 @@ public final class BackgroundUpdateHighlightersUtil {
     if (salvagedHighlighter == null) {
       highlighter = markup.addRangeHighlighterAndChangeAttributes(null, infoStartOffset, infoEndOffset, layer,
                                                                   HighlighterTargetArea.EXACT_RANGE, false, changeAttributes);
-      info.setHighlighter(highlighter);
     }
     else {
       highlighter = salvagedHighlighter;
       markup.changeAttributesInBatch(highlighter, changeAttributes);
     }
+    info.setHighlighter(highlighter);
+    range2markerCache.put(finalInfoRange, highlighter);
 
     if (LOG.isDebugEnabled()) {
       LOG.debug("createOrReuseHighlighter " + highlighter + (salvagedHighlighter == null ? "" : " (recycled)"));
@@ -349,17 +348,14 @@ public final class BackgroundUpdateHighlightersUtil {
     TextAttributesKey textAttributesKey = info.forcedTextAttributesKey == null ? info.type.getAttributesKey() : info.forcedTextAttributesKey;
     highlighter.setTextAttributesKey(textAttributesKey);
 
-    TextAttributes highlighterTextAttributes = highlighter.getTextAttributes(colorsScheme);
-    if (infoAttributes == TextAttributes.ERASE_MARKER ||
-        infoAttributes != null && !infoAttributes.equals(highlighterTextAttributes)) {
+    if (infoAttributes != null) {
       highlighter.setTextAttributes(infoAttributes);
     }
 
-    info.setHighlighter(highlighter);
     highlighter.setAfterEndOfLine(info.isAfterEndOfLine());
 
     Color infoErrorStripeColor = info.getErrorStripeMarkColor(psiFile, colorsScheme);
-    Color attributesErrorStripeColor = highlighterTextAttributes != null ? highlighterTextAttributes.getErrorStripeColor() : null;
+    Color attributesErrorStripeColor = infoAttributes != null ? infoAttributes.getErrorStripeColor() : null;
     if (infoErrorStripeColor != null && !infoErrorStripeColor.equals(attributesErrorStripeColor)) {
       highlighter.setErrorStripeMarkColor(infoErrorStripeColor);
     }

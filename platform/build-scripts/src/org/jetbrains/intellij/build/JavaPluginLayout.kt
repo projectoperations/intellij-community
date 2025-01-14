@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build
 
 import org.jetbrains.intellij.build.impl.LibraryPackMode
@@ -15,7 +15,7 @@ object JavaPluginLayout {
 
       spec.excludeFromModule("intellij.java.resources.en", "search/searchableOptions.xml")
 
-      spec.withProjectLibrary("netty-codec-protobuf", "netty-codec-protobuf.jar")
+      spec.withProjectLibrary("netty-jps", "rt/netty-jps.jar")
 
       spec.withModule("intellij.platform.jps.build.launcher", "jps-launcher.jar")
       spec.withModule("intellij.platform.jps.build", "jps-builders.jar")
@@ -53,11 +53,13 @@ object JavaPluginLayout {
         "intellij.java.frontback.impl",
         "intellij.java.frontback.psi",
         "intellij.java.frontback.psi.impl",
+        "intellij.java.debugger.impl.shared",
       )) {
         spec.withModule(moduleName, "java-frontback.jar")
       }
 
       spec.withModules(listOf(
+        "intellij.java.codeserver.highlighting",
         "intellij.java.compiler.impl",
         "intellij.java.debugger.impl",
         "intellij.java.terminal",
@@ -88,7 +90,7 @@ object JavaPluginLayout {
       // used in JPS - do not use uber jar
       spec.withProjectLibrary("jgoodies-common", LibraryPackMode.STANDALONE_MERGED)
       spec.withProjectLibrary("jps-javac-extension", LibraryPackMode.STANDALONE_MERGED)
-      spec.withProjectLibrary("jetbrains.kotlinx.metadata.jvm", LibraryPackMode.STANDALONE_MERGED)
+      spec.withProjectLibrary("kotlin-metadata", LibraryPackMode.STANDALONE_MERGED)
       // gpl-cpe license - do not use uber jar
       spec.withProjectLibrary("jb-jdi", LibraryPackMode.STANDALONE_MERGED)
 
@@ -116,6 +118,7 @@ object JavaPluginLayout {
         "intellij.java.frontback.impl",
         "intellij.java.frontback.psi",
         "intellij.java.frontback.psi.impl",
+        "intellij.java.debugger.impl.shared",
       ))
     }
   }

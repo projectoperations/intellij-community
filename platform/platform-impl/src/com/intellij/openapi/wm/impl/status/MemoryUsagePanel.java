@@ -1,8 +1,10 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.wm.impl.status;
 
+import com.intellij.diagnostic.PlatformMemoryUtil;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.wm.CustomStatusBarWidget;
+import com.intellij.platform.util.io.storages.mmapped.MMappedFileStorage;
 import com.intellij.ui.ClickListener;
 import com.intellij.ui.Gray;
 import com.intellij.ui.JBColor;
@@ -12,7 +14,7 @@ import com.intellij.util.LazyInitializer.LazyValue;
 import com.intellij.util.concurrency.EdtExecutorService;
 import com.intellij.util.io.DirectByteBufferAllocator;
 import com.intellij.util.io.IOUtil;
-import com.intellij.platform.util.io.storages.mmapped.MMappedFileStorage;
+import com.intellij.util.io.StorageLockContext;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.update.Activatable;
@@ -102,6 +104,10 @@ public final class MemoryUsagePanel implements CustomStatusBarWidget, Activatabl
         public boolean onClick(@NotNull MouseEvent event, int clickCount) {
           //noinspection CallToSystemGC
           System.gc();
+          StorageLockContext.forceDirectMemoryCache();
+          DirectByteBufferAllocator.ALLOCATOR.releaseCachedBuffers();
+          PlatformMemoryUtil.getInstance().trimLinuxNativeHeap();
+
           updateState();
           return true;
         }
@@ -171,7 +177,9 @@ public final class MemoryUsagePanel implements CustomStatusBarWidget, Activatabl
 
     @Override
     protected String getTextForPreferredSize() {
-      long maxMemoryMb = toMb(Runtime.getRuntime().maxMemory());
+      long maxMemoryMb = Registry.is(SHOW_TOTAL_MEMORY_ESTIMATION_REGISTRY_KEY)
+                         ? toMb(Runtime.getRuntime().maxMemory()) * 2
+                         : toMb(Runtime.getRuntime().maxMemory());
       long sample = maxMemoryMb < 1000 ? 999 :
                     maxMemoryMb < 10_000 ? 9_999 : 99_999;
       //if -Xmx > 100Gb -- well, I'm sorry

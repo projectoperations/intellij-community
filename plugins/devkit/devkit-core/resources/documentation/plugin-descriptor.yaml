@@ -1,8 +1,8 @@
 #file: noinspection MarkdownUnresolvedHeaderReference,RequiredAttributes,MarkdownUnresolvedFileReference
 
 # This file content is rendered by:
-# - SDK Docs (see https://github.com/JetBrains/intellij-sdk-docs/blob/main/.github/scripts/plugin_configuration_file_generation.main.kts)
-# - org.jetbrains.idea.devkit.documentation.PluginDescriptorDocumentationProvider
+# - SDK Docs (see https://github.com/JetBrains/intellij-sdk-docs/blob/main/.github/scripts/generate_descriptor_pages.main.kts)
+# - org.jetbrains.idea.devkit.documentation.PluginDescriptorDocumentationTargetProvider
 # Textual values must be compatible with Writerside Markdown format.
 # Some of the Writerside-specific markup require cleaning up
 # (see org.jetbrains.idea.devkit.documentation.DocumentationRenderer.removeWritersideSpecificTags).
@@ -50,7 +50,7 @@ elements:
               It should be a fully qualified name similar to Java packages and must not collide with the ID of existing plugins.
               The ID is a technical value used to identify the plugin in the IDE and [JetBrains Marketplace](https://plugins.jetbrains.com).
               Please use characters, numbers, and `'.'`/`'-'`/`'_'` symbols only and keep it reasonably short.
-            
+              
               > Make sure to pick a stable ID, as the value cannot be changed later after public release.
               >
               {style="warning"}
@@ -72,7 +72,7 @@ elements:
             examples:
               - |
                 ```xml
-                <id>com.company.framework</id>
+                <id>com.example.framework</id>
                 ```
 
         - element:
@@ -419,7 +419,7 @@ elements:
 
         - element:
             name: incompatible-with
-            since: 2020.2
+            since: "2020.2"
             #language=Markdown
             references:
               - |
@@ -462,27 +462,89 @@ elements:
             #language=Markdown
             examples:
               - |
-                Extensions' declaration with the default namespace:
-                ```xml
-                <extensions defaultExtensionNs="com.intellij">
-                  <applicationService
-                      serviceImplementation="com.example.Service"/>
-                </extensions>
-                ```
+                Extensions' declaration with a default namespace:
+                    ```xml
+                    <extensions defaultExtensionNs="com.intellij">
+                      <applicationService
+                          serviceImplementation="com.example.Service"/>
+                    </extensions>
+                    ```
               - |
                 Extensions' declaration using the fully qualified extension name:
-                ```xml
-                <extensions>
-                  <com.example.vcs.myExtension
-                      implementation="com.example.MyExtension"/>
-                </extensions>
-                ```
+                    ```xml
+                    <extensions>
+                      <com.example.vcs.myExtension
+                          implementation="com.example.MyExtension"/>
+                    </extensions>
+                    ```
             #language=Markdown
             childrenDescription: |
-              The children elements are registrations of the extension points defined by
-              [`<extensionPoint>`](#element:idea-plugin__extensionPoints__extensionPoint) elements. Extension elements names follow the EPs names
-              defined by [`name`](#attribute:idea-plugin__extensionPoints__extensionPoint__name)
+              The children elements are registrations of instances
+              of [extension points](#element:idea-plugin__extensionPoints__extensionPoint) provided by the IntelliJ Platform or plugins.
+              <br/>
+              An extension element name is defined by its extension point via
+              [`name`](#attribute:idea-plugin__extensionPoints__extensionPoint__name)
               or [`qualifiedName`](#attribute:idea-plugin__extensionPoints__extensionPoint__qualifiedName) attributes.
+              <br/>
+              An extension element attributes depend on the extension point implementation, but all extensions support basic attributes:
+              [`id`](#attribute:idea-plugin__extensions__*__id), [`order`](#attribute:idea-plugin__extensions__*__order),
+              and [`os`](#attribute:idea-plugin__extensions__*__os).
+            children:
+              - element:
+                  name: "*"
+                  descriptiveName: "An Extension"
+                  #language=Markdown
+                  description: |
+                    An extension instance registered under [`<extensions>`](#element:idea-plugin__extensions).
+                    
+                    Listed attributes are basic attributes available for all extensions.
+                    The list of actual attributes can be longer depending on the extension point implementation.
+                  attributes:
+                    - attribute:
+                        name: id
+                        requirement:
+                          required: no
+                        #language=Markdown
+                        description: |
+                          Unique extension identifier.
+                          It allows for referencing an extension in the [`order`](#attribute:idea-plugin__extensions__*__order) attribute.
+                          <br/>
+                          To not clash with other plugins defining extensions with the same identifier,
+                          consider prepending the identifier with a prefix related to the plugin [`<id>`](#element:idea-plugin__id) or 
+                          [`<name>`](#element:idea-plugin__name), for example, `id="com.example.myplugin.myExtension"`.
+                    - attribute:
+                        name: order
+                        requirement:
+                          required: no
+                        #language=Markdown
+                        description: |
+                          Allows for ordering the extension relative to other instances of the same extension point.
+                          Supported values:
+                            - `first` - orders the extension as first.
+                               It is not guaranteed that the extension will be the first if multiple extensions are defined as `first`.
+                            - `last` - orders the extension as last.
+                               It is not guaranteed that the extension will be the last if multiple extensions are defined as `last`.
+                            - `before extension_id` - orders the extension before an extension with
+                               the given [`id`](#attribute:idea-plugin__extensions__*__id)
+                            - `after extension_id` - orders the extension after an extension with
+                               the given [`id`](#attribute:idea-plugin__extensions__*__id)
+                          <br/>
+                          Values can be combined, for example, `order="after extensionY, before extensionX"`.
+                    - attribute:
+                        name: os
+                        requirement:
+                          required: no
+                        #language=Markdown
+                        description: |
+                          Allows restricting an extension to a given OS.
+                          Supported values:
+                            - `freebsd`
+                            - `linux`
+                            - `mac`
+                            - `unix`
+                            - `windows`
+                          
+                          For example, `os="windows"` registers the extension on Windows only.
         - element:
             name: extensionPoints
             #language=Markdown
@@ -518,11 +580,13 @@ elements:
                         #language=Markdown
                         description: |
                           The extension point name that should be unique in the scope of the plugin, e.g., `myExtension`.
-                          The fully qualified name of the extension point is built at runtime by prepending the value of the `name` attribute
-                          with the plugin [`<id>`](#element:idea-plugin__id) + `.` prefix.
-                          Only one of the `name` and [`qualifiedName`](#attribute:idea-plugin__extensionPoints__extensionPoint__qualifiedName) attributes can be specified.<br/>
+                          The fully qualified name of the extension point is built at runtime by prepending the value of the `name`
+                          attribute with the plugin [`<id>`](#element:idea-plugin__id) + `.` prefix.<br/>
                           Example: when the `name` is `myExtension` and plugin ID is `com.example.myplugin`, the fully qualified name of
-                          the EP will be `com.example.myplugin.myExtension`.
+                          the EP will be `com.example.myplugin.myExtension`.<br/>
+                          Only one of the `name` and
+                          [`qualifiedName`](#attribute:idea-plugin__extensionPoints__extensionPoint__qualifiedName) attributes can be
+                          specified.
                     - attribute:
                         name: qualifiedName
                         requirement:
@@ -534,7 +598,7 @@ elements:
                         description: |
                           The fully qualified name of the extension point.
                           It should be unique between different plugins, and it is recommended to include a plugin ID to guarantee uniqueness,
-                          e.g., `com.example.myplugin.myExtension`.
+                          e.g., `com.example.myplugin.myExtension`.<br/>
                           Only one of the [`name`](#attribute:idea-plugin__extensionPoints__extensionPoint__name) and `qualifiedName` attributes can be specified.
                     - attribute:
                         name: interface
@@ -545,10 +609,8 @@ elements:
                               `interface` or [`beanClass`](#attribute:idea-plugin__extensionPoints__extensionPoint__beanClass) is **required**
                         #language=Markdown
                         description: |
-                          The fully qualified name of the interface to be implemented for extending the plugin's functionality.
+                          The fully qualified name of the interface to be implemented for extending the plugin's functionality.<br/>
                           Only one of the `interface` and [`beanClass`](#attribute:idea-plugin__extensionPoints__extensionPoint__beanClass) attributes can be specified.
-                          See [Extension Points](https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html) for more
-                          information.
                     - attribute:
                         name: beanClass
                         requirement:
@@ -558,10 +620,15 @@ elements:
                               [`interface`](#attribute:idea-plugin__extensionPoints__extensionPoint__interface) or `beanClass` is **required**
                         #language=Markdown
                         description: |
-                          The fully qualified name of the extension point bean class providing additional information to the plugin.
+                          The fully qualified name of the extension point bean class providing additional information to the plugin.<br/>
+                          The bean class specifies one or several properties annotated with the
+                          [`@Attribute`](%gh-ic%/platform/util/src/com/intellij/util/xmlb/annotations/Attribute.java){fqn="com.intellij.util.xmlb.annotations.Attribute"}
+                          annotation.
+                          Note that bean classes do not follow the JavaBean standard.
+                          Implement
+                          [`PluginAware`](%gh-ic%/platform/extensions/src/com/intellij/openapi/extensions/PluginAware.java){fqn="com.intellij.openapi.extensions.PluginAware"}
+                          to obtain information about the plugin providing the actual extension (see [Error Handling](https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html#error-handling)).<br/>
                           Only one of the [`interface`](#attribute:idea-plugin__extensionPoints__extensionPoint__interface) and `beanClass` attributes can be specified.
-                          See [Extension Points](https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html) for more
-                          information.
                     - attribute:
                         name: dynamic
                         requirement:
@@ -608,7 +675,7 @@ elements:
                               #language=Markdown
                               description: |
                                 The name of the tag holding the fully qualified name of the class which parent type will be limited
-                                by the type provided in the [`implements`](#attribute:idea-plugin__extensionPoints__extensionPoint__with__implements) attribute.
+                                by the type provided in the [`implements`](#attribute:idea-plugin__extensionPoints__extensionPoint__with__implements) attribute.<br/>
                                 Only one of the `tag` and [`attribute`](#attribute:idea-plugin__extensionPoints__extensionPoint__with__attribute) attributes can be specified.
                           - attribute:
                               name: attribute
@@ -620,7 +687,7 @@ elements:
                               #language=Markdown
                               description: |
                                 The name of the attribute holding the fully qualified name of the class which parent type will be limited
-                                by the type provided in the [`implements`](#attribute:idea-plugin__extensionPoints__extensionPoint__with__implements) attribute.
+                                by the type provided in the [`implements`](#attribute:idea-plugin__extensionPoints__extensionPoint__with__implements) attribute.<br/>
                                 Only one of the [`tag`](#attribute:idea-plugin__extensionPoints__extensionPoint__with__tag) and `attribute` attributes can be specified.
                           - attribute:
                               name: implements
@@ -694,7 +761,7 @@ elements:
             attributes:
               - attribute:
                   name: resource-bundle
-                  since: 2020.1
+                  since: "2020.1"
                   requirement:
                     required: no
                   #language=Markdown
@@ -1004,9 +1071,10 @@ elements:
                     - element: &overrideText
                         name: override-text
                         sdkDocsFixedPath: [idea-plugin, actions, action, override-text]
-                        since: 2020.1
+                        since: "2020.1"
                         #language=Markdown
-                        description: Defines an alternate version of the text for the menu action or group.
+                        description: |
+                          Defines an alternate menu action or group text depending on context: menu location, toolbar, and other.
                         #language=Markdown
                         sdkDocsSupportDetails: |
                           2020.1+ for actions<br/>
@@ -1043,9 +1111,22 @@ elements:
                           - |
                             Explicitly overridden text:
                                 ```xml
-                                <override-text
-                                    place="MainMenu"
-                                    text="Collect _Garbage"/>
+                                <!--
+                                Default action text:
+                                "Garbage Collector: Collect _Garbage"
+                                -->
+                                <action
+                                    class="com.example.CollectGarbage"
+                                    text="Garbage Collector: Collect _Garbage"
+                                    ...>
+                                  <!--
+                                  Alternate text displayed anywhere in the main menu:
+                                  "Collect _Garbage"
+                                  -->
+                                  <override-text
+                                      place="MainMenu"
+                                      text="Collect _Garbage"/>
+                                </action>
                                 ```
                           - |
                             Overridden text reused from the `MainMenu` place:
@@ -1057,7 +1138,7 @@ elements:
                     - element:
                         name: synonym
                         sdkDocsFixedPath: [idea-plugin, actions, action, synonym]
-                        since: 2020.3
+                        since: "2020.3"
                         #language=Markdown
                         description: |
                           Defines an alternative text for searching the action in <ui-path>Help | Find Action...</ui-path> or
@@ -1074,7 +1155,7 @@ elements:
                                   - |
                                     `key` or [`text`](#attribute:idea-plugin__actions__action__synonym__text) is **required**
                               #language=Markdown
-                              description: The key of the synonym text provided in a message bundle.
+                              description: The key of the synonym text provided in a [message bundle](https://plugins.jetbrains.com/docs/intellij/basic-action-system.html#localizing-actions-and-groups).
                           - attribute:
                               name: text
                               requirement:
@@ -1204,7 +1285,7 @@ elements:
                           The ID of the action whose keyboard shortcut this group will use.
                     - attribute:
                         name: searchable
-                        since: 2020.3
+                        since: "2020.3"
                         requirement:
                           required: no
                         #language=Markdown
@@ -1267,6 +1348,15 @@ elements:
                                 required: yes
                               #language=Markdown
                               description: The ID of the action to add to a group.
+                          - attribute:
+                              name: id
+                              requirement:
+                                required: no
+                              #language=Markdown
+                              deprecationNote: |
+                                Use [`ref`](#attribute:idea-plugin__actions__reference__ref) instead.
+                              #language=Markdown
+                              description: The ID of the action to add to a group.
                         #language=Markdown
                         examples:
                           - |
@@ -1312,7 +1402,7 @@ elements:
                                 required: no
                               #language=Markdown
                               description: |
-                                The message key for the separator text.
+                                The [message key]([message key](https://plugins.jetbrains.com/docs/intellij/basic-action-system.html#localizing-actions-and-groups)) for the separator text.
                                 The message bundle for use should be registered via the [`resource-bundle`](#attribute:idea-plugin__actions__resource-bundle) attribute of
                                 the [`<actions>`](#element:idea-plugin__actions) element.
                                 The attribute is ignored if the [`text`](#attribute:idea-plugin__group__separator) attribute is specified.
@@ -1354,7 +1444,7 @@ elements:
               - element: *reference
         - element:
             name: applicationListeners
-            since: 2019.3
+            since: "2019.3"
             #language=Markdown
             references:
               - |
@@ -1368,7 +1458,7 @@ elements:
               - element: &listener
                   name: listener
                   sdkDocsFixedPath: [idea-plugin, applicationListeners, listener]
-                  since: 2019.3
+                  since: "2019.3"
                   #language=Markdown
                   references:
                     - |
@@ -1397,7 +1487,7 @@ elements:
                           The fully qualified name of the class implementing the listener interface that receives and handles the events.
                     - attribute:
                         name: os
-                        since: 2020.1
+                        since: "2020.1"
                         requirement:
                           required: no
                         #language=Markdown
@@ -1441,7 +1531,7 @@ elements:
                       ```
         - element:
             name: projectListeners
-            since: 2019.3
+            since: "2019.3"
             #language=Markdown
             references:
               - |
@@ -1455,7 +1545,7 @@ elements:
               - element: *listener
         - element:
             name: application-components
-            deprecatedSince: &componentsDeprecatedSince 2020.1
+            deprecatedSince: &componentsDeprecatedSince "2020.1"
             #language=Markdown
             deprecationNote: &componentsDeprecationNote |
               Do not use it in new plugins.

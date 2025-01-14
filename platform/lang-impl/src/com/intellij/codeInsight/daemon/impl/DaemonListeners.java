@@ -341,7 +341,7 @@ public final class DaemonListeners implements Disposable {
       @Override
       public void beforeModalityStateChanged(boolean entering, @NotNull Object modalEntity) {
         // before showing dialog we are in non-modal context yet, and before closing dialog we are still in modal context
-        boolean inModalContext = Registry.is("ide.perProjectModality") || LaterInvocator.isInModalContext();
+        boolean inModalContext = LaterInvocator.isInModalContext();
         stopDaemon(inModalContext, "Modality change. Was modal: " + inModalContext);
         myDaemonCodeAnalyzer.setUpdateByTimerEnabled(inModalContext);
       }
@@ -456,7 +456,7 @@ public final class DaemonListeners implements Disposable {
       MarkupModel documentMarkupModel = DocumentMarkupModel.forDocument(editor.getDocument(), myProject, false);
       List<RangeHighlighter> toRemove = documentMarkupModel == null ? List.of() : ContainerUtil.filter(documentMarkupModel.getAllHighlighters(), highlighter -> {
         HighlightInfo info = HighlightInfo.fromRangeHighlighter(highlighter);
-        return info != null && (info.isFromInspection() || info.isFromAnnotator() || info.isFromHighlightVisitor() || info.isInjectionRelated());
+        return info != null && (info.isFromInspection() || info.isFromAnnotator() || info.isFromHighlightVisitor() || info.isFromInjection());
       });
       for (RangeHighlighter highlighter : toRemove) {
         HighlightInfo info = HighlightInfo.fromRangeHighlighter(highlighter);

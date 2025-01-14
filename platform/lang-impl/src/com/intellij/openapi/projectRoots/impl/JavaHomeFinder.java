@@ -9,6 +9,8 @@ import com.intellij.openapi.util.registry.Registry;
 import com.intellij.platform.eel.EelApi;
 import com.intellij.platform.eel.EelPlatform;
 import com.intellij.platform.eel.path.EelPath;
+import com.intellij.platform.eel.provider.EelNioBridgeServiceKt;
+import com.intellij.platform.eel.provider.EelProviderUtil;
 import com.intellij.util.EnvironmentUtil;
 import com.intellij.util.SystemProperties;
 import com.intellij.util.containers.ContainerUtil;
@@ -27,7 +29,7 @@ import java.util.Collections;
 import java.util.List;
 
 import static com.intellij.openapi.projectRoots.impl.JavaHomeFinderEel.javaHomeFinderEel;
-import static com.intellij.platform.eel.provider.EelProviderUtil.getEelApiBlocking;
+import static com.intellij.platform.eel.impl.utils.EelProviderUtilsKt.getEelApiBlocking;
 import static com.intellij.platform.eel.provider.EelProviderUtil.getLocalEel;
 
 @ApiStatus.Internal
@@ -164,7 +166,7 @@ public abstract class JavaHomeFinder {
   }
 
   private static @Nullable Path defaultJavaLocationUsingEel(Path path) {
-    EelApi eel = getEelApiBlocking(path);
+    EelApi eel = EelProviderUtil.getEelApiBlocking(path);
     EelPlatform platform = eel.getPlatform();
     String eelPath = null;
     if (platform instanceof EelPlatform.Windows) {
@@ -175,7 +177,7 @@ public abstract class JavaHomeFinder {
     }
     if (platform instanceof EelPlatform.Linux) {
       String defaultLinuxPathRepresentation = "/opt/java";
-      Path defaultLinuxPath = eel.getMapper().toNioPath(EelPath.Absolute.parse(defaultLinuxPathRepresentation, platform.pathOs()));
+      Path defaultLinuxPath = EelNioBridgeServiceKt.asNioPath(EelPath.parse(defaultLinuxPathRepresentation, eel.getDescriptor()));
       if (Files.exists(defaultLinuxPath)) {
         eelPath = defaultLinuxPathRepresentation;
       }
@@ -183,13 +185,9 @@ public abstract class JavaHomeFinder {
         eelPath = eel.getUserInfo().getHome().toString();
       }
     }
-    if (SystemInfo.isSolaris) {
-      // todo: Do we need solaris in Eel?
-      eelPath = "/usr/jdk";
-    }
     if (eelPath != null) {
-      EelPath.Absolute absoluteLocation = EelPath.Absolute.parse(eelPath, platform.pathOs());
-      return eel.getMapper().toNioPath(absoluteLocation);
+      EelPath absoluteLocation = EelPath.parse(eelPath, eel.getDescriptor());
+      return EelNioBridgeServiceKt.asNioPathOrNull(absoluteLocation);
     }
     return null;
   }

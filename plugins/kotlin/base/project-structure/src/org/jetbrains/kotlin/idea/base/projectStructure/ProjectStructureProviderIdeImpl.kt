@@ -14,7 +14,9 @@ import com.intellij.openapi.roots.ProjectRootModificationTracker
 import com.intellij.openapi.roots.libraries.Library
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.backend.workspace.workspaceModel
+import com.intellij.platform.workspace.jps.entities.LibraryEntity
 import com.intellij.platform.workspace.jps.entities.LibraryId
+import com.intellij.platform.workspace.jps.entities.ModuleEntity
 import com.intellij.platform.workspace.jps.entities.ModuleId
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
@@ -35,12 +37,14 @@ import org.jetbrains.kotlin.analysis.api.platform.projectStructure.KotlinProject
 import org.jetbrains.kotlin.analysis.api.projectStructure.*
 import org.jetbrains.kotlin.analysis.decompiler.psi.BuiltinsVirtualFileProvider
 import org.jetbrains.kotlin.analyzer.ModuleInfo
+import org.jetbrains.kotlin.idea.base.facet.implementingModules
 import org.jetbrains.kotlin.idea.base.facet.platform.platform
 import org.jetbrains.kotlin.idea.base.plugin.KotlinPluginModeProvider
 import org.jetbrains.kotlin.idea.base.projectStructure.moduleInfo.*
 import org.jetbrains.kotlin.idea.base.util.K1ModeProjectStructureApi
 import org.jetbrains.kotlin.idea.base.util.getOutsiderFileOrigin
 import org.jetbrains.kotlin.idea.base.util.isOutsiderFile
+import org.jetbrains.kotlin.library.KotlinLibrary
 import org.jetbrains.kotlin.parsing.KotlinParserDefinition.Companion.STD_SCRIPT_EXT
 import org.jetbrains.kotlin.psi.KtElement
 import org.jetbrains.kotlin.psi.KtFile
@@ -125,6 +129,21 @@ internal class ProjectStructureProviderIdeImpl(private val project: Project) : I
     override fun getNotUnderContentRootModule(project: Project): KaNotUnderContentRootModule {
         val moduleInfo = NotUnderContentRootModuleInfo(project, file = null)
         return NotUnderContentRootModuleByModuleInfo(moduleInfo)
+    }
+
+    override fun getImplementingModules(module: KaModule): List<KaModule> {
+        if (module is KaSourceModule) {
+            val implementingIdeaModules = module.openapiModule.implementingModules
+
+            val moduleKind = module.sourceModuleKind
+            if (moduleKind != null) {
+                return implementingIdeaModules.mapNotNull { it.toKaSourceModule(moduleKind) }
+            } else {
+                return implementingIdeaModules.mapNotNull { it.toKaSourceModuleForProductionOrTest() }
+            }
+        }
+
+        return emptyList()
     }
 
     private fun isInSpecialSrcDir(psiElement: PsiElement): Boolean =
@@ -224,14 +243,19 @@ internal class ProjectStructureProviderIdeImpl(private val project: Project) : I
         return getKaSourceModule(openapiModule, type)
     }
 
+    override fun getKaSourceModule(
+        moduleEntity: ModuleEntity,
+        kind: KaSourceModuleKind
+    ): KaSourceModule? {
+        val snapshot = project.workspaceModel.currentSnapshot
+        val openapiModule = moduleEntity.findModule(snapshot) ?: return null
+        return getKaSourceModule(openapiModule, kind)
+    }
+
     override fun getKaSourceModuleKind(module: KaSourceModule): KaSourceModuleKind {
         require(module is KtSourceModuleByModuleInfo)
         val moduleInfo = module.moduleInfo as ModuleSourceInfo
-        return when (moduleInfo) {
-            is ModuleProductionSourceInfo -> KaSourceModuleKind.PRODUCTION
-            is ModuleTestSourceInfo -> KaSourceModuleKind.TEST
-            else -> error("Unexpected platform: ${moduleInfo.platform}")
-        }
+        return moduleInfo.sourceModuleKind
     }
 
     override fun getKaSourceModuleSymbolId(module: KaSourceModule): ModuleId {
@@ -258,6 +282,12 @@ internal class ProjectStructureProviderIdeImpl(private val project: Project) : I
     override fun getKaLibraryModules(libraryId: LibraryId): List<KaLibraryModule> {
         val snapshot = project.workspaceModel.currentSnapshot
         val library = libraryId.resolve(snapshot)?.findLibraryBridge(snapshot) ?: return emptyList()
+        return getKaLibraryModules(library)
+    }
+
+    override fun getKaLibraryModules(libraryEntity: LibraryEntity): List<KaLibraryModule> {
+        val snapshot = project.workspaceModel.currentSnapshot
+        val library = libraryEntity.findLibraryBridge(snapshot) ?: return emptyList()
         return getKaLibraryModules(library)
     }
 
@@ -295,6 +325,11 @@ internal class ProjectStructureProviderIdeImpl(private val project: Project) : I
         return ModuleInfoProvider.getInstance(project)
             .collectLibraryBinariesModuleInfos(virtualFile)
             .mapTo(mutableListOf()) { getKtModuleByModuleInfo(it) }
+    }
+
+    override fun getKotlinLibraries(module: KaLibraryModule): List<KotlinLibrary> {
+        val kotlinLibrary = (module.moduleInfo as? AbstractKlibLibraryInfo)?.resolvedKotlinLibrary ?: return emptyList()
+        return listOf(kotlinLibrary)
     }
 
     override fun getForcedKaModule(file: PsiFile): KaModule? {

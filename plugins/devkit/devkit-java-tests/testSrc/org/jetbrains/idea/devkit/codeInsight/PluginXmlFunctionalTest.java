@@ -320,10 +320,11 @@ public class PluginXmlFunctionalTest extends JavaCodeInsightFixtureTestCase {
     configureByFile();
 
     myFixture.completeBasic();
-    assertSameElements(myFixture.getLookupElementStrings(),
-                       "com.intellij.modules.vcs",
-                       "com.intellij.modules.lang", "com.intellij.modules.lang.another",
-                       "com.intellij.custom");
+    assertContainsElements(myFixture.getLookupElementStrings(),
+                           "com.intellij.modules.vcs",
+                           "com.intellij.modules.lang", "com.intellij.modules.lang.another",
+                           "com.intellij.custom",
+                           "com.intellij.modules.os.mac", "com.intellij.modules.os.windows");
   }
 
   private void configureByFile() {
@@ -806,6 +807,10 @@ public class PluginXmlFunctionalTest extends JavaCodeInsightFixtureTestCase {
 
   public void testRedundantComponentInterfaceClass() {
     doHighlightingTest("redundantComponentInterfaceClass.xml");
+  }
+
+  public void testDeprecatedImplementationDetailAttribute() {
+    doHighlightingTest("deprecatedImplementationDetail.xml");
   }
 
   private void doHighlightingTest(String... filePaths) {

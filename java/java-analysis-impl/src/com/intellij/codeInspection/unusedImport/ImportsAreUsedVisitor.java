@@ -99,8 +99,7 @@ class ImportsAreUsedVisitor extends JavaRecursiveElementWalkingVisitor {
     }
   }
 
-  @Nullable
-  private PsiImportStatementBase findImport(@NotNull PsiMember member, List<? extends PsiImportStatementBase> importStatements) {
+  private @Nullable PsiImportStatementBase findImport(@NotNull PsiMember member, List<? extends PsiImportStatementBase> importStatements) {
     final String memberQualifiedName;
     final String memberPackageName;
     final PsiClass containingClass = member.getContainingClass();
@@ -118,7 +117,7 @@ class ImportsAreUsedVisitor extends JavaRecursiveElementWalkingVisitor {
     if (memberPackageName == null) {
       return null;
     }
-    final boolean hasOnDemandImportConflict = ImportUtils.hasOnDemandImportConflict(memberQualifiedName, myFile);
+    ImportUtils.OnDemandImportConflict conflicts = ImportUtils.findOnDemandImportConflict(memberQualifiedName, myFile);
     for (PsiImportStatementBase importStatement : importStatements) {
       if (!importStatement.isOnDemand()) {
         final PsiJavaCodeReferenceElement reference = importStatement.getImportReference();
@@ -133,7 +132,12 @@ class ImportsAreUsedVisitor extends JavaRecursiveElementWalkingVisitor {
         }
       }
       else {
-        if (hasOnDemandImportConflict) {
+        if (importStatement instanceof PsiImportModuleStatement && conflicts.hasConflictForModules()) {
+          continue;
+        }
+        if (!(importStatement instanceof PsiImportModuleStatement) &&
+            importStatement.isOnDemand() &&
+            conflicts.hasConflictForOnDemand()) {
           continue;
         }
         if (importStatement instanceof PsiImportModuleStatement psiImportModuleStatement &&

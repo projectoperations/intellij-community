@@ -35,9 +35,7 @@ import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntList;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
-import org.jetbrains.annotations.ApiStatus;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.*;
 
 import java.io.File;
 import java.io.IOException;
@@ -454,7 +452,7 @@ public class VirtualDirectoryImpl extends VirtualFileSystemEntry {
       else {
         files = new VirtualFile[children.size()];
         int[] errorCount = {0};
-        children.sort((o1, o2) -> {
+        List<? extends ChildInfo> sorted = ContainerUtil.sorted(children, (o1, o2) -> {
           CharSequence name1 = o1.getName();
           CharSequence name2 = o2.getName();
           int cmp = compareNames(name1, name2, isCaseSensitive);
@@ -481,8 +479,8 @@ public class VirtualDirectoryImpl extends VirtualFileSystemEntry {
         });
         IntSet prevChildren = new IntOpenHashSet(myData.childrenIds);
         VfsData vfsData = getVfsData();
-        for (int i = 0; i < children.size(); i++) {
-          ChildInfo child = children.get(i);
+        for (int i = 0; i < sorted.size(); i++) {
+          ChildInfo child = sorted.get(i);
           int id = child.getId();
           assert id > 0 : child;
           result[i] = id;
@@ -640,6 +638,7 @@ public class VirtualDirectoryImpl extends VirtualFileSystemEntry {
 
   // optimization: works faster than added.forEach(this::addChild)
   @ApiStatus.Internal
+  @Contract(mutates = "this,param1")
   public void createAndAddChildren(@NotNull List<ChildInfo> added,
                                    boolean markAllChildrenLoaded,
                                    @NotNull BiConsumer<? super VirtualFile, ? super ChildInfo> callback) {
@@ -824,7 +823,7 @@ public class VirtualDirectoryImpl extends VirtualFileSystemEntry {
     myData.setAllChildrenLoaded();
   }
 
-  public @NotNull List<String> getSuspiciousNames() {
+  public @Unmodifiable @NotNull List<String> getSuspiciousNames() {
     return myData.getAdoptedNames();
   }
 

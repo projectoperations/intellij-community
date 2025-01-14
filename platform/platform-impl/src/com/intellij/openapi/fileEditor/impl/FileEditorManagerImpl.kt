@@ -20,7 +20,7 @@ import com.intellij.openapi.actionSystem.IdeActions
 import com.intellij.openapi.application.*
 import com.intellij.openapi.application.impl.ApplicationImpl
 import com.intellij.openapi.client.ClientKind
-import com.intellij.openapi.client.ClientSessionsManager
+import com.intellij.openapi.client.currentSessionOrNull
 import com.intellij.openapi.components.*
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.getOrLogException
@@ -1090,7 +1090,7 @@ open class FileEditorManagerImpl(
   private val clientFileEditorManager: ClientFileEditorManager?
     get() {
       // todo RDCT-78
-      val session = ClientSessionsManager.getProjectSession(project) ?: return null
+      val session = project.currentSessionOrNull ?: return null
       LOG.assertTrue(!session.isLocal, "Trying to get ClientFileEditorManager for local ClientId")
       return session.serviceOrNull<ClientFileEditorManager>()
     }
@@ -2143,7 +2143,7 @@ open class FileEditorManagerImpl(
     windowAdded: suspend () -> Unit,
   ) {
     if (items.isEmpty()) {
-      LOG.warn("no files to reopen")
+      LOG.info("no files to reopen")
       return
     }
 
@@ -2385,7 +2385,8 @@ private fun reopenVirtualFileInEditor(editorManager: FileEditorManagerEx, window
   val isSingletonEditor = isSingletonDockWindow(window) && window.isFileOpen(oldFile)
   if (isSingletonEditor) {
     window.closeFile(oldFile)
-    editorManager.openFile(newFile, window, newOptions.copy(openMode = FileEditorManagerImpl.OpenMode.NEW_WINDOW))
+    editorManager.openFile(newFile, window, newOptions.copy(openMode = FileEditorManagerImpl.OpenMode.NEW_WINDOW,
+                                                            isSingletonEditorInWindow = true))
   }
   else if (oldFile == newFile) {
     val index = window.files().indexOf(oldFile)
@@ -2462,7 +2463,10 @@ private suspend fun updateFileNames(allSplitters: Set<EditorsSplitters>, file: V
 internal fun isSingletonFileEditor(fileEditor: FileEditor?): Boolean = FileEditorManagerKeys.SINGLETON_EDITOR_IN_WINDOW.get(fileEditor, false)
 
 private fun isSingletonDockWindow(window: EditorWindow): Boolean {
-  if (getWindowDockContainer(window) == null) return false
+  val windowDockContainer = getWindowDockContainer(window)
+  if (windowDockContainer == null || windowDockContainer == window.manager.dockContainer) {
+    return false
+  }
   return window.tabCount == 1 && window.composites().all { composite ->
     composite.allEditors.any { isSingletonFileEditor(it) }
   }

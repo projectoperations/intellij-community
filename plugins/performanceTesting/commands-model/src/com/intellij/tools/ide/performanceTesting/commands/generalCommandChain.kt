@@ -236,6 +236,13 @@ fun <T : CommandChain> T.inspectCodeEx(
   addCommand("${CMD_PREFIX}InspectCodeEx" + resultCommand)
 }
 
+fun <T : CommandChain> T.configureNamedScope(
+  scopeName: String,
+  pattern: String,
+): T = apply {
+  addCommand("${CMD_PREFIX}configureNamedScope -scopeName $scopeName -pattern $pattern")
+}
+
 fun <T : CommandChain> T.checkOnRedCode(): T = apply {
   addCommand("${CMD_PREFIX}codeAnalysis ${CodeAnalysisType.CHECK_ON_RED_CODE}")
 }
@@ -363,6 +370,10 @@ fun <T : CommandChain> T.doComplete(times: Int): T = apply {
 
 fun <T : CommandChain> T.openProjectView(): T = apply {
   addCommand("${CMD_PREFIX}openProjectView")
+}
+
+fun <T : CommandChain> T.hideProjectView(): T = apply {
+  addCommand("${CMD_PREFIX}openProjectView false")
 }
 
 fun <T : CommandChain> T.getLibraryPathByName(name: String, path: Path): T = apply {
@@ -1208,4 +1219,40 @@ fun <T : CommandChain> T.startNewSpan(spanName: String): T = apply {
 
 fun <T : CommandChain> T.stopSpan(spanName: String): T = apply {
   addCommand("${CMD_PREFIX}handleSpan $spanName")
+}
+
+/** @see com.jetbrains.performancePlugin.commands.MeasureVfsMassUpdateCommand */
+@Suppress("KDocUnresolvedReference")
+fun <T : CommandChain> T.massCreateFiles(extension: String, numberOfFiles: Int): T = apply {
+  addCommand("${CMD_PREFIX}measureVfsMassUpdate CREATE $extension $numberOfFiles")
+}
+
+/**
+ * @see com.jetbrains.performancePlugin.commands.MeasureVfsMassUpdateCommand
+ * Only works if massCreateFiles() was called before it
+ */
+@Suppress("KDocUnresolvedReference")
+fun <T : CommandChain> T.massModifyFiles(): T = apply {
+  addCommand("${CMD_PREFIX}measureVfsMassUpdate MODIFY")
+}
+
+/**
+ * @see com.jetbrains.performancePlugin.commands.MeasureVfsMassUpdateCommand
+ * Only works if massCreateFiles() was called before it
+ */
+@Suppress("KDocUnresolvedReference")
+fun <T : CommandChain> T.massDeleteFiles(): T = apply {
+  addCommand("${CMD_PREFIX}measureVfsMassUpdate DELETE")
+}
+
+enum class MassVfsRefreshSpan(val spanName: String) {
+  CREATE("vfsRefreshAfterMassCreate"),
+  MODIFY("vfsRefreshAfterMassModify"),
+  DELETE("vfsRefreshAfterMassDelete")
+}
+
+/** @see com.jetbrains.performancePlugin.commands.MeasureVfsMassUpdateCommand */
+@Suppress("KDocUnresolvedReference")
+fun <T : CommandChain> T.refreshVfsAfterMassChange(span: MassVfsRefreshSpan): T = apply {
+  addCommand("${CMD_PREFIX}measureVfsMassUpdate REFRESH ${span.spanName}")
 }

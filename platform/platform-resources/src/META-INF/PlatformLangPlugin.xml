@@ -1,3 +1,4 @@
+<!--suppress PluginXmlRegistrationCheck -->
 <idea-plugin xmlns:xi="http://www.w3.org/2001/XInclude">
   <id>com.intellij</id>
   <name>IDEA CORE</name>
@@ -23,6 +24,7 @@
   <xi:include href="/META-INF/AnalysisImpl.xml"/>
   <xi:include href="/META-INF/ProjectModel.xml"/>
   <xi:include href="/META-INF/ProjectModelImpl.xml"/>
+  <xi:include href="/META-INF/ProjectModelPlatform.xml"/>
   <xi:include href="/META-INF/Indexing.xml"/>
   <xi:include href="/META-INF/Editor.xml"/>
   <xi:include href="/META-INF/EditorEx.xml"/>
@@ -50,6 +52,7 @@
   <xi:include href="/META-INF/LangExtensionPoints.xml"/>
 
   <xi:include href="/META-INF/PlatformExtensions.xml"/>
+  <xi:include href="/META-INF/PlatformExecutionExtensions.xml"/>
 
   <xi:include href="/META-INF/credential-store.xml">
     <xi:fallback/>
@@ -63,6 +66,10 @@
   <xi:include href="intellij.platform.feedback.xml"/>
 
   <xi:include href="/META-INF/IJent.xml"/>
+
+  <xi:include href="intellij.platform.bookmarks.xml"/>
+
+  <xi:include href="intellij.platform.todo.xml"/>
 
   <extensions defaultExtensionNs="com.intellij">
     <applicationService serviceInterface="com.intellij.ide.RecentProjectsManager"
@@ -115,6 +122,8 @@
     <moduleRendererFactory implementation="com.intellij.ide.util.PlatformModuleRendererFactory" order="last" id="platform"/>
     <projectService serviceInterface="com.intellij.lang.injection.InjectedLanguageManager"
                     serviceImplementation="com.intellij.psi.impl.source.tree.injected.InjectedLanguageManagerImpl"/>
+    <applicationService serviceInterface="com.intellij.psi.impl.source.tree.injected.InjectedLanguageEditorUtil$ImplService"
+                        serviceImplementation="com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil$ImplServiceImpl"/>
     <multiHostInjector id="adapter" implementation="com.intellij.psi.impl.source.tree.injected.LanguageInjectionPerformerAdapter" order="last"/>
     <applicationService serviceInterface="com.intellij.openapi.roots.ModifiableModelsProvider"
                         serviceImplementation="com.intellij.openapi.roots.PlatformModifiableModelsProvider"/>
@@ -147,6 +156,9 @@
                         serviceImplementation="com.intellij.psi.impl.source.tree.injected.InjectedEditorWindowTrackerImpl"/>
 
     <applicationActivity implementation="com.intellij.openapi.fileTypes.impl.associate.OSFileAssociationStartupConfigurator"/>
+
+    <applicationService serviceInterface="com.intellij.ide.projectView.impl.AbstractUrl$AbstractUrlLoader"
+                        serviceImplementation="com.intellij.ide.projectView.impl.AbstractUrlLoaderImpl"/>
 
     <registryKey key="ide.project.view.new.file.popup" defaultValue="false"
                  description="Switches submenu in File - New to popup step" />

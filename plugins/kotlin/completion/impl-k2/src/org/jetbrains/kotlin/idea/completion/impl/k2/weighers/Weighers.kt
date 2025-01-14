@@ -26,6 +26,8 @@ import org.jetbrains.kotlin.idea.completion.contributors.helpers.CompletionSymbo
 import org.jetbrains.kotlin.idea.completion.contributors.helpers.KtSymbolWithOrigin
 import org.jetbrains.kotlin.idea.completion.impl.k2.context.getOriginalDeclarationOrSelf
 import org.jetbrains.kotlin.idea.completion.impl.k2.weighers.K2SoftDeprecationWeigher
+import org.jetbrains.kotlin.idea.completion.impl.k2.weighers.TrailingLambdaParameterNameWeigher
+import org.jetbrains.kotlin.idea.completion.impl.k2.weighers.TrailingLambdaWeigher
 import org.jetbrains.kotlin.idea.completion.implCommon.weighers.PreferKotlinClassesWeigher
 import org.jetbrains.kotlin.idea.completion.isPositionInsideImportOrPackageDirective
 import org.jetbrains.kotlin.idea.completion.isPositionSuitableForNull
@@ -218,36 +220,36 @@ internal object Weighers {
         PreferFewerParametersWeigher. addWeight(lookupElement, symbol)
     }
 
-    fun addWeighersToCompletionSorter(sorter: CompletionSorter, positionContext: KotlinRawPositionContext): CompletionSorter =
-        sorter
-            .weighBefore(
-                PlatformWeighersIds.STATS,
-                CompletionContributorGroupWeigher.Weigher,
-                ExpectedTypeWeigher.Weigher,
-                DeprecatedWeigher.Weigher,
-                PriorityWeigher.Weigher,
-                PreferGetSetMethodsToPropertyWeigher.Weigher,
-                NotImportedWeigher.Weigher,
-                KindWeigher.Weigher,
-                CallableWeigher.Weigher,
-                ClassifierWeigher.Weigher,
-            )
-            .weighAfter(
-                PlatformWeighersIds.STATS,
-                VariableOrFunctionWeigher.Weigher
-            )
-            .weighBefore(
-                PlatformWeighersIds.PREFIX,
-                K2SoftDeprecationWeigher.Weigher,
-                VariableOrParameterNameWithTypeWeigher.Weigher
-            )
-            .weighAfter(
-                PlatformWeighersIds.PROXIMITY,
-                ByNameAlphabeticalWeigher.Weigher,
-                PreferKotlinClassesWeigher.Weigher,
-                PreferFewerParametersWeigher.Weigher,
-            )
-            .weighBefore(getBeforeIdForContextualCallablesWeigher(positionContext), PreferContextualCallablesWeigher.Weigher)
+    fun CompletionSorter.applyWeighers(positionContext: KotlinRawPositionContext): CompletionSorter =
+        weighBefore(
+            PlatformWeighersIds.STATS,
+            TrailingLambdaParameterNameWeigher,
+            CompletionContributorGroupWeigher.Weigher,
+            ExpectedTypeWeigher.Weigher,
+            DeprecatedWeigher.Weigher,
+            PriorityWeigher.Weigher,
+            PreferGetSetMethodsToPropertyWeigher.Weigher,
+            NotImportedWeigher.Weigher,
+            KindWeigher.Weigher,
+            CallableWeigher.Weigher,
+            ClassifierWeigher.Weigher,
+        ).weighAfter(
+            PlatformWeighersIds.STATS,
+            VariableOrFunctionWeigher.Weigher,
+        ).weighBefore(
+            PlatformWeighersIds.PREFIX,
+            K2SoftDeprecationWeigher.Weigher,
+            VariableOrParameterNameWithTypeWeigher.Weigher,
+        ).weighAfter(
+            PlatformWeighersIds.PROXIMITY,
+            ByNameAlphabeticalWeigher.Weigher,
+            PreferKotlinClassesWeigher.Weigher,
+            PreferFewerParametersWeigher.Weigher,
+            TrailingLambdaWeigher,
+        ).weighBefore(
+            getBeforeIdForContextualCallablesWeigher(positionContext),
+            PreferContextualCallablesWeigher.Weigher,
+        )
 
     private fun getBeforeIdForContextualCallablesWeigher(positionContext: KotlinRawPositionContext): String =
         when (positionContext) {

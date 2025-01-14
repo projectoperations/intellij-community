@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build
 
 import kotlinx.coroutines.Dispatchers
@@ -84,8 +84,7 @@ suspend fun buildCommunityStandaloneJpsBuilder(targetDir: Path,
     "Log4J",
     "jgoodies-forms",
     "Eclipse",
-    "netty-codec-http",
-    "netty-codec-protobuf",
+    "netty-jps",
     "lz4-java",
     "commons-codec",
     "commons-logging",
@@ -99,11 +98,10 @@ suspend fun buildCommunityStandaloneJpsBuilder(targetDir: Path,
     "kotlin-stdlib",
     "commons-lang3",
     "maven-resolver-provider",
-    "netty-buffer",
     "aalto-xml",
     "caffeine",
     "mvstore",
-    "jetbrains.kotlinx.metadata.jvm",
+    "kotlin-metadata",
     "hash4j"
   )) {
     layout.withProjectLibrary(it, LibraryPackMode.STANDALONE_MERGED)

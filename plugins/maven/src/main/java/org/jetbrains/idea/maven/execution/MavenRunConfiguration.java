@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.idea.maven.execution;
 
 import com.intellij.build.*;
@@ -38,6 +38,7 @@ import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.platform.eel.LocalEelApi;
 import com.intellij.platform.eel.path.EelPath;
+import com.intellij.platform.eel.provider.EelNioBridgeServiceKt;
 import com.intellij.terminal.TerminalExecutionConsole;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
@@ -74,7 +75,8 @@ import java.nio.file.Paths;
 import java.util.*;
 import java.util.function.Function;
 
-import static com.intellij.platform.eel.provider.EelProviderUtil.getEelApiBlocking;
+import static com.intellij.platform.eel.impl.utils.EelProviderUtilsKt.getEelApiBlocking;
+
 
 public class MavenRunConfiguration extends LocatableConfigurationBase implements ModuleRunProfile, TargetEnvironmentAwareRunProfile {
   private static final ExtensionPointName<MavenRemoteConnectionCreator> EP_NAME =
@@ -138,9 +140,8 @@ public class MavenRunConfiguration extends LocatableConfigurationBase implements
     return JavaRunConfigurationExtensionManager.getInstance();
   }
 
-  @NotNull
   @Override
-  public SettingsEditor<? extends RunConfiguration> getConfigurationEditor() {
+  public @NotNull SettingsEditor<? extends RunConfiguration> getConfigurationEditor() {
     return LazyEditorFactory.create(this);
   }
 
@@ -152,8 +153,7 @@ public class MavenRunConfiguration extends LocatableConfigurationBase implements
   }
 
   @ApiStatus.Internal
-  @Nullable
-  public static String getTargetName(SettingsEditor<MavenRunConfiguration> mavenRunConfigurationSettingsEditor) {
+  public static @Nullable String getTargetName(SettingsEditor<MavenRunConfiguration> mavenRunConfigurationSettingsEditor) {
     return DataManager.getInstance().getDataContext(mavenRunConfigurationSettingsEditor.getComponent())
       .getData(SingleConfigurationConfigurable.RUN_ON_TARGET_NAME_KEY);
   }
@@ -163,12 +163,11 @@ public class MavenRunConfiguration extends LocatableConfigurationBase implements
   }
 
   @Override
-  public RunProfileState getState(@NotNull final Executor executor, @NotNull final ExecutionEnvironment env) {
+  public RunProfileState getState(final @NotNull Executor executor, final @NotNull ExecutionEnvironment env) {
     return new MavenCommandLineState(env, this);
   }
 
-  @NotNull
-  public RemoteConnectionCreator createRemoteConnectionCreator(JavaParameters javaParameters) {
+  public @NotNull RemoteConnectionCreator createRemoteConnectionCreator(JavaParameters javaParameters) {
     return new MavenExtRemoteConnectionCreator(javaParameters, this);
   }
 
@@ -349,9 +348,7 @@ public class MavenRunConfiguration extends LocatableConfigurationBase implements
       var mavenDistribution = mavenCache.getMavenDistribution(myConfiguration.getRunnerParameters().getWorkingDirPath());
 
       var mavenHomePath = mavenDistribution.getMavenHome();
-      var effectiveMavenHome = StringUtil.notNullize(
-        Optional.ofNullable(eel.getMapper().getOriginalPath(mavenHomePath)).map(EelPath.Absolute::toString).orElse(mavenHomePath.toString())
-      );
+      var effectiveMavenHome = EelNioBridgeServiceKt.asEelPath(mavenHomePath).toString();
 
       var mavenVersion = StringUtil.notNullize(mavenDistribution.getVersion());
 
@@ -491,11 +488,10 @@ public class MavenRunConfiguration extends LocatableConfigurationBase implements
       return res;
     }
 
-    @NotNull
-    private Function<MavenParsingContext, StartBuildEvent> getStartBuildEventSupplier(@NotNull ProgramRunner runner,
-                                                                                      ProcessHandler processHandler,
-                                                                                      StartBuildEventImpl startBuildEvent,
-                                                                                      boolean withResumeAction) {
+    private @NotNull Function<MavenParsingContext, StartBuildEvent> getStartBuildEventSupplier(@NotNull ProgramRunner runner,
+                                                                                               ProcessHandler processHandler,
+                                                                                               StartBuildEventImpl startBuildEvent,
+                                                                                               boolean withResumeAction) {
       return ctx ->
         withResumeAction ? startBuildEvent
           .withRestartActions(new MavenRebuildAction(getEnvironment()),
@@ -504,9 +500,8 @@ public class MavenRunConfiguration extends LocatableConfigurationBase implements
                          : startBuildEvent.withRestartActions(new MavenRebuildAction(getEnvironment()));
     }
 
-    @NotNull
     @Override
-    public ExecutionResult execute(@NotNull Executor executor, @NotNull ProgramRunner<?> runner) throws ExecutionException {
+    public @NotNull ExecutionResult execute(@NotNull Executor executor, @NotNull ProgramRunner<?> runner) throws ExecutionException {
       checkMavenWrapperAndPatchJavaParams();
       final ProcessHandler processHandler = startProcess();
       ExecutionEnvironment environment = getEnvironment();
@@ -546,10 +541,9 @@ public class MavenRunConfiguration extends LocatableConfigurationBase implements
       }
     }
 
-    @Nullable
-    private BuildView createBuildView(@NotNull Executor executor,
-                                      @NotNull BuildDescriptor descriptor,
-                                      @NotNull ProcessHandler processHandler) throws ExecutionException {
+    private @Nullable BuildView createBuildView(@NotNull Executor executor,
+                                                @NotNull BuildDescriptor descriptor,
+                                                @NotNull ProcessHandler processHandler) throws ExecutionException {
       ConsoleView console = createConsole(executor, processHandler, myConfiguration.getProject());
       if (console == null) {
         return null;
@@ -639,9 +633,8 @@ public class MavenRunConfiguration extends LocatableConfigurationBase implements
       }
     }
 
-    @NotNull
     @Override
-    protected OSProcessHandler startProcess() throws ExecutionException {
+    protected @NotNull OSProcessHandler startProcess() throws ExecutionException {
       ExecutionEnvironment environment = getEnvironment();
       TargetEnvironment remoteEnvironment = environment.getPreparedTargetEnvironment(this, TargetProgressIndicator.EMPTY);
       TargetedCommandLineBuilder targetedCommandLineBuilder = getTargetedCommandLine();
@@ -684,9 +677,8 @@ public class MavenRunConfiguration extends LocatableConfigurationBase implements
       return myRemoteConnectionCreator;
     }
 
-    @Nullable
     @Override
-    public RemoteConnection createRemoteConnection(ExecutionEnvironment environment) {
+    public @Nullable RemoteConnection createRemoteConnection(ExecutionEnvironment environment) {
       return getRemoteConnectionCreator().createRemoteConnection(environment);
     }
 
@@ -741,7 +733,7 @@ public class MavenRunConfiguration extends LocatableConfigurationBase implements
     }
 
     @Override
-    public void addProcessListener(@NotNull final ProcessListener listener, @NotNull Disposable parentDisposable) {
+    public void addProcessListener(final @NotNull ProcessListener listener, @NotNull Disposable parentDisposable) {
       super.addProcessListener(filtered(listener, this), parentDisposable);
     }
   }
@@ -768,9 +760,8 @@ public class MavenRunConfiguration extends LocatableConfigurationBase implements
       return myOriginalHandler.isProcessTerminating();
     }
 
-    @Nullable
     @Override
-    public Integer getExitCode() {
+    public @Nullable Integer getExitCode() {
       return myOriginalHandler.getExitCode();
     }
 
@@ -789,9 +780,8 @@ public class MavenRunConfiguration extends LocatableConfigurationBase implements
       return myOriginalHandler.detachIsDefault();
     }
 
-    @Nullable
     @Override
-    public OutputStream getProcessInput() {
+    public @Nullable OutputStream getProcessInput() {
       return myOriginalHandler.getProcessInput();
     }
 
@@ -801,7 +791,7 @@ public class MavenRunConfiguration extends LocatableConfigurationBase implements
     }
 
     @Override
-    public void addProcessListener(@NotNull final ProcessListener listener, @NotNull Disposable parentDisposable) {
+    public void addProcessListener(final @NotNull ProcessListener listener, @NotNull Disposable parentDisposable) {
       myOriginalHandler.addProcessListener(filtered(listener, this), parentDisposable);
     }
   }
@@ -835,9 +825,8 @@ public class MavenRunConfiguration extends LocatableConfigurationBase implements
       return myOriginalHandler.isProcessTerminating();
     }
 
-    @Nullable
     @Override
-    public Integer getExitCode() {
+    public @Nullable Integer getExitCode() {
       return myOriginalHandler.getExitCode();
     }
 
@@ -861,9 +850,8 @@ public class MavenRunConfiguration extends LocatableConfigurationBase implements
       return myOriginalHandler.detachIsDefault();
     }
 
-    @Nullable
     @Override
-    public OutputStream getProcessInput() {
+    public @Nullable OutputStream getProcessInput() {
       return myOriginalHandler.getProcessInput();
     }
 
@@ -873,7 +861,7 @@ public class MavenRunConfiguration extends LocatableConfigurationBase implements
     }
 
     @Override
-    public void addProcessListener(@NotNull final ProcessListener listener, @NotNull Disposable parentDisposable) {
+    public void addProcessListener(final @NotNull ProcessListener listener, @NotNull Disposable parentDisposable) {
       myOriginalHandler.addProcessListener(filtered(listener), parentDisposable);
     }
 

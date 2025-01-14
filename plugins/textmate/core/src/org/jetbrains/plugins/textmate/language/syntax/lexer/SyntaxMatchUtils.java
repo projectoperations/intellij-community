@@ -2,8 +2,7 @@ package org.jetbrains.plugins.textmate.language.syntax.lexer;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import com.intellij.openapi.util.text.StringUtilRt;
-import com.intellij.openapi.util.text.Strings;
+import kotlin.text.StringsKt;
 import kotlinx.coroutines.Dispatchers;
 import kotlinx.coroutines.ExecutorsKt;
 import org.jetbrains.annotations.NotNull;
@@ -15,10 +14,7 @@ import org.jetbrains.plugins.textmate.language.syntax.selector.TextMateSelectorC
 import org.jetbrains.plugins.textmate.language.syntax.selector.TextMateSelectorWeigher;
 import org.jetbrains.plugins.textmate.language.syntax.selector.TextMateSelectorWeigherImpl;
 import org.jetbrains.plugins.textmate.language.syntax.selector.TextMateWeigh;
-import org.jetbrains.plugins.textmate.regex.MatchData;
-import org.jetbrains.plugins.textmate.regex.RegexFacade;
-import org.jetbrains.plugins.textmate.regex.StringWithId;
-import org.jetbrains.plugins.textmate.regex.TextMateRange;
+import org.jetbrains.plugins.textmate.regex.*;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -28,7 +24,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import static org.jetbrains.plugins.textmate.regex.RegexFacade.regex;
 
 public final class SyntaxMatchUtils {
   private static final Cache<MatchKey, TextMateLexerState> CACHE = Caffeine.newBuilder()
@@ -48,52 +43,58 @@ public final class SyntaxMatchUtils {
     return ourCheckCancelledCallback;
   }
 
-  @NotNull
-  public static TextMateLexerState matchFirst(@NotNull SyntaxNodeDescriptor syntaxNodeDescriptor,
-                                              @NotNull StringWithId string,
-                                              int byteOffset,
-                                              int gosOffset,
-                                              boolean matchBeginOfString,
-                                              @NotNull TextMateWeigh.Priority priority,
-                                              @NotNull TextMateScope currentScope) {
-    return CACHE.get(new MatchKey(syntaxNodeDescriptor, string, byteOffset, gosOffset, matchBeginOfString, priority, currentScope),
-                     SyntaxMatchUtils::matchFirstUncached);
-  }
-
-  private static TextMateLexerState matchFirstUncached(MatchKey key) {
-    return matchFirstUncached(Objects.requireNonNull(key).descriptor, key.string, key.byteOffset, key.gosOffset, key.matchBeginOfString,
-                              key.priority, key.currentScope);
-  }
-
-  @NotNull
-  private static TextMateLexerState matchFirstUncached(@NotNull SyntaxNodeDescriptor syntaxNodeDescriptor,
-                                                       @NotNull StringWithId string,
+  public static @NotNull TextMateLexerState matchFirst(@NotNull RegexFactory regexFactory,
+                                                       @NotNull SyntaxNodeDescriptor syntaxNodeDescriptor,
+                                                       @NotNull TextMateString string,
                                                        int byteOffset,
                                                        int gosOffset,
                                                        boolean matchBeginOfString,
                                                        @NotNull TextMateWeigh.Priority priority,
                                                        @NotNull TextMateScope currentScope) {
+    return CACHE.get(new MatchKey(regexFactory, syntaxNodeDescriptor, string, byteOffset, gosOffset, matchBeginOfString, priority, currentScope),
+                     SyntaxMatchUtils::matchFirstUncached);
+  }
+
+  private static TextMateLexerState matchFirstUncached(MatchKey key) {
+    return matchFirstUncached(Objects.requireNonNull(key).regexFactory,
+                              key.descriptor,
+                              key.string,
+                              key.byteOffset,
+                              key.gosOffset,
+                              key.matchBeginOfString,
+                              key.priority, key.currentScope);
+  }
+
+  private static @NotNull TextMateLexerState matchFirstUncached(@NotNull RegexFactory regexFactory,
+                                                                @NotNull SyntaxNodeDescriptor syntaxNodeDescriptor,
+                                                                @NotNull TextMateString string,
+                                                                int byteOffset,
+                                                                int gosOffset,
+                                                                boolean matchBeginOfString,
+                                                                @NotNull TextMateWeigh.Priority priority,
+                                                                @NotNull TextMateScope currentScope) {
     TextMateLexerState resultState = TextMateLexerState.notMatched(syntaxNodeDescriptor);
     List<SyntaxNodeDescriptor> children = syntaxNodeDescriptor.getChildren();
     for (SyntaxNodeDescriptor child : children) {
       resultState =
-        moreImportantState(resultState, matchFirstChild(child, string, byteOffset, gosOffset, matchBeginOfString, priority, currentScope));
-      if (resultState.matchData.matched() && resultState.matchData.byteOffset().start == byteOffset) {
-        // optimization. There cannot be anything more `important` than current state matched from the very beginning
+        moreImportantState(resultState,
+                           matchFirstChild(regexFactory, child, string, byteOffset, gosOffset, matchBeginOfString, priority, currentScope));
+      if (resultState.matchData.matched && resultState.matchData.byteOffset().start == byteOffset) {
+        // optimization. There cannot be anything more `important` than the current state matched from the very beginning
         break;
       }
     }
     return moreImportantState(resultState,
-                              matchInjections(syntaxNodeDescriptor, string, byteOffset, gosOffset, matchBeginOfString, currentScope));
+                              matchInjections(regexFactory, syntaxNodeDescriptor, string, byteOffset, gosOffset, matchBeginOfString, currentScope));
   }
 
-  @NotNull
-  private static TextMateLexerState matchInjections(@NotNull SyntaxNodeDescriptor syntaxNodeDescriptor,
-                                                    @NotNull StringWithId string,
-                                                    int byteOffset,
-                                                    int gosOffset,
-                                                    boolean matchBeginOfString,
-                                                    @NotNull TextMateScope currentScope) {
+  private static @NotNull TextMateLexerState matchInjections(@NotNull RegexFactory regexFactory,
+                                                             @NotNull SyntaxNodeDescriptor syntaxNodeDescriptor,
+                                                             @NotNull TextMateString string,
+                                                             int byteOffset,
+                                                             int gosOffset,
+                                                             boolean matchBeginOfString,
+                                                             @NotNull TextMateScope currentScope) {
     TextMateLexerState resultState = TextMateLexerState.notMatched(syntaxNodeDescriptor);
     List<InjectionNodeDescriptor> injections = syntaxNodeDescriptor.getInjections();
 
@@ -103,19 +104,19 @@ public final class SyntaxMatchUtils {
         continue;
       }
       TextMateLexerState injectionState =
-        matchFirstUncached(injection.getSyntaxNodeDescriptor(), string, byteOffset, gosOffset, matchBeginOfString, selectorWeigh.priority,
+        matchFirstUncached(regexFactory,
+                           injection.getSyntaxNodeDescriptor(), string, byteOffset, gosOffset, matchBeginOfString, selectorWeigh.priority,
                            currentScope);
       resultState = moreImportantState(resultState, injectionState);
     }
     return resultState;
   }
 
-  @NotNull
-  private static TextMateLexerState moreImportantState(@NotNull TextMateLexerState oldState, @NotNull TextMateLexerState newState) {
-    if (!newState.matchData.matched()) {
+  private static @NotNull TextMateLexerState moreImportantState(@NotNull TextMateLexerState oldState, @NotNull TextMateLexerState newState) {
+    if (!newState.matchData.matched) {
       return oldState;
     }
-    else if (!oldState.matchData.matched()) {
+    else if (!oldState.matchData.matched) {
       return newState;
     }
     int newScore = newState.matchData.byteOffset().start;
@@ -132,8 +133,9 @@ public final class SyntaxMatchUtils {
     return lexerState.syntaxRule.getStringAttribute(Constants.StringKey.BEGIN) != null;
   }
 
-  private static TextMateLexerState matchFirstChild(@NotNull SyntaxNodeDescriptor syntaxNodeDescriptor,
-                                                    @NotNull StringWithId string,
+  private static TextMateLexerState matchFirstChild(@NotNull RegexFactory regexFactory,
+                                                    @NotNull SyntaxNodeDescriptor syntaxNodeDescriptor,
+                                                    @NotNull TextMateString string,
                                                     int byteOffset,
                                                     int gosOffset,
                                                     boolean matchBeginOfString,
@@ -141,24 +143,25 @@ public final class SyntaxMatchUtils {
                                                     @NotNull TextMateScope currentScope) {
     CharSequence match = syntaxNodeDescriptor.getStringAttribute(Constants.StringKey.MATCH);
     if (match != null) {
-      RegexFacade regex = regex(match.toString());
+      RegexFacade regex = regexFactory.regex(match.toString());
       MatchData matchData = regex.match(string, byteOffset, gosOffset, matchBeginOfString, ourCheckCancelledCallback);
       return new TextMateLexerState(syntaxNodeDescriptor, matchData, priority, byteOffset, string);
     }
     CharSequence begin = syntaxNodeDescriptor.getStringAttribute(Constants.StringKey.BEGIN);
     if (begin != null) {
-      RegexFacade regex = regex(begin.toString());
+      RegexFacade regex = regexFactory.regex(begin.toString());
       MatchData matchData = regex.match(string, byteOffset, gosOffset, matchBeginOfString, ourCheckCancelledCallback);
       return new TextMateLexerState(syntaxNodeDescriptor, matchData, priority, byteOffset, string);
     }
     if (syntaxNodeDescriptor.getStringAttribute(Constants.StringKey.END) != null) {
       return TextMateLexerState.notMatched(syntaxNodeDescriptor);
     }
-    return matchFirstUncached(syntaxNodeDescriptor, string, byteOffset, gosOffset, matchBeginOfString, priority, currentScope);
+    return matchFirstUncached(regexFactory, syntaxNodeDescriptor, string, byteOffset, gosOffset, matchBeginOfString, priority, currentScope);
   }
 
-  public static MatchData matchStringRegex(@NotNull Constants.StringKey keyName,
-                                           @NotNull StringWithId string,
+  public static MatchData matchStringRegex(@NotNull RegexFactory regexFactory,
+                                           @NotNull Constants.StringKey keyName,
+                                           @NotNull TextMateString string,
                                            int byteOffset,
                                            int anchorOffset,
                                            boolean matchBeginOfString,
@@ -168,14 +171,13 @@ public final class SyntaxMatchUtils {
     String regexString = lexerState.syntaxRule.hasBackReference(keyName)
                          ? replaceGroupsWithMatchDataInRegex(regex, lexerState.string, lexerState.matchData)
                          : regex.toString();
-    return regex(regexString).match(string, byteOffset, anchorOffset, matchBeginOfString, ourCheckCancelledCallback);
+    return regexFactory.regex(regexString).match(string, byteOffset, anchorOffset, matchBeginOfString, ourCheckCancelledCallback);
   }
 
-  @Nullable
-  public static CharSequence getStringAttribute(Constants.@NotNull StringKey keyName,
-                                                @NotNull SyntaxNodeDescriptor syntaxRule,
-                                                @NotNull StringWithId string,
-                                                @NotNull MatchData matchData) {
+  public static @Nullable CharSequence getStringAttribute(Constants.@NotNull StringKey keyName,
+                                                          @NotNull SyntaxNodeDescriptor syntaxRule,
+                                                          @NotNull TextMateString string,
+                                                          @NotNull MatchData matchData) {
     CharSequence stringAttribute = syntaxRule.getStringAttribute(keyName);
     if (stringAttribute == null) {
       return null;
@@ -188,7 +190,7 @@ public final class SyntaxMatchUtils {
   /**
    * Replaces parts like \1 or \20 in string parameter with group captures from matchData.
    * <p/>
-   * E.g. given string "\1-\2" and matchData consists of two groups: "first" and "second"
+   * E.g., given string "\1-\2" and matchData consists of two groups: "first" and "second"
    * then string "first-second" will be returned.
    *
    * @param string         string pattern
@@ -197,9 +199,9 @@ public final class SyntaxMatchUtils {
    * @return string with replaced group-references
    */
   public static String replaceGroupsWithMatchDataInRegex(@NotNull CharSequence string,
-                                                         @Nullable StringWithId matchingString,
+                                                         @Nullable TextMateString matchingString,
                                                          @NotNull MatchData matchData) {
-    if (matchingString == null || !matchData.matched()) {
+    if (matchingString == null || !matchData.matched) {
       return string.toString();
     }
     StringBuilder result = new StringBuilder();
@@ -222,7 +224,8 @@ public final class SyntaxMatchUtils {
         }
         if (hasGroupIndex && matchData.count() > groupIndex) {
           TextMateRange range = matchData.byteOffset(groupIndex);
-          Strings.escapeToRegexp(new String(matchingString.bytes, range.start, range.getLength(), StandardCharsets.UTF_8), result);
+          String replacement = new String(matchingString.bytes, range.start, range.getLength(), StandardCharsets.UTF_8);
+          result.append(BACK_REFERENCE_REPLACEMENT_REGEX.matcher(replacement).replaceAll("\\\\$0"));
           charIndex = digitIndex;
           continue;
         }
@@ -233,13 +236,14 @@ public final class SyntaxMatchUtils {
     return result.toString();
   }
 
+  private static final Pattern BACK_REFERENCE_REPLACEMENT_REGEX = Pattern.compile("[\\-\\\\{}*+?|^$.,\\[\\]()#\\s]");
   private static final Pattern CAPTURE_GROUP_REGEX = Pattern.compile("\\$([0-9]+)|\\$\\{([0-9]+):/(downcase|upcase)}");
 
   /**
    * Replaces parts like $1 or $20 in string parameter with group captures from matchData,
    * specifically for {@link org.jetbrains.plugins.textmate.language.syntax.TextMateCapture}.
    * <p>
-   * Unlike {@link #replaceGroupsWithMatchDataInRegex(CharSequence, StringWithId, MatchData)},
+   * Unlike {@link #replaceGroupsWithMatchDataInRegex(CharSequence, TextMateString, MatchData)},
    * this method also supports `upcase` and `downcase` command for the replacement.
    *
    * @param string         string pattern
@@ -248,22 +252,21 @@ public final class SyntaxMatchUtils {
    * @return string with replaced group-references
    */
   public static CharSequence replaceGroupsWithMatchDataInCaptures(@NotNull CharSequence string,
-                                                                  @NotNull StringWithId matchingString,
+                                                                  @NotNull TextMateString matchingString,
                                                                   @NotNull MatchData matchData) {
-    if (!matchData.matched()) {
+    if (!matchData.matched) {
       return string;
     }
     Matcher matcher = CAPTURE_GROUP_REGEX.matcher(string);
     StringBuilder result = new StringBuilder();
     int lastPosition = 0;
     while (matcher.find()) {
-      int groupIndex = StringUtilRt.parseInt(matcher.group(1) != null ? matcher.group(1) : matcher.group(2), -1);
+      int groupIndex = parseGroupIndex(matcher.group(1) != null ? matcher.group(1) : matcher.group(2));
       if (groupIndex >= 0 && matchData.count() > groupIndex) {
         result.append(string, lastPosition, matcher.start());
         TextMateRange range = matchData.byteOffset(groupIndex);
         String capturedText = new String(matchingString.bytes, range.start, range.getLength(), StandardCharsets.UTF_8);
-        int numberOfDotsAtTheBeginning = Strings.countChars(capturedText, '.', 0, true);
-        String replacement = capturedText.substring(numberOfDotsAtTheBeginning);
+        String replacement = StringsKt.trimStart(capturedText, '.');
         String command = matcher.group(3);
         if ("downcase".equals(command)) {
           result.append(replacement.toLowerCase(Locale.ROOT));
@@ -283,22 +286,33 @@ public final class SyntaxMatchUtils {
     return result.toString();
   }
 
+  private static int parseGroupIndex(@Nullable String string) {
+    if (string != null) {
+      try { return Integer.parseInt(string); }
+      catch (NumberFormatException ignored) { }
+    }
+    return -1;
+  }
+
   private static final class MatchKey {
+    final RegexFactory regexFactory;
     final SyntaxNodeDescriptor descriptor;
-    final StringWithId string;
+    final TextMateString string;
     final int byteOffset;
     final int gosOffset;
     final boolean matchBeginOfString;
     private final TextMateWeigh.Priority priority;
     final TextMateScope currentScope;
 
-    private MatchKey(SyntaxNodeDescriptor descriptor,
-                     StringWithId string,
+    private MatchKey(RegexFactory regexFactory,
+                     SyntaxNodeDescriptor descriptor,
+                     TextMateString string,
                      int byteOffset,
                      int gosOffset,
                      boolean matchBeginOfString,
                      TextMateWeigh.Priority priority,
                      TextMateScope currentScope) {
+      this.regexFactory = regexFactory;
       this.descriptor = descriptor;
       this.string = string;
       this.byteOffset = byteOffset;

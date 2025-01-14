@@ -7,7 +7,7 @@ import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.vfs.LocalFileSystem
 import kotlinx.coroutines.runBlocking
 import org.junit.Test
-import java.io.File
+import java.nio.file.Paths
 
 class MavenProjectsManagerSettingsXmlTest : MavenMultiVersionImportingTestCase() {
   override fun setUp() {
@@ -128,7 +128,7 @@ class MavenProjectsManagerSettingsXmlTest : MavenMultiVersionImportingTestCase()
   }
 
   private suspend fun deleteSettingsXmlAndWaitForImport() {
-    val f = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(File(dir, "settings.xml"))!!
+    val f = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(Paths.get(dir.toString(), "settings.xml"))!!
     waitForImportWithinTimeout {
       writeAction {
         f.delete(this)

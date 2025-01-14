@@ -1,0 +1,271 @@
+module(name = "rules_jvm", version = "0.1")
+
+bazel_dep(name = "bazel_worker_api", version = "0.0.4")
+bazel_dep(name = "rules_java", version = "8.6.3")
+bazel_dep(name = "rules_kotlin", version = "2.0.0-jb.5")
+bazel_dep(name = "rules_graalvm", version = "0.11.3")
+bazel_dep(name = "lib")
+bazel_dep(name = "protobuf", version = "29.2")
+bazel_dep(name = "bazel_skylib", version = "1.7.1")
+
+# https://github.com/bazelbuild/bazel/issues/6681#issuecomment-2188972754
+bazel_dep(name = "contrib_rules_jvm", version = "0.27.0")
+
+http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
+http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+local_path_override(
+    module_name = "lib",
+    path = "../../lib",
+)
+
+http_archive(
+    name = "kotlinc",
+    url = "https://github.com/JetBrains/kotlin/releases/download/v2.1.20-Beta1/kotlin-compiler-2.1.20-Beta1.zip",
+    sha256 = "a4e655eb8370c6dde9deaf1271836dc6d1d0a667fb00efb2e99021d91e2cf8a4",
+    build_file = "//:BUILD.kotlinc.bazel",
+    strip_prefix = "kotlinc",
+)
+
+# GraalVM
+git_override(
+    module_name = "rules_graalvm",
+    remote = "https://github.com/develar/rules_graalvm",
+    commit = "9d12232f7798df7087952314600f1ee0f4e4f9f7",
+)
+
+# local_path_override(
+#   module_name = "rules_graalvm",
+#   path = "../rules_graalvm",
+# )
+graalvm = use_extension("@rules_graalvm//:extensions.bzl", "graalvm")
+
+graalvm.graalvm(
+    name = "graalvm",
+    distribution = "oracle",
+    java_version = "23",
+    version = "23.0.1",
+)
+
+use_repo(graalvm, "graalvm")
+register_toolchains("@graalvm//:jvm")
+register_toolchains("@graalvm//:sdk")
+register_toolchains("@graalvm//:toolchain")
+
+# Kotlin Rules
+archive_override(
+    module_name = "rules_kotlin",
+    urls = ["https://github.com/develar/rules_kotlin/releases/download/v2.0.0-jb.12/rules_kotlin-v2.0.0-jb.12.tar.gz"],
+    integrity = "sha256-jWDqcTgDWbeBqISkF4XFI/WbgeejFJVXMIDsv2oX/ww=",
+)
+
+### auto-generated section `libraries` start
+http_file(
+    name = "protobuf-java",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/google/protobuf/protobuf-java/4.29.2/protobuf-java-4.29.2.jar",
+    sha256 = "7441a6394dca477b3f8b7c86f17bef035f705a8aaa11f53065d380300158177c",
+    downloaded_file_path = "protobuf-java-4.29.2.jar",
+)
+http_file(
+    name = "protobuf-java-sources",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/google/protobuf/protobuf-java/4.29.2/protobuf-java-4.29.2-sources.jar",
+    sha256 = "68f0f47297335e2c3fb5a904ade91aadef884b3aa8f558a4efac16ba803b8b27",
+    downloaded_file_path = "protobuf-java-4.29.2-sources.jar",
+)
+
+http_file(
+    name = "kotlin-build-tools-api",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-build-tools-api/2.1.20-Beta1/kotlin-build-tools-api-2.1.20-Beta1.jar",
+    sha256 = "09ddebb845f30310395d91c084f65d2133484080dfac1977502776b77345f3d7",
+    downloaded_file_path = "kotlin-build-tools-api-2.1.20-Beta1.jar",
+)
+http_file(
+    name = "kotlin-build-tools-api-sources",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-build-tools-api/2.1.20-Beta1/kotlin-build-tools-api-2.1.20-Beta1-sources.jar",
+    sha256 = "236ff9971b05fdbef35fafd390f39546c6b61467d4991474111a4823d359324b",
+    downloaded_file_path = "kotlin-build-tools-api-2.1.20-Beta1-sources.jar",
+)
+
+http_file(
+    name = "kotlin-util-klib",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-util-klib/2.1.20-Beta1/kotlin-util-klib-2.1.20-Beta1.jar",
+    sha256 = "f48b6323092cb30f860cb5c880d6107982d82941166073871a36349dfd3f7909",
+    downloaded_file_path = "kotlin-util-klib-2.1.20-Beta1.jar",
+)
+http_file(
+    name = "kotlin-util-klib-sources",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-util-klib/2.1.20-Beta1/kotlin-util-klib-2.1.20-Beta1-sources.jar",
+    sha256 = "4aa4da6df01507c0fe9b48ff4f3d2a5eb5edf5f894850169c90efc89330a9d8b",
+    downloaded_file_path = "kotlin-util-klib-2.1.20-Beta1-sources.jar",
+)
+
+http_file(
+    name = "kotlin-util-klib-metadata",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-util-klib-metadata/2.1.20-Beta1/kotlin-util-klib-metadata-2.1.20-Beta1.jar",
+    sha256 = "1b59ec74876c8d13242d04aeefc22e10444ed082f38ad52fc95bc64a6896c7fd",
+    downloaded_file_path = "kotlin-util-klib-metadata-2.1.20-Beta1.jar",
+)
+http_file(
+    name = "kotlin-util-klib-metadata-sources",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-util-klib-metadata/2.1.20-Beta1/kotlin-util-klib-metadata-2.1.20-Beta1-sources.jar",
+    sha256 = "7d4d0fcd74aa62a12add77e9738a29562086dd23fd095e40f8e5308e8335b5bf",
+    downloaded_file_path = "kotlin-util-klib-metadata-2.1.20-Beta1-sources.jar",
+)
+
+http_file(
+    name = "kotlin-build-tools-impl",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-build-tools-impl/2.1.20-Beta1/kotlin-build-tools-impl-2.1.20-Beta1.jar",
+    sha256 = "7e1e4d96ca0d29fc5890b9eadca97f64917e1d67f8385b91cc28cee9215b70b3",
+    downloaded_file_path = "kotlin-build-tools-impl-2.1.20-Beta1.jar",
+)
+http_file(
+    name = "kotlin-build-tools-impl-sources",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-build-tools-impl/2.1.20-Beta1/kotlin-build-tools-impl-2.1.20-Beta1-sources.jar",
+    sha256 = "8f7fe21cd6773f9b4d842cc8eb282e72004b300b6f23b6a32d27346de7336533",
+    downloaded_file_path = "kotlin-build-tools-impl-2.1.20-Beta1-sources.jar",
+)
+
+http_file(
+    name = "kotlin-compiler",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-compiler/2.1.20-Beta1/kotlin-compiler-2.1.20-Beta1.jar",
+    sha256 = "7bc01138d15bc1b7657480ce9fabbbb704626f92287edc05745341b11d8795b4",
+    downloaded_file_path = "kotlin-compiler-2.1.20-Beta1.jar",
+)
+http_file(
+    name = "kotlin-compiler-sources",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-compiler/2.1.20-Beta1/kotlin-compiler-2.1.20-Beta1-sources.jar",
+    sha256 = "8a670f50a7e506cb859a4b4122a7c6d5dfd0fb180a5efd3448ab551dbfc85589",
+    downloaded_file_path = "kotlin-compiler-2.1.20-Beta1-sources.jar",
+)
+
+http_file(
+    name = "kotlin-metadata-jvm",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-metadata-jvm/2.1.20-Beta1/kotlin-metadata-jvm-2.1.20-Beta1.jar",
+    sha256 = "243ac56352ce7e1ca7f294a53b1a1b3040ca12b95725449f0c04bbee6d43d84c",
+    downloaded_file_path = "kotlin-metadata-jvm-2.1.20-Beta1.jar",
+)
+http_file(
+    name = "kotlin-metadata-jvm-sources",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-metadata-jvm/2.1.20-Beta1/kotlin-metadata-jvm-2.1.20-Beta1-sources.jar",
+    sha256 = "3f5468b5c409702c7cac30067208b7218ab9e3f7209e686966c6c2de2134dd18",
+    downloaded_file_path = "kotlin-metadata-jvm-2.1.20-Beta1-sources.jar",
+)
+
+http_file(
+    name = "kotlin-jps-plugin",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-jps-plugin/2.1.20-Beta1/kotlin-jps-plugin-2.1.20-Beta1.jar",
+    sha256 = "0f60c6f49e74ee938605890553df1ba1ce219ebd8a8ff8d93dab82a202293ae8",
+    downloaded_file_path = "kotlin-jps-plugin-2.1.20-Beta1.jar",
+)
+http_file(
+    name = "kotlin-jps-plugin-sources",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-jps-plugin/2.1.20-Beta1/kotlin-jps-plugin-2.1.20-Beta1-sources.jar",
+    sha256 = "5a337df793923ff69a55e52d386e17205570686bab85a4967fb58bbb6aee340a",
+    downloaded_file_path = "kotlin-jps-plugin-2.1.20-Beta1-sources.jar",
+)
+
+http_file(
+    name = "kotlin-serialization-compiler-plugin",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-serialization-compiler-plugin/2.1.20-Beta1/kotlin-serialization-compiler-plugin-2.1.20-Beta1.jar",
+    sha256 = "6c84d19e34509173b9e9f7ea7cbd96e1a1c8314b603f691a328012dd1e0b8f9e",
+    downloaded_file_path = "kotlin-serialization-compiler-plugin-2.1.20-Beta1.jar",
+)
+http_file(
+    name = "kotlin-serialization-compiler-plugin-sources",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-serialization-compiler-plugin/2.1.20-Beta1/kotlin-serialization-compiler-plugin-2.1.20-Beta1-sources.jar",
+    sha256 = "09037197de2c7b4a022c1bb9be4ed3d13d38dd63ca7c08465765e98501378306",
+    downloaded_file_path = "kotlin-serialization-compiler-plugin-2.1.20-Beta1-sources.jar",
+)
+
+http_file(
+    name = "kotlin-compose-compiler-plugin",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-compose-compiler-plugin/2.1.20-Beta1/kotlin-compose-compiler-plugin-2.1.20-Beta1.jar",
+    sha256 = "a8b056165e5f0f294b52b61721bfbf776d17e6a270a33f8e6e5d8bf405ece4a4",
+    downloaded_file_path = "kotlin-compose-compiler-plugin-2.1.20-Beta1.jar",
+)
+http_file(
+    name = "kotlin-compose-compiler-plugin-sources",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-compose-compiler-plugin/2.1.20-Beta1/kotlin-compose-compiler-plugin-2.1.20-Beta1-sources.jar",
+    sha256 = "320128e59ff599f6016addcc6aabea8bd2715609586502430647b4820fbe9836",
+    downloaded_file_path = "kotlin-compose-compiler-plugin-2.1.20-Beta1-sources.jar",
+)
+
+http_file(
+    name = "poko-compiler-plugin",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/dev/drewhamilton/poko/poko-compiler-plugin/0.18.2/poko-compiler-plugin-0.18.2.jar",
+    sha256 = "08edf341dfa4dd0a9e15b83a2a74850baad3a4a3ca2f93aed05ca6a481b1f394",
+    downloaded_file_path = "poko-compiler-plugin-0.18.2.jar",
+)
+http_file(
+    name = "poko-compiler-plugin-sources",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/dev/drewhamilton/poko/poko-compiler-plugin/0.18.2/poko-compiler-plugin-0.18.2-sources.jar",
+    sha256 = "02f7ac954f3a9574b37a54d7bdc79190325b9ee38a3244256a84d6d760eb6f1f",
+    downloaded_file_path = "poko-compiler-plugin-0.18.2-sources.jar",
+)
+
+http_file(
+    name = "kotlinx-coroutines-core-jvm",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-core-jvm/1.10.1/kotlinx-coroutines-core-jvm-1.10.1.jar",
+    sha256 = "069c5988633230e074ec0d39321ec3cdaa4547c49e90ba936c63d8fc91c8c00d",
+    downloaded_file_path = "kotlinx-coroutines-core-jvm-1.10.1.jar",
+)
+http_file(
+    name = "kotlinx-coroutines-core-jvm-sources",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-core-jvm/1.10.1/kotlinx-coroutines-core-jvm-1.10.1-sources.jar",
+    sha256 = "3faa298de8000d68744a179f7d413ab1672acf1d77cb8d6be57a78544657edd2",
+    downloaded_file_path = "kotlinx-coroutines-core-jvm-1.10.1-sources.jar",
+)
+
+### auto-generated section `libraries` end
+
+# Test Libraries
+
+http_jar = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_jar")
+
+http_jar(
+    name = "junit_jupiter_api",
+    url = "https://repo1.maven.org/maven2/org/junit/jupiter/junit-jupiter-api/5.11.3/junit-jupiter-api-5.11.3.jar",
+    integrity = "sha256-XYFHpg9JRTlz4lDtaHAbf/BVlk/iRi/Cyx7B1tRIibo=",
+)
+
+http_jar(
+    name = "junit_jupiter_engine",
+    url = "https://repo1.maven.org/maven2/org/junit/jupiter/junit-jupiter-engine/5.11.3/junit-jupiter-engine-5.11.3.jar",
+    integrity = "sha256-5iQgyZ98DVmiFZou9j5hh36cgL1yLAPKi/O9zqBQpYk=",
+)
+
+http_jar(
+    name = "junit_platform_engine",
+    url = "https://repo1.maven.org/maven2/org/junit/platform/junit-platform-engine/1.11.3/junit-platform-engine-1.11.3.jar",
+    integrity = "sha256-AEP3L2EWZHNdqNyaMIvxLs0iNrBTOTUcR0HttNj6sNo=",
+)
+
+http_jar(
+    name = "junit_platform_reporting",
+    url = "https://repo1.maven.org/maven2/org/junit/platform/junit-platform-reporting/1.11.3/junit-platform-reporting-1.11.3.jar",
+    integrity = "sha256-uOGdvryufR/zC512cEf782lAJ8M9+kI7NxaTt/ZnntE=",
+)
+
+http_jar(
+    name = "junit_platform_launcher",
+    url = "https://repo1.maven.org/maven2/org/junit/platform/junit-platform-launcher/1.11.3/junit-platform-launcher-1.11.3.jar",
+    integrity = "sha256-tHJ0WSAbABG+sHQr2AdCGh/IQmsRYZMDHth4JbwtTwQ=",
+)
+
+http_jar(
+    name = "junit_platform_commons",
+    url = "https://repo1.maven.org/maven2/org/junit/platform/junit-platform-commons/1.11.3/junit-platform-commons-1.11.3.jar",
+    integrity = "sha256-viYpZLC2tI3pd8YdT5Md+M9h6A51DMPzoKOc3SHBAIw=",
+)
+
+http_jar(
+    name = "assertj",
+    url = "https://repo1.maven.org/maven2/org/assertj/assertj-core/3.26.3/assertj-core-3.26.3.jar",
+    integrity = "sha256-TC+GQY/0fua2f7xq2xlOgCGbeTKBs72ih5nUQlvJoL0=",
+)
+
+http_jar(
+    name = "opentest4j",
+    url = "https://repo1.maven.org/maven2/org/opentest4j/opentest4j/1.3.0/opentest4j-1.3.0.jar",
+    integrity = "sha256-SOLfY2yrZWPO1k3N/4q7I1VifLI27wvzdZhoLd90Lxs=",
+)

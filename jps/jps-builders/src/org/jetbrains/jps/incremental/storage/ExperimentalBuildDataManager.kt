@@ -1,18 +1,28 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.jps.incremental.storage
 
 import com.intellij.util.concurrency.SynchronizedClearableLazy
 import org.jetbrains.jps.builders.BuildTarget
 import org.jetbrains.jps.builders.storage.SourceToOutputMapping
 import org.jetbrains.jps.incremental.relativizer.PathRelativizerService
+import java.nio.file.Path
 import java.util.concurrent.ConcurrentHashMap
 
 internal class ExperimentalBuildDataManager(
   private val storageManager: StorageManager,
   private val relativizer: PathRelativizerService,
 ) {
-  // only for new experimental storage
   private val targetToMapManager = ConcurrentHashMap<BuildTarget<*>, PerTargetMapManager>()
+
+  private val typeAwareRelativizer = relativizer.typeAwareRelativizer ?: object : PathTypeAwareRelativizer {
+    override fun toRelative(path: String, type: RelativePathType) = relativizer.toRelative(path)
+
+    override fun toRelative(path: Path, type: RelativePathType) = relativizer.toRelative(path)
+
+    override fun toAbsolute(path: String, type: RelativePathType) = relativizer.toFull(path)
+
+    override fun toAbsoluteFile(path: String, type: RelativePathType): Path = Path.of(relativizer.toFull(path))
+  }
 
   /**
    * A map not scoped to a target is problematic because we cannot transfer built target bytecode with JPS build data.
@@ -34,7 +44,12 @@ internal class ExperimentalBuildDataManager(
 
   private fun getPerTargetMapManager(target: BuildTarget<*>): PerTargetMapManager {
     return targetToMapManager.computeIfAbsent(target) {
-      PerTargetMapManager(storageManager, relativizer, it, outputToTargetMapping)
+      PerTargetMapManager(
+        storageManager = storageManager,
+        relativizer = typeAwareRelativizer,
+        target = it,
+        outputToTargetMapping = outputToTargetMapping,
+      )
     }
   }
 

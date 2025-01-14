@@ -1,10 +1,9 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-@file:OptIn(ExperimentalPathApi::class)
-
 package org.jetbrains.intellij.build.impl
 
 import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.openapi.util.io.NioFiles
+import com.intellij.platform.buildData.productInfo.ProductInfoLaunchData
 import com.intellij.util.io.Decompressor
 import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.api.trace.Span
@@ -13,7 +12,8 @@ import org.apache.commons.compress.archivers.zip.Zip64Mode
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry
 import org.jetbrains.intellij.build.*
 import org.jetbrains.intellij.build.impl.OsSpecificDistributionBuilder.Companion.suffix
-import org.jetbrains.intellij.build.impl.client.createJetBrainsClientContextForLaunchers
+import org.jetbrains.intellij.build.impl.client.createFrontendContextForLaunchers
+import org.jetbrains.intellij.build.impl.macOS.MachOUuid
 import org.jetbrains.intellij.build.impl.productInfo.*
 import org.jetbrains.intellij.build.impl.qodana.generateQodanaLaunchData
 import org.jetbrains.intellij.build.impl.support.RepairUtilityBuilder
@@ -117,7 +117,12 @@ class MacDistributionBuilder(
 
     context.executeStep(spanBuilder("build macOS artifacts").setAttribute("arch", arch.name), BuildOptions.MAC_ARTIFACTS_STEP) {
       setLastModifiedTime(osAndArchSpecificDistPath, context)
-      val runtimeDist = context.bundledRuntime.extract(os = OsFamily.MACOS, arch = arch)
+
+      val executableFileMatchers = generateExecutableFilesMatchers(includeRuntime = true, arch).keys
+      updateExecutablePermissions(osAndArchSpecificDistPath, executableFileMatchers)
+
+      val runtimeDir = context.bundledRuntime.extract(os = OsFamily.MACOS, arch = arch)
+      updateExecutablePermissions(runtimeDir, executableFileMatchers)
 
       if (context.isMacCodeSignEnabled) {
         /**
@@ -125,7 +130,7 @@ class MacDistributionBuilder(
          * preventing concurrent modifications by different [OsSpecificDistributionBuilder]s,
          * otherwise zip/tar build may fail due to FS change (changed attributes) while reading a file.
          */
-        signMacBinaries(osAndArchSpecificDistPath, runtimeDist, arch)
+        signMacBinaries(osAndArchSpecificDistPath, runtimeDir, arch)
       }
 
       val baseName = context.productProperties.getBaseArtifactName(context.applicationInfo, context.buildNumber)
@@ -135,7 +140,7 @@ class MacDistributionBuilder(
       val zipRoot = getMacZipRoot(customizer, context)
       val compressionLevel = if (publishSitArchive || publishZipOnly) Deflater.DEFAULT_COMPRESSION else Deflater.BEST_SPEED
       val extraFiles = context.getDistFiles(os = OsFamily.MACOS, arch)
-      val directories = listOf(context.paths.distAllDir, osAndArchSpecificDistPath, runtimeDist)
+      val directories = listOf(context.paths.distAllDir, osAndArchSpecificDistPath, runtimeDir)
       val builder = this@MacDistributionBuilder
       val productJson = generateProductJson(context, arch = arch, withRuntime = true)
       buildMacZip(
@@ -157,7 +162,7 @@ class MacDistributionBuilder(
           zipRoot = zipRoot,
           arch = arch,
           productJson = generateProductJson(context, arch = arch, withRuntime = false),
-          directories = directories.filterNot { it == runtimeDist },
+          directories = directories.filterNot { it == runtimeDir },
           extraFiles = extraFiles,
           includeRuntime = false,
           compressionLevel = compressionLevel,
@@ -212,15 +217,16 @@ class MacDistributionBuilder(
 
     val executable = context.productProperties.baseFileName
     val (execPath, licensePath) = NativeBinaryDownloader.getLauncher(context, OsFamily.MACOS, arch)
-    copyFile(execPath, macDistDir.resolve("MacOS/${executable}"))
+    val copy = macDistDir.resolve("MacOS/$executable")
+    copyFile(execPath, copy)
+    MachOUuid(copy, customizer, context).patch()
     copyFile(licensePath, macDistDir.resolve("license/launcher-third-party-libraries.html"))
 
-    val icnsPath = Path.of((if (context.applicationInfo.isEAP) customizer.icnsPathForEAP else null) ?: customizer.icnsPath)
+    val icnsPath = Path.of(customizer.icnsPathForEAP?.takeIf { context.applicationInfo.isEAP } ?: customizer.icnsPath)
     val resourcesDistDir = macDistDir.resolve("Resources")
     copyFile(icnsPath, resourcesDistDir.resolve(targetIcnsFileName))
 
-    val alternativeIcon = (if (context.applicationInfo.isEAP) customizer.icnsPathForAlternativeIconForEAP else null)
-                          ?: customizer.icnsPathForAlternativeIcon
+    val alternativeIcon = customizer.icnsPathForAlternativeIconForEAP?.takeIf { context.applicationInfo.isEAP } ?: customizer.icnsPathForAlternativeIcon
     if (alternativeIcon != null) {
       copyFile(Path.of(alternativeIcon), resourcesDistDir.resolve("custom.icns"))
     }
@@ -240,7 +246,7 @@ class MacDistributionBuilder(
     )
 
     writeVmOptions(macBinDir)
-    createJetBrainsClientContextForLaunchers(context)?.let { clientContext ->
+    createFrontendContextForLaunchers(context)?.let { clientContext ->
       writeMacOsVmOptions(macBinDir, clientContext)
     }
 
@@ -285,9 +291,8 @@ class MacDistributionBuilder(
     }
   }
 
-  override fun generateExecutableFilesPatterns(includeRuntime: Boolean, arch: JvmArchitecture): Sequence<String> {
-    return customizer.generateExecutableFilesPatterns(context, includeRuntime, arch)
-  }
+  override fun generateExecutableFilesPatterns(includeRuntime: Boolean, arch: JvmArchitecture): Sequence<String> =
+    customizer.generateExecutableFilesPatterns(context, includeRuntime, arch)
 
   private suspend fun buildForArch(arch: JvmArchitecture, macZip: Path, macZipWithoutRuntime: Path?) {
     spanBuilder("build macOS artifacts for specific arch").setAttribute("arch", arch.name).use(Dispatchers.IO) {
@@ -308,7 +313,7 @@ class MacDistributionBuilder(
       if (customizer.buildArtifactWithoutRuntime) {
         requireNotNull(macZipWithoutRuntime)
         createSkippableJob(
-          spanBuilder = spanBuilder("build DMG without Runtime").setAttribute("arch", archStr),
+          spanBuilder("build DMG without Runtime").setAttribute("arch", archStr),
           stepId = "${BuildOptions.MAC_ARTIFACTS_STEP}_no_jre_${archStr}",
           context
         ) {
@@ -346,21 +351,20 @@ class MacDistributionBuilder(
     )
 
   private suspend fun createProductInfoLaunchData(context: BuildContext, arch: JvmArchitecture, withRuntime: Boolean): ProductInfoLaunchData {
-    val jetbrainsClientCustomLaunchData = generateJetBrainsClientLaunchData(arch, OsFamily.MACOS, context) {
+    val embeddedFrontendLaunchData = generateEmbeddedFrontendLaunchData(arch, OsFamily.MACOS, context) {
       "../bin/${it.productProperties.baseFileName}.vmoptions"
     }
     val qodanaCustomLaunchData = generateQodanaLaunchData(context, arch, OsFamily.MACOS)
-    return ProductInfoLaunchData(
+    return ProductInfoLaunchData.create(
       OsFamily.MACOS.osName,
       arch.dirName,
       launcherPath = "../MacOS/${context.productProperties.baseFileName}",
       javaExecutablePath = if (withRuntime) "../jbr/Contents/Home/bin/java" else null,
       vmOptionsFilePath = "../bin/${context.productProperties.baseFileName}.vmoptions",
-      startupWmClass = null,
       bootClassPathJarNames = context.bootClassPathJarNames,
       additionalJvmArguments = context.getAdditionalJvmArguments(OsFamily.MACOS, arch),
       mainClass = context.ideMainClassName,
-      customCommands = listOfNotNull(jetbrainsClientCustomLaunchData, qodanaCustomLaunchData)
+      customCommands = listOfNotNull(embeddedFrontendLaunchData, qodanaCustomLaunchData)
     )
   }
 
@@ -516,9 +520,8 @@ class MacDistributionBuilder(
       }
   }
 
-  private fun getMacZipRoot(customizer: MacDistributionCustomizer, context: BuildContext): String {
-    return "${customizer.getRootDirectoryName(context.applicationInfo, context.buildNumber)}/Contents"
-  }
+  private fun getMacZipRoot(customizer: MacDistributionCustomizer, context: BuildContext): String =
+    "${customizer.getRootDirectoryName(context.applicationInfo, context.buildNumber)}/Contents"
 
   private val publishSitArchive: Boolean
     get() = !context.isStepSkipped(BuildOptions.MAC_SIT_PUBLICATION_STEP)
@@ -638,6 +641,7 @@ class MacDistributionBuilder(
     }
   }
 
+  @OptIn(ExperimentalPathApi::class)
   private suspend fun generateIntegrityManifest(sitFile: Path, sitRoot: String, arch: JvmArchitecture, context: BuildContext) {
     if (context.options.buildStepsToSkip.contains(BuildOptions.REPAIR_UTILITY_BUNDLE_STEP)) {
       return

@@ -6,7 +6,11 @@ import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.platform.eel.EelExecApi.Pty
 import com.intellij.platform.eel.EelProcess
 import com.intellij.platform.eel.EelResult
+import com.intellij.platform.eel.ReadResult
+import com.intellij.platform.eel.executeProcess
+import com.intellij.platform.eel.getOrThrow
 import com.intellij.platform.eel.provider.localEel
+import com.intellij.platform.eel.provider.utils.sendWholeText
 import com.intellij.platform.tests.eelHelpers.EelHelper
 import com.intellij.platform.tests.eelHelpers.ttyAndExit.*
 import com.intellij.testFramework.common.timeoutRunBlocking
@@ -21,6 +25,7 @@ import org.hamcrest.CoreMatchers.`is`
 import org.hamcrest.MatcherAssert.assertThat
 import org.junit.jupiter.api.Assertions
 import org.junit.jupiter.api.BeforeAll
+import org.junit.jupiter.api.Test
 import org.junitpioneer.jupiter.cartesian.CartesianTest
 import java.nio.ByteBuffer
 import kotlin.test.assertEquals
@@ -53,6 +58,16 @@ class EelLocalExecApiTest {
     NO_PTY, PTY_SIZE_FROM_START, PTY_RESIZE_LATER
   }
 
+  @Test
+  fun testExitCode(): Unit = timeoutRunBlocking {
+    when (val r = localEel.exec.executeProcess("something that doesn't exist for sure")) {
+      is EelResult.Error ->
+        // **nix: ENOENT 2 No such file or directory
+        // win: ERROR_FILE_NOT_FOUND 2 winerror.h
+        Assertions.assertEquals(2, r.error.errno, "Wrong error code")
+      is EelResult.Ok -> Assertions.fail("Process shouldn't be created ${r.value}")
+    }
+  }
 
   /**
    * Test runs [EelHelper] checking stdin/stdout iteration, exit code, tty and signal/termination handling.
@@ -64,11 +79,11 @@ class EelLocalExecApiTest {
   ): Unit = timeoutRunBlocking(1.minutes) {
 
     val builder = executor.createBuilderToExecuteMain()
-    builder.pty(when (ptyManagement) {
-                  PTYManagement.NO_PTY -> null
-                  PTYManagement.PTY_SIZE_FROM_START -> Pty(PTY_COLS, PTY_ROWS, true)
-                  PTYManagement.PTY_RESIZE_LATER -> Pty(PTY_COLS - 1, PTY_ROWS - 1, true) // wrong tty size: will resize in the test
-                })
+    builder.ptyOrStdErrSettings(when (ptyManagement) {
+                                  PTYManagement.NO_PTY -> null
+                                  PTYManagement.PTY_SIZE_FROM_START -> Pty(PTY_COLS, PTY_ROWS, true)
+                                  PTYManagement.PTY_RESIZE_LATER -> Pty(PTY_COLS - 1, PTY_ROWS - 1, true) // wrong tty size: will resize in the test
+                                })
     when (val r = localEel.exec.execute(builder.build())) {
       is EelResult.Error -> Assertions.fail(r.error.message)
       is EelResult.Ok -> {
@@ -90,12 +105,11 @@ class EelLocalExecApiTest {
           }
         }
 
+        val text = ByteBuffer.allocate(8192)
         withContext(Dispatchers.Default) {
-          val text = ByteBuffer.allocate(1024)
           withTimeoutOrNull(10.seconds) {
-            for (chunk in process.stderr) {
-              text.put(chunk)
-              if (HELLO in chunk.decodeToString()) break
+            while (process.stderr.receive(text).getOrThrow() != ReadResult.EOF) {
+              if (HELLO in text.slice(0, text.position()).decodeString()) break
             }
           }
           text.limit(text.position()).rewind()
@@ -104,16 +118,23 @@ class EelLocalExecApiTest {
 
 
         // Test tty api
-        // tty might insert "\r\n", we need to remove them. Hence, NEW_LINES.
-        val outputStr = process.stdout.receive().decodeToString().replace(NEW_LINES, "")
-        val pyOutputObj = TTYState.deserialize(outputStr)
+        var ttyState: TTYState? = null
+        text.clear()
+        while (ttyState == null) {
+          process.stdout.receive(text).getOrThrow()
+          // tty might insert "\r\n", we need to remove them, hence, NEW_LINES.
+          // Schlemiel the Painter's Algorithm is OK in tests: do not use in production
+          ttyState = TTYState.deserializeIfValid(text.slice(0, text.position()).decodeString().replace(NEW_LINES, ""))
+        }
         when (ptyManagement) {
           PTYManagement.PTY_SIZE_FROM_START, PTYManagement.PTY_RESIZE_LATER -> {
-            Assertions.assertNotNull(pyOutputObj.size)
-            Assertions.assertEquals(Size(PTY_COLS, PTY_ROWS), pyOutputObj.size, "size must be set for tty")
+            Assertions.assertNotNull(ttyState.size)
+            Assertions.assertEquals(Size(PTY_COLS, PTY_ROWS), ttyState.size, "size must be set for tty")
+            val expectedTerm = System.getenv("TERM") ?: "xterm"
+            Assertions.assertEquals(expectedTerm, ttyState.termName, "Wrong term type")
           }
           PTYManagement.NO_PTY -> {
-            Assertions.assertNull(pyOutputObj.size, "size must not be set if no tty")
+            Assertions.assertNull(ttyState.size, "size must not be set if no tty")
           }
         }
 
@@ -132,6 +153,7 @@ class EelLocalExecApiTest {
             process.sendCommand(Command.EXIT)
           }
         }
+
         val exitCode = process.exitCode.await()
         when (exitType) {
           ExitType.KILL -> {
@@ -169,7 +191,6 @@ class EelLocalExecApiTest {
    * Sends [command] to the helper and flush
    */
   private suspend fun EelProcess.sendCommand(command: Command) {
-    val text = command.name + "\n"
-    stdin.send(text.encodeToByteArray())
+    stdin.sendWholeText(command.name + "\n").getOrThrow()
   }
 }

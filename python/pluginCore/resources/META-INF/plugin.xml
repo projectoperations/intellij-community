@@ -52,13 +52,18 @@ The Python plug-in provides smart editing for Python scripts. The feature set of
     <module name="intellij.python.grazie"/>
     <module name="intellij.python.langInjection"/>
     <module name="intellij.python.markdown"/>
+    <module name="intellij.python.ml.features"/>
     <module name="intellij.python.terminal"/>
+    <module name="intellij.python.community.services.systemPython"/>
+    <module name="intellij.python.community.services.shared"/>
+    <module name="intellij.python.community.services.internal.impl"/>
   </content>
 
   <resource-bundle>messages.PyBundle</resource-bundle>
 
   <extensions defaultExtensionNs="com.intellij">
     <localInspection language="TOML" enabledByDefault="true" implementationClass="com.jetbrains.python.sdk.poetry.PoetryPackageVersionsInspection" key="INSP.poetry.package.versions.display.name" bundle="messages.PyBundle" groupKey="INSP.GROUP.python" suppressId="PoetryPackageVersions" shortName="PoetryPackageVersionsInspection"/>
+    <localInspection language="TOML" enabledByDefault="true" implementationClass="com.jetbrains.python.sdk.uv.UvPackageVersionsInspection" key="INSP.poetry.package.versions.display.name" bundle="messages.PyBundle" groupKey="INSP.GROUP.python" suppressId="UvPackageVersions" shortName="UvPackageVersionsInspection"/>
 
     <fileType name="Requirements.txt"
               implementationClass="com.jetbrains.python.requirements.RequirementsFileType"
@@ -113,6 +118,11 @@ The Python plug-in provides smart editing for Python scripts. The feature set of
                  defaultValue="true"
                  restartRequired="false"
                  description="Use bare python instead of conda run for conda"/>
+    <registryKey key="python.packaging.conda.chain.installation"
+                 defaultValue="true"
+                 restartRequired="true"
+                 description="When enabled, package managers are tried in sequence until
+                              the package is successfully installed or all attempts fail."/>
     <iconMapper mappingFile="PythonIconMappings.json"/>
     <library.type implementation="com.jetbrains.python.library.PythonLibraryType"/>
     <renameHandler implementation="com.jetbrains.python.magicLiteral.PyMagicLiteralRenameHandler"/>
@@ -457,12 +467,12 @@ The Python plug-in provides smart editing for Python scripts. The feature set of
                  key="python.debug.halt.variable.resolve.threads.on.step.resume"/>
 
     <!-- Retaining the feature flag for FL-29868 -->
-    <registryKey defaultValue="true" description="Use a single port for communication between PyCharm and the debugger"
+    <registryKey defaultValue="false" description="Use a single port for communication between PyCharm and the debugger"
                  restartRequired="false" key="python.debug.use.single.port"/>
 
-    <registryKey defaultValue="500" description="Timeout between attempts to connect to remote debugger server"
+    <registryKey defaultValue="1000" description="Timeout between attempts to connect to remote debugger server"
                  restartRequired="false" key="python.debugger.remote.connect.retry.timeout.ms"/>
-    <registryKey defaultValue="20" description="Max attempts to connect to remote debugger server"
+    <registryKey defaultValue="30" description="Max attempts to connect to remote debugger server"
                  restartRequired="false" key="python.debugger.remote.connect.max.attempts"/>
 
     <!-- typing -->
@@ -510,11 +520,11 @@ The Python plug-in provides smart editing for Python scripts. The feature set of
     <statistics.counterUsagesCollector implementationClass="com.jetbrains.python.namespacePackages.PyNamespacePackagesStatisticsCollector"/>
     <statistics.counterUsagesCollector implementationClass="com.jetbrains.python.codeInsight.codeVision.PyCodeVisionUsageCollector"/>
     <statistics.counterUsagesCollector implementationClass="com.jetbrains.python.newProjectWizard.collector.PythonNewProjectWizardCollector"/>
+    <statistics.validation.customValidationRule implementation="com.jetbrains.python.newProjectWizard.collector.PyProjectTypeValidationRule"/>
     <statistics.counterUsagesCollector implementationClass="com.jetbrains.python.sdk.add.collector.PythonNewInterpreterAddedCollector"/>
     <statistics.counterUsagesCollector implementationClass="com.jetbrains.python.run.runAnything.PyRunAnythingCollector"/>
     <statistics.counterUsagesCollector implementationClass="com.jetbrains.python.debugger.statistics.PyDataViewerCollector"/>
     <statistics.counterUsagesCollector implementationClass="com.jetbrains.python.sdk.installer.BinaryInstallerUsagesCollector"/>
-    <statistics.counterUsagesCollector implementationClass="com.jetbrains.python.codeInsight.imports.mlapi.PyCharmImportsRankingLogs"/>
 
     <!-- Code-insight IDE bridge -->
     <applicationService serviceInterface="com.jetbrains.python.PythonRuntimeService"
@@ -633,12 +643,6 @@ The Python plug-in provides smart editing for Python scripts. The feature set of
     <registryKey key="python.parameter.info.show.all.hints" defaultValue="false"
                  description="Show type hints for all parameters in parameter info window"/>
 
-    <!-- Machine Learning -->
-    <registryKey
-      key="quickfix.ranking.ml"
-      defaultValue="[IN_EXPERIMENT*|ENABLED|DISABLED]"
-      description="Enable ML ranking in quick fix for missing imports"/>
-
     <registryKey key="disable.python.cache.update"
                  defaultValue="false"
                  restartRequired="false"
@@ -647,7 +651,6 @@ The Python plug-in provides smart editing for Python scripts. The feature set of
     <feedback.idleFeedbackSurvey implementation="com.jetbrains.python.statistics.feedback.PythonJobSurvey"/>
     <statistics.counterUsagesCollector implementationClass="com.jetbrains.python.statistics.feedback.PythonJobStatisticsCollector"/>
     <backgroundPostStartupActivity implementation="com.jetbrains.python.statistics.feedback.PythonFirstLaunchChecker"/>
-    <statistics.validation.customValidationRule implementation="com.jetbrains.python.statistics.feedback.TrueValidationRule"/>
   </extensions>
 
   <extensionPoints>
@@ -830,11 +833,11 @@ The Python plug-in provides smart editing for Python scripts. The feature set of
     <pyAddSdkProvider implementation="com.jetbrains.python.sdk.poetry.PyAddPoetrySdkProvider"/>
     <pythonFlavorProvider implementation="com.jetbrains.python.sdk.poetry.PyPoetrySdkFlavorProvider"/>
 
+    <pythonFlavorProvider implementation="com.jetbrains.python.sdk.uv.UvSdkFlavorProvider"/>
+
     <!-- SDK Flavors -->
     <pythonSdkFlavor implementation="com.jetbrains.python.sdk.flavors.conda.CondaEnvSdkFlavor"/>
-    <pythonSdkFlavor implementation="com.jetbrains.python.sdk.flavors.JythonSdkFlavor"/>
     <pythonSdkFlavor implementation="com.jetbrains.python.sdk.flavors.MacPythonSdkFlavor"/>
-    <pythonSdkFlavor implementation="com.jetbrains.python.sdk.flavors.PyPySdkFlavor"/>
     <pythonSdkFlavor implementation="com.jetbrains.python.sdk.flavors.UnixPythonSdkFlavor"/>
     <pythonSdkFlavor implementation="com.jetbrains.python.sdk.flavors.VirtualEnvSdkFlavor"/>
     <pythonSdkFlavor implementation="com.jetbrains.python.sdk.flavors.WinPythonSdkFlavor"/>
@@ -858,6 +861,8 @@ The Python plug-in provides smart editing for Python scripts. The feature set of
     <packageManagerProvider implementation="com.jetbrains.python.sdk.poetry.PyPoetryPackageManagerProvider"/>
     <pythonPackageManagerProvider implementation="com.jetbrains.python.sdk.poetry.PoetryPackageManagerProvider"/>
 
+    <pySdkProvider implementation="com.jetbrains.python.sdk.uv.UvSdkProvider"/>
+    <pythonPackageManagerProvider implementation="com.jetbrains.python.sdk.uv.UvPackageManagerProvider"/>
 
     <pythonPackageManagerProvider implementation="com.jetbrains.python.packaging.pip.PipPackageManagerProvider" order="last"/>
     <pythonPackageManagerProvider implementation="com.jetbrains.python.packaging.conda.CondaPackageManagerProvider"/>
@@ -1003,6 +1008,8 @@ The Python plug-in provides smart editing for Python scripts. The feature set of
               text="Update Python SDK" description="Forcibly update all configured Python SDKs in the project"/>
       <action id="PySetPropertyAction" internal="true" class="com.jetbrains.python.sdk.add.v2.PySetPropertyAction"
               text="Set PropertiesComponent Value" description="Set value in application-level PropertiesComponent"/>
+      <action id="PyShowJobSurvey" internal="true" class="com.jetbrains.python.statistics.feedback.PythonShowJobSurveyAction"
+              text="Show Python Job Survey"/>
       <add-to-group group-id="Internal"/>
     </group>
   </actions>

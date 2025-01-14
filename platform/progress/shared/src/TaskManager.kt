@@ -3,6 +3,8 @@ package com.intellij.platform.ide.progress
 
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.diagnostic.trace
+import com.intellij.openapi.util.NlsContexts.ProgressText
+import com.intellij.platform.ide.progress.suspender.TaskSuspension
 import com.intellij.platform.kernel.withKernel
 import fleet.kernel.*
 import org.jetbrains.annotations.ApiStatus
@@ -21,15 +23,16 @@ object TaskManager {
    * The method shouldn't cancel a task if it's not cancelable (see [TaskCancellation.NonCancellable])
    *
    * @param taskInfoEntity task to cancel
+   * @param source indicates which side triggered the cancellation ([TaskStatus.Source.USER] or [TaskStatus.Source.SYSTEM])
    */
-  suspend fun cancelTask(taskInfoEntity: TaskInfoEntity): Unit = withKernel {
+  suspend fun cancelTask(taskInfoEntity: TaskInfoEntity, source: TaskStatus.Source): Unit = withKernel {
     tryWithEntities(taskInfoEntity) {
       if (taskInfoEntity.cancellation is TaskCancellation.NonCancellable) {
         LOG.error("Task ${taskInfoEntity.eid} is not cancellable")
         return@tryWithEntities
       }
 
-      taskInfoEntity.setTaskStatus(TaskStatus.CANCELED)
+      taskInfoEntity.setTaskStatus(TaskStatus.Canceled(source))
     }
   }
 
@@ -38,12 +41,16 @@ object TaskManager {
    * The task can be resumed later ([resumeTask]) or canceled ([cancelTask])
    *
    * @param taskInfoEntity task to pause
+   * @param source indicates which side triggered the cancellation ([TaskStatus.Source.USER] or [TaskStatus.Source.SYSTEM])
    */
-  suspend fun pauseTask(taskInfoEntity: TaskInfoEntity): Unit = withKernel {
+  suspend fun pauseTask(taskInfoEntity: TaskInfoEntity, reason: @ProgressText String? = null, source: TaskStatus.Source): Unit = withKernel {
     tryWithEntities(taskInfoEntity) {
-      // TODO Check that task can be suspended RDCT-1620
+      if (taskInfoEntity.suspension is TaskSuspension.NonSuspendable) {
+        LOG.error("Task ${taskInfoEntity.eid} is not suspendable")
+        return@tryWithEntities
+      }
 
-      taskInfoEntity.setTaskStatus(TaskStatus.PAUSED)
+      taskInfoEntity.setTaskStatus(TaskStatus.Paused(reason, source))
     }
   }
 
@@ -52,10 +59,11 @@ object TaskManager {
    * The task has to be paused ([pauseTask]), otherwise the method won't affect it
    *
    * @param taskInfoEntity task to pause
+   * @param source indicates which side triggered the cancellation ([TaskStatus.Source.USER] or [TaskStatus.Source.SYSTEM])
    */
-  suspend fun resumeTask(taskInfoEntity: TaskInfoEntity): Unit = withKernel {
+  suspend fun resumeTask(taskInfoEntity: TaskInfoEntity, source: TaskStatus.Source): Unit = withKernel {
     tryWithEntities(taskInfoEntity) {
-      taskInfoEntity.setTaskStatus(TaskStatus.RUNNING)
+      taskInfoEntity.setTaskStatus(TaskStatus.Running(source))
     }
   }
 
@@ -73,7 +81,7 @@ object TaskManager {
 
   private fun TaskInfoEntity.trySetTaskStatus(newStatus: TaskStatus) {
     if (!canChangeStatus(from = taskStatus, to = newStatus)) {
-      LOG.info("Task status cannot be changed from ${taskStatus} to $newStatus")
+      LOG.trace { "Task status cannot be changed from ${taskStatus} to $newStatus" }
       return
     }
 
@@ -84,11 +92,11 @@ object TaskManager {
   private fun canChangeStatus(from: TaskStatus, to: TaskStatus): Boolean {
     return when (to) {
       // Task can be resumed only if it was suspended before
-      TaskStatus.RUNNING -> from == TaskStatus.PAUSED
+      is TaskStatus.Running -> from is TaskStatus.Paused
       // Task can be suspended only if it was running before
-      TaskStatus.PAUSED -> from == TaskStatus.RUNNING
+      is TaskStatus.Paused -> from is TaskStatus.Running
       // Task can be canceled from any status
-      TaskStatus.CANCELED -> true
+      is TaskStatus.Canceled -> from !is TaskStatus.Canceled
     }
   }
 }

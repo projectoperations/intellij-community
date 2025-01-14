@@ -204,7 +204,7 @@ public class RngElementDescriptor implements XmlElementDescriptor {
   }
 
   protected XmlAttributeDescriptor computeAttributeDescriptor(final Map<DAttributePattern, Pair<? extends Map<String, String>, Boolean>> attributes) {
-    if (attributes.size() > 0) {
+    if (!attributes.isEmpty()) {
       RngXmlAttributeDescriptor d = null;
       final Set<DAttributePattern> patterns = attributes.keySet();
       for (DAttributePattern pattern : patterns) {
@@ -311,7 +311,7 @@ public class RngElementDescriptor implements XmlElementDescriptor {
 
   private static String format(QName qName, String p) {
     final String localPart = qName.getLocalPart();
-    return p.length() > 0 ? p + ":" + localPart : localPart;
+    return !p.isEmpty() ? p + ":" + localPart : localPart;
   }
 
   private static @Nullable PsiElement getDeclarationImpl(@NotNull Project project, PsiElement decl, Locator location, PsiFile file) {
@@ -345,6 +345,7 @@ public class RngElementDescriptor implements XmlElementDescriptor {
 
   }
 
+  @Override
   public boolean equals(Object o) {
     if (this == o) return true;
     if (o == null || getClass() != o.getClass()) return false;
@@ -356,6 +357,7 @@ public class RngElementDescriptor implements XmlElementDescriptor {
     return true;
   }
 
+  @Override
   public int hashCode() {
     return myElementPattern.hashCode();
   }

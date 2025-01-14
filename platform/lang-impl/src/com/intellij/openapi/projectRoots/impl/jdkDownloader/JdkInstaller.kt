@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.projectRoots.impl.jdkDownloader
 
 import com.google.common.hash.Hashing
@@ -25,13 +25,13 @@ import com.intellij.openapi.projectRoots.impl.jdkDownloader.JdkInstallerWSL.unpa
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.registry.Registry
-import com.intellij.platform.eel.EelApi
-import com.intellij.platform.eel.EelExecApi
-import com.intellij.platform.eel.EelPlatform
-import com.intellij.platform.eel.getOrThrow
+import com.intellij.platform.eel.*
 import com.intellij.platform.eel.path.EelPath
 import com.intellij.platform.eel.provider.getEelApi
-import com.intellij.platform.eel.provider.utils.awaitProcessResult
+import com.intellij.platform.eel.provider.getEelApiBlocking
+import com.intellij.platform.eel.impl.utils.awaitProcessResult
+import com.intellij.platform.eel.provider.asEelPath
+import com.intellij.platform.eel.provider.asNioPath
 import com.intellij.util.Urls
 import com.intellij.util.io.HttpRequests
 import com.intellij.util.io.delete
@@ -128,13 +128,13 @@ class JdkInstaller : JdkInstallerBase() {
 
   private class EelForJdkInstallerImpl(override val eel: EelApi) : OsAbstractionForJdkInstaller.Eel {
     override fun getPath(path: Path): String =
-      eel.mapper.getOriginalPath(path)?.toString() ?: error("Failed to map $path to WSL")
+      path.asEelPath().toString()
 
     override fun execute(command: List<String>, dir: String, timeout: Int): ProcessOutput = runBlockingCancellable {
       val builder = EelExecApi
         .ExecuteProcessOptions.Builder(command.first())
         .args(command.drop(1))
-        .workingDirectory(dir)
+        .workingDirectory(EelPath.parse(dir, eel.descriptor))
         .build()
       val process = eel.exec.execute(builder).getOrThrow()
       try {
@@ -167,16 +167,22 @@ class JdkInstaller : JdkInstallerBase() {
     }
 
   private fun defaultInstallDir(eel: EelApi): Path {
+    if (eel is LocalEelApi) {
+      val explicitHome = System.getProperty("jdk.downloader.home")
+      if (explicitHome != null) {
+        return Paths.get(explicitHome)
+      }
+    }
+
     val userHome = eel.fs.user.home
 
-    val relativePath = EelPath.Relative.parse(
-      when (eel.platform) {
+    val relativePath = when (eel.platform) {
         is EelPlatform.Windows, is EelPlatform.Linux -> ".jdks"
         is EelPlatform.Darwin -> "Library/Java/JavaVirtualMachines"
-      })
+    }
 
     val jdks = userHome.resolve(relativePath)
-    return eel.mapper.toNioPath(jdks)
+    return jdks.asNioPath()
   }
 
   private fun defaultInstallDir(wslDistribution: WSLDistribution?) : Path {
@@ -367,7 +373,7 @@ abstract class JdkInstallerBase {
 
       try {
         if (eel != null) {
-          val targetDirEel = eel.mapper.getOriginalPath(targetDir) ?: TODO("Failed to map $targetDir to $eel")
+          val targetDirEel = targetDir.asEelPath()
           unpackJdkOnEel(eel, downloadFile, targetDirEel, item.packageRootPrefix)
         }
         else if (wslDistribution != null) {
@@ -417,6 +423,8 @@ abstract class JdkInstallerBase {
    *
    * The [JdkInstallRequest] may have another [targetPath] if there is such JDK already installed,
    * or it is being installed right now
+   *
+   * @throws JdkInstallationException if [targetPath] is invalid JDK installation directory.
    */
   fun prepareJdkInstallation(jdkItem: JdkItem, targetPath: Path): JdkInstallRequest {
     if (Registry.`is`("jdk.downloader.reuse.installed")) {
@@ -445,7 +453,7 @@ abstract class JdkInstallerBase {
   private fun prepareJdkInstallationImpl(jdkItem: JdkItem, targetPath: Path) : PendingJdkRequest {
     val (home, error) = validateInstallDir(targetPath.toString())
     if (home == null || error != null) {
-      throw RuntimeException(error ?: "Invalid Target Directory")
+      throw JdkInstallationException(error ?: ProjectBundle.message("dialog.message.error.target.path.invalid"))
     }
 
     val javaHome = jdkItem.resolveJavaHome(targetPath)
@@ -486,6 +494,7 @@ abstract class JdkInstallerBase {
       if (jdkPath == null) return null
       if (!jdkPath.isDirectory()) return null
       val predicate = when {
+        Registry.`is`("java.home.finder.use.eel") -> JdkPredicate.forEel(jdkPath.getEelApiBlocking())
         WslPath.isWslUncPath(jdkPath.toString()) -> JdkPredicate.forWSL()
         else -> JdkPredicate.default()
       }
@@ -705,3 +714,8 @@ class JdkInstallerStore : SimplePersistentStateComponent<JdkInstallerState>(JdkI
     fun getInstance(): JdkInstallerStore = service<JdkInstallerStore>()
   }
 }
+
+@Internal
+class JdkInstallationException(
+  val reason: @Nls String,
+) : Exception(reason)

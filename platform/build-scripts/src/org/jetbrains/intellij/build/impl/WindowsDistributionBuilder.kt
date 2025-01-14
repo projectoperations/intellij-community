@@ -4,6 +4,7 @@ package org.jetbrains.intellij.build.impl
 import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.openapi.util.io.NioFiles
 import com.intellij.openapi.util.text.StringUtilRt
+import com.intellij.platform.buildData.productInfo.ProductInfoLaunchData
 import com.intellij.platform.ijent.community.buildConstants.IJENT_WSL_FILE_SYSTEM_REGISTRY_KEY
 import com.intellij.platform.ijent.community.buildConstants.MULTI_ROUTING_FILE_SYSTEM_VMOPTIONS
 import com.intellij.platform.ijent.community.buildConstants.isIjentWslFsEnabledByDefaultForProduct
@@ -13,7 +14,7 @@ import io.opentelemetry.api.trace.Span
 import kotlinx.coroutines.*
 import org.jetbrains.intellij.build.*
 import org.jetbrains.intellij.build.impl.OsSpecificDistributionBuilder.Companion.suffix
-import org.jetbrains.intellij.build.impl.client.createJetBrainsClientContextForLaunchers
+import org.jetbrains.intellij.build.impl.client.createFrontendContextForLaunchers
 import org.jetbrains.intellij.build.impl.productInfo.*
 import org.jetbrains.intellij.build.impl.qodana.generateQodanaLaunchData
 import org.jetbrains.intellij.build.impl.support.RepairUtilityBuilder
@@ -66,7 +67,7 @@ internal class WindowsDistributionBuilder(
 
       buildWinLauncher(targetPath, arch, context, copyLicense = true)
 
-      createJetBrainsClientContextForLaunchers(context)?.let { clientContext ->
+      createFrontendContextForLaunchers(context)?.let { clientContext ->
         writeWindowsVmOptions(distBinDir, clientContext)
         buildWinLauncher(targetPath, arch, clientContext, copyLicense = false)
       }
@@ -393,7 +394,7 @@ internal class WindowsDistributionBuilder(
   }
 
   private suspend fun generateProductJson(targetDir: Path, context: BuildContext, arch: JvmArchitecture, withRuntime: Boolean = true): String {
-    val jetbrainsClientCustomLaunchData = generateJetBrainsClientLaunchData(arch = arch, os = OsFamily.WINDOWS, ideContext = context) {
+    val embeddedFrontendLaunchData = generateEmbeddedFrontendLaunchData(arch = arch, os = OsFamily.WINDOWS, ideContext = context) {
       "bin/${it.productProperties.baseFileName}64.exe.vmoptions"
     }
     val qodanaCustomLaunchData = generateQodanaLaunchData(context, arch, OsFamily.WINDOWS)
@@ -401,18 +402,19 @@ internal class WindowsDistributionBuilder(
     val json = generateProductInfoJson(
       relativePathToBin = "bin",
       builtinModules = context.builtinModule,
-      launch = listOf(ProductInfoLaunchData(
-        os = OsFamily.WINDOWS.osName,
-        arch = arch.dirName,
-        launcherPath = "bin/${context.productProperties.baseFileName}64.exe",
-        javaExecutablePath = if (withRuntime) "jbr/bin/java.exe" else null,
-        vmOptionsFilePath = "bin/${context.productProperties.baseFileName}64.exe.vmoptions",
-        startupWmClass = null,
-        bootClassPathJarNames = context.bootClassPathJarNames,
-        additionalJvmArguments = context.getAdditionalJvmArguments(OsFamily.WINDOWS, arch),
-        mainClass = context.ideMainClassName,
-        customCommands = listOfNotNull(jetbrainsClientCustomLaunchData, qodanaCustomLaunchData),
-      )),
+      launch = listOf(
+        ProductInfoLaunchData.create(
+          os = OsFamily.WINDOWS.osName,
+          arch = arch.dirName,
+          launcherPath = "bin/${context.productProperties.baseFileName}64.exe",
+          javaExecutablePath = if (withRuntime) "jbr/bin/java.exe" else null,
+          vmOptionsFilePath = "bin/${context.productProperties.baseFileName}64.exe.vmoptions",
+          bootClassPathJarNames = context.bootClassPathJarNames,
+          additionalJvmArguments = context.getAdditionalJvmArguments(OsFamily.WINDOWS, arch),
+          mainClass = context.ideMainClassName,
+          customCommands = listOfNotNull(embeddedFrontendLaunchData, qodanaCustomLaunchData),
+        )
+      ),
       context)
     writeProductInfoJson(targetDir.resolve(PRODUCT_INFO_FILE_NAME), json, context)
     return json

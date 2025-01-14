@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.refactoring.changeSignature;
 
 import com.intellij.lang.java.JavaLanguage;
@@ -104,12 +104,6 @@ class JavaChangeSignatureUsageSearcher {
     PsiPattern[] components = deconstruction.getDeconstructionList().getDeconstructionComponents();
     if (components.length != parameters.length) {
       return false;
-    }
-    for (int i = 0; i < components.length; i++) {
-      PsiType type = JavaPsiPatternUtil.getPatternType(components[i]);
-      if (!parameters[i].getType().equals(type)) {
-        return false;
-      }
     }
     return true;
   }
@@ -302,8 +296,7 @@ class JavaChangeSignatureUsageSearcher {
     return overridingMethods;
   }
 
-  @NotNull
-  private static ChangeSignatureUsageProvider getProvider(PsiElement element) {
+  private static @NotNull ChangeSignatureUsageProvider getProvider(PsiElement element) {
     ChangeSignatureUsageProvider provider = ChangeSignatureUsageProviders.findProvider(element.getLanguage());
     if (provider == null) {
       provider = ChangeSignatureUsageProviders.findProvider(JavaLanguage.INSTANCE);

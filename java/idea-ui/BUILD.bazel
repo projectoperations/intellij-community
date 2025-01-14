@@ -1,46 +1,102 @@
-### auto-generated section `build` start
-load("@rules_java//java:defs.bzl", "java_library")
-load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_library")
+### auto-generated section `build intellij.java.ui` start
+load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources")
 
-java_library(
-  name = "resources",
-  resources = glob(["resources/**/*"], exclude = ["**/module-info.java"])
+jvm_resources(
+  name = "ui_resources",
+  files = glob(["resources/**/*"]),
+  strip_prefix = "resources"
 )
 
-kt_jvm_library(
-  name = "java-ui",
+jvm_library(
+  name = "ui",
   module_name = "intellij.java.ui",
   visibility = ["//visibility:public"],
-  srcs = glob(["src/**/*.kt", "src/**/*.java", "gen/**/*.kt", "gen/**/*.java"], exclude = ["**/module-info.java"]),
-  javac_opts = "//:j17",
-  kotlinc_opts = "//:k17",
+  srcs = glob(["src/**/*.kt", "src/**/*.java", "gen/**/*.kt", "gen/**/*.java"], allow_empty = True),
   deps = [
-    "@community//java/openapi:java",
-    "@community//java/compiler/openapi:java-compiler",
-    "@community//java/compiler/impl:java-compiler-impl",
-    "@community//java/java-impl",
-    "@community//java/java-impl-refactorings",
-    "@community//aether-dependency-resolver:java-aetherDependencyResolver",
-    "@community//platform/vcs-impl",
-    "@libraries//:guava",
-    "@libraries//:jna-platform",
-    "@community//platform/external-system-api:externalSystem",
-    "@community//platform/external-system-impl:externalSystem-impl",
-    "@libraries//:streamex",
-    "@libraries//:kotlinx-coroutines-core-jvm",
-    "@community//platform/statistics",
-    "@libraries//:intellij-deps-fastutil",
-    "@community//platform/core-ui",
-    "@community//platform/lang-impl",
-    "@community//platform/workspace/jps:workspace-jps",
-    "@community//platform/platform-util-io:ide-util-io",
-    "@community//platform/feedback",
-    "@community//platform/util/jdom:util-jdom",
-    "@community//platform/backend/workspace:backend-workspace",
-    "@community//xml/dom-openapi:xml-dom",
-    "@community//platform/util/coroutines:util-coroutines",
-    "@community//platform/backend/observation:backend-observation",
+    "//java/openapi:java",
+    "//java/compiler/openapi:java-compiler",
+    "//java/compiler/impl:java-compiler-impl",
+    "//platform/platform-impl:ide-impl",
+    "//java/java-impl:impl",
+    "//platform/ide-core-impl",
+    "//java/java-impl-refactorings:impl-refactorings",
+    "//platform/util/progress",
+    "//aether-dependency-resolver:java-aetherDependencyResolver",
+    "//platform/vcs-impl",
+    "//platform/observable:ide-observable",
+    "//platform/diff-api:diff",
+    "@lib//:guava",
+    "@lib//:jna",
+    "//platform/external-system-api:externalSystem",
+    "//platform/external-system-impl:externalSystem-impl",
+    "@lib//:stream_ex",
+    "@lib//:kotlinx-coroutines-core",
+    "//platform/statistics",
+    "@lib//:fastutil-min",
+    "//platform/core-ui",
+    "//platform/lang-impl",
+    "//platform/workspace/jps",
+    "//platform/platform-util-io:ide-util-io",
+    "//platform/feedback",
+    "//platform/util/jdom",
+    "//platform/backend/workspace",
+    "//xml/dom-openapi:dom",
+    "//platform/util/coroutines",
+    "//platform/backend/observation",
+    "//platform/eel",
+    "//platform/eel-impl",
+    "//platform/eel-provider",
+    "//platform/util/concurrency",
   ],
-  runtime_deps = [":resources"]
+  runtime_deps = [":ui_resources"]
 )
-### auto-generated section `build` end
+### auto-generated section `build intellij.java.ui` end
+
+### auto-generated section `build intellij.java.ui.tests` start
+load("@rules_java//java:defs.bzl", "java_library")
+load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_test")
+
+java_library(
+  name = "ui-tests",
+  visibility = ["//visibility:public"]
+)
+
+jvm_library(
+  name = "ui-tests_test_lib",
+  visibility = ["//visibility:public"],
+  srcs = glob(["testSrc/**/*.kt", "testSrc/**/*.java"], allow_empty = True),
+  deps = [
+    "//java/idea-ui:ui",
+    "//java/testFramework",
+    "//aether-dependency-resolver:java-aetherDependencyResolver",
+    "//aether-dependency-resolver:java-aetherDependencyResolver_test_lib",
+    "//java/execution/impl:java-execution-impl",
+    "@lib//:assert_j",
+    "//platform/platform-tests:tests_test_lib",
+    "//platform/core-ui",
+    "//java/compiler/openapi:java-compiler",
+    "//java/openapi:java",
+    "//platform/ide-core-impl",
+    "//platform/util/jdom",
+    "@lib//:kotlinx-coroutines-core",
+    "//platform/testFramework",
+    "//platform/testFramework:testFramework_test_lib",
+    "//platform/workspace/jps",
+    "//platform/backend/workspace",
+    "//platform/testFramework/junit5",
+    "//platform/testFramework/junit5:junit5_test_lib",
+    "@lib//:kotlin-test",
+    "//platform/util",
+    "@lib//:ktor-server-cio",
+    "//platform/testFramework/junit5/eel:testFramework-junit5-eel",
+    "//platform/testFramework/junit5/eel:testFramework-junit5-eel_test_lib",
+    "//platform/eel-provider",
+    "//platform/eel",
+  ]
+)
+
+jvm_test(
+  name = "ui-tests_test",
+  runtime_deps = [":ui-tests_test_lib"]
+)
+### auto-generated section `build intellij.java.ui.tests` end

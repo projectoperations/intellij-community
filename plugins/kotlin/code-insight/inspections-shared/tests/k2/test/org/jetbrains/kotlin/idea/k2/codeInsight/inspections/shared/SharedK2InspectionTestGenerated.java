@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.kotlin.idea.k2.codeInsight.inspections.shared;
 
@@ -22,6 +22,29 @@ public abstract class SharedK2InspectionTestGenerated extends AbstractSharedK2In
     @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../testData/inspections")
     public abstract static class Inspections extends AbstractSharedK2InspectionTest {
+        @RunWith(JUnit3RunnerWithInners.class)
+        @TestMetadata("../testData/inspections/constantConditionIf")
+        public abstract static class ConstantConditionIf extends AbstractSharedK2InspectionTest {
+            @RunWith(JUnit3RunnerWithInners.class)
+            @TestMetadata("../testData/inspections/constantConditionIf/inspectionData")
+            public static class InspectionData extends AbstractSharedK2InspectionTest {
+                @java.lang.Override
+                @org.jetbrains.annotations.NotNull
+                public final KotlinPluginMode getPluginMode() {
+                    return KotlinPluginMode.K2;
+                }
+
+                private void runTest(String testDataFilePath) throws Exception {
+                    KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+                }
+
+                @TestMetadata("inspections.test")
+                public void testInspections_test() throws Exception {
+                    runTest("../testData/inspections/constantConditionIf/inspectionData/inspections.test");
+                }
+            }
+        }
+
         @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("../testData/inspections/dataClassPrivateConstructor")
         public abstract static class DataClassPrivateConstructor extends AbstractSharedK2InspectionTest {

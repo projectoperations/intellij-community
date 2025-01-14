@@ -1,14 +1,12 @@
 package org.jetbrains.plugins.textmate;
 
-import com.intellij.util.ArrayUtil;
+import com.intellij.openapi.application.PathManager;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.plugins.textmate.bundles.BundleType;
 import org.jetbrains.plugins.textmate.bundles.TextMateBundleReader;
 import org.jetbrains.plugins.textmate.language.syntax.lexer.TextMateScope;
 
-import java.io.File;
 import java.io.IOException;
-import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -52,11 +50,11 @@ public final class TestUtil {
   @NonNls public static final String RESTRUCTURED_TEXT = "restructuredtext";
 
   public static Path getBundleDirectory(String bundleName) {
-    Path bundleDirectory = Path.of(getCommunityHomePath() + "/plugins/textmate/testData/bundles", bundleName);
+    Path bundleDirectory = Path.of(PathManager.getCommunityHomePath()).resolve("plugins/textmate/testData/bundles").resolve(bundleName);
     if (Files.exists(bundleDirectory)) {
       return bundleDirectory;
     }
-    return Path.of(getCommunityHomePath() + "/plugins/textmate/lib/bundles", bundleName);
+    return Path.of(PathManager.getCommunityHomePath()).resolve("plugins/textmate/lib/bundles").resolve(bundleName);
   }
 
   public static TextMateBundleReader readBundle(String bundleName) {
@@ -83,30 +81,5 @@ public final class TestUtil {
       scope = scope.add(scopeName);
     }
     return scope;
-  }
-
-  private static String getCommunityHomePath() {
-    URL url = TestUtil.class.getResource("/" + TestUtil.class.getName().replace('.', '/') + ".class");
-    if (url != null && url.getProtocol().equals("file")) {
-      try {
-        File file = new File(url.toURI().getPath());
-        while (file != null) {
-          String[] children = file.list();
-          if (children != null && ArrayUtil.contains(".idea", children)) {
-            if (ArrayUtil.contains("community", children)) {
-              return file.getPath() + "/community";
-            }
-            else {
-              return file.getPath();
-            }
-          }
-          file = file.getParentFile();
-        }
-      }
-      catch (Exception e) {
-        throw new Error(e);
-      }
-    }
-    throw new IllegalStateException("Failed to find community home path");
   }
 }

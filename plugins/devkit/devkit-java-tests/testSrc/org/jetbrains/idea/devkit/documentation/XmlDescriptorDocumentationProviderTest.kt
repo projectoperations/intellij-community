@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.idea.devkit.documentation
 
 import com.intellij.lang.documentation.ide.IdeDocumentationTargetProvider
@@ -34,7 +34,10 @@ class XmlDescriptorDocumentationProviderTest : CodeInsightFixtureTestCase<Module
       "<ul>" +
       "<li><a href=\"psi_element://#element:root__first-level-child-1\"><code>&lt;first-level-child-1&gt;</code></a></li>" +
       "<li><a href=\"psi_element://#element:root__firstLevelChild2\"><code>&lt;firstLevelChild2&gt;</code></a></li>" +
-      "<li><a href=\"psi_element://#element:root__deprecatedElement\"><code>&lt;deprecatedElement&gt;</code></a></li>"+
+      "<li><a href=\"psi_element://#element:root__deprecatedElement\"><code>&lt;deprecatedElement&gt;</code></a></li>" +
+      "<li><a href=\"psi_element://#element:root__elementWithDeprecatedAttribute\"><code>&lt;elementWithDeprecatedAttribute&gt;</code></a></li>" +
+      "<li><a href=\"psi_element://#element:root__elementWithCallouts\"><code>&lt;elementWithCallouts&gt;</code></a></li>" +
+      "<li><a href=\"psi_element://#element:root__elementWithChildrenDescription\"><code>&lt;elementWithChildrenDescription&gt;</code></a></li>" +
       "</ul>"
     )
   }
@@ -50,7 +53,8 @@ class XmlDescriptorDocumentationProviderTest : CodeInsightFixtureTestCase<Module
         </root>
       """.trimIndent(),
       "<p><a href=\"psi_element://#element:root\"><code>&lt;root&gt;</code></a> / <b><code>&lt;first-level-child-1&gt;</code></b><hr/>\n" +
-      "The <code>first-level-child-1</code> description.<blockquote><p>Some warning about <code>first-level-child-1</code>.</blockquote>" +
+      "The <code>first-level-child-1</code> description.<blockquote><p><icon src=\"AllIcons.General.Warning\"/> <b>Warning</b><br>\n" +
+      " Some warning about <code>first-level-child-1</code>.</blockquote>" +
       "<h5>Requirement</h5>" +
       "<p>Required: no; additional details with an alias<br/>\n" +
       "<b>Additional detail about <code>first-level-child-1</code>.</b>" +
@@ -83,7 +87,9 @@ class XmlDescriptorDocumentationProviderTest : CodeInsightFixtureTestCase<Module
         </root>
       """.trimIndent(),
       "<p><a href=\"psi_element://#element:root\"><code>&lt;root&gt;</code></a> / <a href=\"psi_element://#element:root__firstLevelChild2\"><code>&lt;firstLevelChild2&gt;</code></a> / <b><code>@child-attribute-1</code></b><hr/>\n" +
-      "A <code>child-attribute</code> description. A link to <a href=\"psi_element://#element:root\"><code>&lt;root&gt;</code></a>.<blockquote><p>Callout here.</blockquote>" +
+      "A <code>child-attribute</code> description. A link to <a href=\"psi_element://#element:root\"><code>&lt;root&gt;</code></a>." +
+      "<blockquote><p><icon src=\"AllIcons.General.Warning\"/> <b>Warning</b><br>\n" +
+      " Callout here.</blockquote>" +
       "<p>Required: <b>yes</b>"
     )
   }
@@ -113,7 +119,7 @@ class XmlDescriptorDocumentationProviderTest : CodeInsightFixtureTestCase<Module
       "<h5>Children</h5>" +
       "<ul>" +
       "<li><a href=\"psi_element://#element:root__firstLevelChild2__second-level-child-1\"><code>&lt;second-level-child-1&gt;</code></a></li>" +
-      "<li><a href=\"psi_element://#element:root__first-level-child-1__second-level-child\"><code>&lt;second-level-child&gt;</code></a> <i>required</i></li>" +
+      "<li><a href=\"psi_element://#element:root__firstLevelChild2__second-level-child\"><code>&lt;second-level-child&gt;</code></a> <i>required</i></li>" +
       "<li><code>&lt;firstLevelChild2&gt;</code></li>" +
       "</ul>" +
       "<h5>Example</h5>" +
@@ -161,7 +167,7 @@ class XmlDescriptorDocumentationProviderTest : CodeInsightFixtureTestCase<Module
       "<h5>Children</h5>" +
       "<ul>" +
       "<li><a href=\"psi_element://#element:root__firstLevelChild2__second-level-child-1\"><code>&lt;second-level-child-1&gt;</code></a></li>" +
-      "<li><a href=\"psi_element://#element:root__first-level-child-1__second-level-child\"><code>&lt;second-level-child&gt;</code></a> <i>required</i></li>" +
+      "<li><a href=\"psi_element://#element:root__firstLevelChild2__second-level-child\"><code>&lt;second-level-child&gt;</code></a> <i>required</i></li>" +
       "<li><code>&lt;firstLevelChild2&gt;</code></li>" +
       "</ul>" +
       "<h5>Example</h5>" +
@@ -190,6 +196,124 @@ class XmlDescriptorDocumentationProviderTest : CodeInsightFixtureTestCase<Module
     )
   }
 
+  fun `test deprecated attribute`() {
+    doTestDocContains(
+      """
+        <root>
+          <elementWithDeprecatedAttribute deprecated-<caret>attribute=""/>
+        </root>
+      """.trimIndent(),
+      "<p><a href=\"psi_element://#element:root\"><code>&lt;root&gt;</code></a> / <a href=\"psi_element://#element:root__elementWithDeprecatedAttribute\"><code>&lt;elementWithDeprecatedAttribute&gt;</code></a> / <b><code>@deprecated-attribute</code></b><hr/>\n" +
+      "<b><i>Deprecated since 2005.1</i></b><br/><i>Use <a href=\"psi_element://#attribute:root__elementWithDeprecatedAttribute__new-attribute\"><code>new-attribute</code></a> instead.</i>" +
+      "<p>The <code>deprecated-attribute</code> description."
+    )
+  }
+
+  fun `test element with callouts`() {
+    doTestDocContains(
+      """
+        <root>
+          <elementWith<caret>Callouts/>
+        </root>
+      """.trimIndent(),
+      "<p><a href=\"psi_element://#element:root\"><code>&lt;root&gt;</code></a> / <b><code>&lt;elementWithCallouts&gt;</code></b><hr/>\n" +
+      "Dummy text 1." +
+      "<blockquote>" +
+      "<p><icon src=\"AllIcons.Actions.IntentionBulbGrey\"/> <b>Tip</b><br>\n" +
+      " This is a 1st callout without style.\n" +
+      "Dummy text 2.</blockquote>" +
+      "<blockquote>" +
+      "<p><icon src=\"AllIcons.General.Warning\"/> <b>Warning</b><br>\n" +
+      " This is a 2nd callout - note.\n" +
+      " Checking multiline." +
+      "</blockquote>" +
+      "<p>Dummy text 3." +
+      "<blockquote>" +
+      "<p><icon src=\"AllIcons.General.Warning\"/> <b>Warning</b><br>\n" +
+      " This is a 3rd callout - warning." +
+      "<p>New paragraph." +
+      "</blockquote>" +
+      "<p>Dummy text 4." +
+      "<blockquote>" +
+      "<p><icon src=\"AllIcons.General.Warning\"/> <b>Custom Title</b><br>\n" +
+      " This is a 4th callout - warning with a custom title at the end." +
+      "<p>New paragraph." +
+      "</blockquote>" +
+      "<p>Dummy text 5." +
+      "<blockquote>" +
+      "<p><icon src=\"AllIcons.General.Warning\"/> <b>Custom Title</b><br>\n" +
+      " This is a 5th callout - warning with a custom title at the start." +
+      "<p>New paragraph." +
+      "</blockquote>" +
+      "<p>Dummy text 6." +
+      "<blockquote>" +
+      "<p><icon src=\"AllIcons.Actions.IntentionBulbGrey\"/> <b>Custom Title</b><br>\n" +
+      " This is a 6th callout - the implicit tip style and a custom title." +
+      "<p>New paragraph." +
+      "</blockquote>" +
+      "<h5>Requirement</h5>" +
+      "<p>Required: no"
+    )
+  }
+
+  fun `test element with children description`() {
+    doTestDocContains(
+      """
+        <root>
+          <elementWith<caret>ChildrenDescription/>
+        </root>
+      """.trimIndent(),
+      "<p><a href=\"psi_element://#element:root\"><code>&lt;root&gt;</code></a> / <b><code>&lt;elementWithChildrenDescription&gt;</code></b><hr/>\n" +
+      "any" +
+      "<h5>Children</h5>" +
+      "<p>Test children description."
+    )
+  }
+
+  fun `test attribute of a wildcard element`() {
+    doTestDocContains(
+      """
+        <root>
+          <anyNameElement attribute<caret>UnderWildcard="any"/>
+        </root>
+      """.trimIndent(),
+      "<p><a href=\"psi_element://#element:root\"><code>&lt;root&gt;</code></a> / <code>*</code> / <b><code>@attributeUnderWildcard</code></b><hr/>\n" +
+      "Description of <code>attributeUnderWildcard</code>."
+    )
+  }
+
+  fun `test element under wildcard element`() {
+    doTestDocContains(
+      """
+        <root>
+          <anyNameElement>
+            <childUnder<caret>Wildcard/>
+          </anyNameElement>
+        </root>
+      """.trimIndent(),
+      "<p><a href=\"psi_element://#element:root\"><code>&lt;root&gt;</code></a> / <code>*</code> / <b><code>&lt;childUnderWildcard&gt;</code></b><hr/>\n" +
+      "Description of <code>childUnderWildcard</code>." +
+      "<h5>Attributes</h5>" +
+      "<ul>" +
+      "<li><a href=\"psi_element://#attribute:root__*__childUnderWildcard__attributeOfElementUnderWildcard\"><code>attributeOfElementUnderWildcard</code></a></li>" +
+      "</ul>"
+    )
+  }
+
+  fun `test attribute of element under wildcard element`() {
+    doTestDocContains(
+      """
+        <root>
+          <anyNameElement>
+            <childUnderWildcard attribute<caret>OfElementUnderWildcard="any"/>
+          </anyNameElement>
+        </root>
+      """.trimIndent(),
+      "<p><a href=\"psi_element://#element:root\"><code>&lt;root&gt;</code></a> / <code>*</code> / <a href=\"psi_element://#element:root__*__childUnderWildcard\"><code>&lt;childUnderWildcard&gt;</code></a> / <b><code>@attributeOfElementUnderWildcard</code></b><hr/>\n" +
+      "Description of <code>attributeOfElementUnderWildcard</code>."
+    )
+  }
+
   private fun doTestDocContains(@Language("XML") fileText: String, @Language("HTML") expectedDoc: String) {
     myFixture.configureByText(TEST_XML_FILE_NAME, fileText)
     val targets = IdeDocumentationTargetProvider.getInstance(project)
@@ -204,7 +328,7 @@ class XmlDescriptorDocumentationProviderTest : CodeInsightFixtureTestCase<Module
 
 private class TestXmlDescriptorDocumentationTargetProvider : AbstractXmlDescriptorDocumentationTargetProvider() {
 
-  override val docYamlCoordinates = DocumentationDataCoordinates("any", "/documentation/xml-plugin-descriptor-documentation-test.yaml")
+  override val docYamlCoordinates = DocumentationDataCoordinates("FAKE_URL", "/documentation/xml-plugin-descriptor-documentation-test.yaml")
 
   override fun isApplicable(element: PsiElement, originalElement: PsiElement?): Boolean {
     return originalElement?.containingFile?.name == TEST_XML_FILE_NAME

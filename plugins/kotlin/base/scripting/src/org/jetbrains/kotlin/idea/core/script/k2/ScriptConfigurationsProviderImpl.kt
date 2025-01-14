@@ -15,6 +15,7 @@ import com.intellij.psi.search.NonClasspathDirectoriesScope.compose
 import org.jetbrains.kotlin.idea.core.script.SCRIPT_CONFIGURATIONS_SOURCES
 import org.jetbrains.kotlin.idea.core.script.ScriptConfigurationManager.Companion.toVfsRoots
 import org.jetbrains.kotlin.idea.core.script.ScriptDependencyAware
+import org.jetbrains.kotlin.idea.core.script.scriptConfigurationsSourceOfType
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.scripting.definitions.ScriptConfigurationsProvider
 import org.jetbrains.kotlin.scripting.definitions.findScriptDefinition
@@ -128,11 +129,11 @@ class ScriptConfigurationsProviderImpl(project: Project) : ScriptConfigurationsP
         getScriptConfigurationResult(file.alwaysVirtualFile)
 
     fun getScriptConfigurationResult(virtualFile: VirtualFile): ScriptCompilationConfigurationResult? =
-        getConfigurationsSource(virtualFile)?.getScriptConfigurations(virtualFile)
+        getConfigurationsSource(virtualFile)?.getConfiguration(virtualFile)
 
-    private fun getConfigurationsSource(virtualFile: VirtualFile): ScriptConfigurationsSource<*>? {
+    fun getConfigurationsSource(virtualFile: VirtualFile): ScriptConfigurationsSource<*>? {
         val definition = virtualFile.findScriptDefinition(project)
-        return dependenciesSourceByDefinition.get()[definition?.definitionId]
+        return dependenciesSourceByDefinition.get()[definition?.definitionId] ?: project.scriptConfigurationsSourceOfType<DependentScriptConfigurationsSource>()
     }
 
     private fun getConfigurationsSourceData(virtualFile: VirtualFile): ScriptConfigurations? =

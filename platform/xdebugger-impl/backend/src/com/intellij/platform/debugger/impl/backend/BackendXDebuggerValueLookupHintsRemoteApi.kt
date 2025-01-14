@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.debugger.impl.backend
 
 import com.intellij.codeInsight.TargetElementUtil
@@ -69,7 +69,7 @@ internal class BackendXDebuggerValueLookupHintsRemoteApi : XDebuggerValueLookupH
     if ((type == ValueHintType.MOUSE_CLICK_HINT || type == ValueHintType.MOUSE_ALT_OVER_HINT) && evaluateExpressionData.hasSelection
         && evaluateExpressionData.adjustedOffset in evaluateExpressionData.selectionStart..evaluateExpressionData.selectionEnd
     ) {
-      return ExpressionInfo(TextRange(evaluateExpressionData.selectionStart, evaluateExpressionData.selectionEnd))
+      return ExpressionInfo(TextRange(evaluateExpressionData.selectionStart, evaluateExpressionData.selectionEnd), isManualSelection = true)
     }
     val expressionInfo = readAction {
       evaluator.getExpressionInfoAtOffsetAsync(project, document, evaluateExpressionData.adjustedOffset,
@@ -115,7 +115,7 @@ internal class BackendXDebuggerValueLookupHintsRemoteApi : XDebuggerValueLookupH
           return@withContext null
         }
         val expressionInfo = getExpressionInfo(evaluator, project, hintType, editor, offset) ?: return@withContext null
-        XValueHint(project, editor, point, hintType, expressionInfo, evaluator, session, false)
+        XValueHint(project, editor, point, hintType, offset, expressionInfo, evaluator, session, false)
       }
       val hintEntity = newValueEntity(hint)
       RemoteValueHintId(hintEntity.id)

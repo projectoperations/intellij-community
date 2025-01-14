@@ -42,7 +42,6 @@ import org.junit.Test
 import org.junit.runner.Description
 import org.junit.runner.RunWith
 import java.io.File
-import java.io.PrintStream
 import java.util.*
 
 /**
@@ -104,7 +103,8 @@ abstract class AbstractKotlinMppGradleImportingTest : GradleImportingTestCase(),
         AllFilesAreUnderContentRootChecker,
         DocumentationChecker,
         ReferenceTargetChecker,
-        KotlinMppTestHooks
+        KotlinMppTestHooks,
+        LibraryKindsChecker,
     )
 
     private val context: KotlinMppTestsContextImpl = KotlinMppTestsContextImpl(installedFeatures)
@@ -316,12 +316,6 @@ abstract class AbstractKotlinMppGradleImportingTest : GradleImportingTestCase(),
         return ImportSpecBuilder(super.createImportSpec())
             .createDirectoriesForEmptyContentRoots()
             .build()
-    }
-
-    // super does plain `print` instead of `println`, so we need to
-    // override it to preserve line breaks in output of Gradle-process
-    final override fun printOutput(stream: PrintStream, text: String) {
-        stream.println(text)
     }
 
     @Test

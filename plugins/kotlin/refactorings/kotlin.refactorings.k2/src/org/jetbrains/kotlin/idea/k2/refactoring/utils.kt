@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.k2.refactoring
 
 import com.intellij.ide.IdeBundle
@@ -190,7 +190,11 @@ fun getThisQualifier(receiverValue: KaImplicitReceiverValue): String {
     return if ((symbol as? KaClassSymbol)?.classKind == KaClassKind.COMPANION_OBJECT) {
         //specify companion name to avoid clashes with enum entries
         (symbol.containingSymbol as KaClassifierSymbol).name!!.asString() + "." + symbol.name!!.asString()
-    } else if (symbol is KaClassifierSymbol && symbol !is KaAnonymousObjectSymbol) {
+    }
+    else if ((symbol as? KaClassSymbol)?.classKind == KaClassKind.OBJECT) {
+        symbol.name!!.asString()
+    }
+    else if (symbol is KaClassifierSymbol && symbol !is KaAnonymousObjectSymbol) {
         (symbol.psi as? PsiClass)?.name ?: ("this@" + symbol.name!!.asString())
     } else if (symbol is KaReceiverParameterSymbol && symbol.owningCallableSymbol is KaNamedSymbol) {
         // refer to this@contextReceiverType but use this@funName for everything else, because another syntax is prohibited
@@ -231,7 +235,7 @@ fun KaScope.findCallableMemberBySignature(
         return this.semanticallyEquals(anotherType)
     }
 
-    return callables.firstOrNull { callable ->
+    return callables(callableSignature.symbol.name ?: return null).firstOrNull { callable ->
         fun parametersMatch(): Boolean {
             if (callableSignature is KaFunctionSignature && callable is KaFunctionSymbol) {
                 if (callable.valueParameters.size != callableSignature.valueParameters.size) return false
@@ -242,9 +246,9 @@ fun KaScope.findCallableMemberBySignature(
                 return callableSignature !is KaFunctionSignature && callable !is KaFunctionSymbol
             }
         }
-        callable.name == callableSignature.symbol.name &&
-                callable.returnType.semanticallyEquals(callableSignature.returnType) &&
-                callable.receiverType.eq(callableSignature.receiverType) &&
-                parametersMatch()
+
+        callable.receiverType.eq(callableSignature.receiverType) &&
+                parametersMatch() &&
+                callable.returnType.semanticallyEquals(callableSignature.returnType)
     }
 }

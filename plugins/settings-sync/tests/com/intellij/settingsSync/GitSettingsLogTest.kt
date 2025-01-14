@@ -3,11 +3,12 @@ package com.intellij.settingsSync
 import com.intellij.idea.TestFor
 import com.intellij.openapi.components.SettingsCategory
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.io.FileUtil
 import com.intellij.settingsSync.SettingsSnapshot.AppInfo
+import com.intellij.settingsSync.communicator.SettingsSyncUserData
 import com.intellij.testFramework.ApplicationRule
 import com.intellij.testFramework.DisposableRule
 import com.intellij.testFramework.TemporaryDirectory
-import com.intellij.ui.JBAccountInfoService
 import com.intellij.util.io.createParentDirectories
 import com.intellij.util.io.write
 import org.eclipse.jgit.api.Git
@@ -50,14 +51,14 @@ internal class GitSettingsLogTest {
 
   private lateinit var configDir: Path
   private lateinit var settingsSyncStorage: Path
-  private var jbaData: JBAccountInfoService.JBAData? = null
+  private var userData: SettingsSyncUserData? = null
 
   @Before
   fun setUp() {
     val mainDir = tempDirManager.createDir()
     configDir = mainDir.resolve("rootconfig").createDirectories()
     settingsSyncStorage = configDir.resolve("settingsSync")
-    jbaData = null
+    userData = null
   }
 
   @Test
@@ -462,7 +463,7 @@ internal class GitSettingsLogTest {
     val jbaEmail = "some-jba-email@jba-mail.com"
     val jbaName = "JBA Name"
 
-    jbaData = JBAccountInfoService.JBAData("some-dummy-user-id", jbaName, jbaEmail, null)
+    userData = SettingsSyncUserData(jbaName, jbaEmail)
     checkUsernameEmail(jbaName, jbaEmail)
   }
 
@@ -471,14 +472,14 @@ internal class GitSettingsLogTest {
   fun `use empty email if JBA doesn't provide one`() {
     val jbaName = "JBA Name 2"
 
-    jbaData = JBAccountInfoService.JBAData("some-dummy-user-id", jbaName, null, null)
+    userData = SettingsSyncUserData(jbaName, null)
     checkUsernameEmail(jbaName, "")
   }
 
   @Test
   @TestFor(issues = ["EA-844607"])
   fun `use empty name if JBA doesn't provide one`() {
-    jbaData = JBAccountInfoService.JBAData("some-dummy-user-id", null, null, null)
+    userData = SettingsSyncUserData(null, null)
     checkUsernameEmail("", "")
   }
 
@@ -567,6 +568,34 @@ internal class GitSettingsLogTest {
   @Test
   @TestFor(issues = ["IJPL-13080"])
   fun `drop and reinit settings sync if cannot init`() {
+    val size = 16384
+    drop_and_reinit_base( {
+      val indexFile = getRepository().indexFile
+      val zeroBytesArray = ByteArray(size)
+      indexFile.writeBytes(zeroBytesArray)
+      assertEquals(size.toLong(), indexFile.length())
+    }, {
+      val indexFile = getRepository().indexFile
+      assertNotEquals(size, indexFile.length())
+    })
+  }
+
+  @Test
+  @TestFor(issues = ["IJPL-173307"])
+  fun `drop and reinit settings sync if cannot init 2`() {
+    drop_and_reinit_base( {
+      val dir = getRepository().directory
+      val refs = dir.resolve("refs")
+      FileUtil.deleteRecursively(refs.toPath())
+      assertFalse(refs.exists())
+    }, {
+      val dir = getRepository().directory
+      val refs = dir.resolve("refs")
+      assertTrue(refs.exists())
+    })
+  }
+
+  private fun drop_and_reinit_base(damageAction: ()->Unit, verifyAction: ()->Unit) {
     val editorXml = (configDir / "options" / "editor.xml").createParentDirectories().createFile()
     val editorContent = "editorContent"
     val state1 = "State 1"
@@ -577,15 +606,16 @@ internal class GitSettingsLogTest {
     settingsLog.applyIdeState(settingsSnapshot {
       fileState("options/editor.xml", state1)
     }, "Local changes")
-    val indexFile = getRepository().indexFile
-
-    val size = 16384
-    val zeroBytesArray = ByteArray(size)
-    indexFile.writeBytes(zeroBytesArray)
-    assertEquals(size.toLong(), indexFile.length())
-
     val editorXmlSync = settingsSyncStorage / "options" / "editor.xml"
     assertEquals(state1, editorXmlSync.readText())
+
+
+    settingsLog.applyIdeState(settingsSnapshot {
+      fileState("options/editor.xml", state1)
+    }, "Local changes")
+
+    damageAction()
+
     try {
       DirCache.read(getRepository())
     }
@@ -594,8 +624,9 @@ internal class GitSettingsLogTest {
 
     initializeGitSettingsLog(editorXml)
     getRepository().indexFile.length()
-    assertNotEquals(size, indexFile.length())
     assertTrue(editorXmlSync.exists() && editorXmlSync.readText() == editorContent)
+
+    verifyAction()
 
     try {
       DirCache.read(getRepository())
@@ -603,6 +634,7 @@ internal class GitSettingsLogTest {
     catch (ex: Exception) {
       fail("Shouldn't fail: ${ex.message}")
     }
+
   }
 
   @Test
@@ -669,7 +701,7 @@ internal class GitSettingsLogTest {
   }
 
   private fun initializeGitSettingsLog(vararg filesToCopyInitially: Path): GitSettingsLog {
-    val settingsLog = GitSettingsLog(settingsSyncStorage, configDir, disposableRule.disposable, { jbaData }) {
+    val settingsLog = GitSettingsLog(settingsSyncStorage, configDir, disposableRule.disposable, { userData }) {
       val fileStates = collectFileStatesFromFiles(filesToCopyInitially.toSet(), configDir)
       SettingsSnapshot(SettingsSnapshot.MetaInfo(Instant.now(), null), fileStates, plugins = null, emptyMap(), emptySet())
     }

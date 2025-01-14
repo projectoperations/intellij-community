@@ -2,7 +2,6 @@
 package com.jetbrains.python.sdk.add.v2
 
 import com.intellij.execution.target.TargetEnvironmentConfiguration
-import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.diagnostic.getOrLogException
 import com.intellij.openapi.fileChooser.FileChooser
@@ -10,8 +9,7 @@ import com.intellij.openapi.observable.properties.ObservableMutableProperty
 import com.intellij.openapi.observable.properties.PropertyGraph
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.util.NlsSafe
-import com.jetbrains.extensions.failure
-import com.jetbrains.python.PyBundle
+import com.jetbrains.python.failure
 import com.jetbrains.python.PyBundle.message
 import com.jetbrains.python.configuration.PyConfigurableInterpreterList
 import com.jetbrains.python.newProject.steps.ProjectSpecificSettingsStep
@@ -22,8 +20,9 @@ import com.jetbrains.python.sdk.conda.suggestCondaPath
 import com.jetbrains.python.sdk.flavors.PythonSdkFlavor
 import com.jetbrains.python.sdk.flavors.conda.PyCondaEnv
 import com.jetbrains.python.sdk.flavors.conda.PyCondaEnvIdentity
-import com.jetbrains.python.sdk.pipenv.pipEnvPath
-import com.jetbrains.python.sdk.poetry.poetryPath
+import com.jetbrains.python.sdk.pipenv.getPipEnvExecutable
+import com.jetbrains.python.sdk.poetry.getPoetryExecutable
+import com.jetbrains.python.sdk.uv.impl.getUvExecutable
 import com.jetbrains.python.util.ErrorSink
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -94,11 +93,6 @@ abstract class PythonAddInterpreterModel(params: PyInterpreterModelParams) {
       withContext(uiContext) {
         state.condaExecutable.set(suggestedCondaLocalPath?.toString().orEmpty())
       }
-
-      //val environments = suggestedCondaPath?.let { PyCondaEnv.getEnvs(executor, suggestedCondaPath).getOrLogException(
-      //  PythonAddInterpreterPresenter.LOG) }
-      //baseConda = environments?.find { env -> env.envIdentity.let { it is PyCondaEnvIdentity.UnnamedEnv && it.isBase } }
-
     }
   }
 
@@ -122,7 +116,10 @@ abstract class PythonAddInterpreterModel(params: PyInterpreterModelParams) {
 
   private suspend fun initInterpreterList() {
     withContext(Dispatchers.IO) {
+      // TODO: PythonInterpreterService: load valid system pythons
       val existingSdks = PyConfigurableInterpreterList.getInstance(null).getModel().sdks.toList()
+
+
       val allValidSdks = ProjectSpecificSettingsStep.getValidPythonSdks(existingSdks)
         .map { ExistingSelectableInterpreter(it, PySdkUtil.getLanguageLevelForSdk(it), it.isSystemWide) }
 
@@ -137,6 +134,7 @@ abstract class PythonAddInterpreterModel(params: PyInterpreterModelParams) {
       val existingSdkPaths = existingSdks.mapNotNull { it.homePath }.mapNotNull { tryResolvePath(it) }.toSet()
 
       val detected = PythonSdkFlavor.getApplicableFlavors(true).flatMap { sdkFlavor ->
+        // TODO: PythonInterpreterService: detect valid system pythons
         sdkFlavor.suggestLocalHomePaths(null, null)
           .filterNot { it in existingSdkPaths }
           .map { DetectedSelectableInterpreter(it.pathString, sdkFlavor.getLanguageLevel(it.pathString)) }
@@ -172,34 +170,32 @@ abstract class PythonMutableTargetAddInterpreterModel(params: PyInterpreterModel
     super.initialize()
     detectPoetryExecutable()
     detectPipEnvExecutable()
+    detectUvExecutable()
   }
 
   suspend fun detectPoetryExecutable() {
-    // todo this is local case, fix for targets
-    val savedPath = PropertiesComponent.getInstance().poetryPath
-    if (savedPath != null) {
-      state.poetryExecutable.set(savedPath)
-    }
-    else {
-      com.jetbrains.python.sdk.poetry.detectPoetryExecutable().getOrNull()?.let {
-        withContext(Dispatchers.EDT) {
-          state.poetryExecutable.set(it.pathString)
-        }
+    // FIXME: support targets
+    getPoetryExecutable().getOrNull()?.let {
+      withContext(Dispatchers.EDT) {
+        state.poetryExecutable.set(it.pathString)
       }
     }
   }
 
   suspend fun detectPipEnvExecutable() {
-    // todo this is local case, fix for targets
-    val savedPath = PropertiesComponent.getInstance().pipEnvPath
-    if (savedPath != null) {
-      state.pipenvExecutable.set(savedPath)
+    // FIXME: support targets
+    getPipEnvExecutable().getOrNull()?.let {
+      withContext(Dispatchers.EDT) {
+        state.pipenvExecutable.set(it.pathString)
+      }
     }
-    else {
-      com.jetbrains.python.sdk.pipenv.detectPipEnvExecutable().getOrNull()?.let {
-        withContext(Dispatchers.EDT) {
-          state.pipenvExecutable.set(it.pathString)
-        }
+  }
+
+  suspend fun detectUvExecutable() {
+    // FIXME: support targets
+    getUvExecutable()?.pathString?.let {
+      withContext(Dispatchers.EDT) {
+        state.uvExecutable.set(it)
       }
     }
   }
@@ -281,14 +277,13 @@ open class AddInterpreterState(propertyGraph: PropertyGraph) {
    * Use [PythonAddInterpreterModel.getBaseCondaOrError]
    */
   val baseCondaEnv: ObservableMutableProperty<PyCondaEnv?> = propertyGraph.property(null)
-
-
 }
 
 class MutableTargetState(propertyGraph: PropertyGraph) : AddInterpreterState(propertyGraph) {
   val baseInterpreter: ObservableMutableProperty<PythonSelectableInterpreter?> = propertyGraph.property(null)
   val newCondaEnvName: ObservableMutableProperty<String> = propertyGraph.property("")
   val poetryExecutable: ObservableMutableProperty<String> = propertyGraph.property("")
+  val uvExecutable: ObservableMutableProperty<String> = propertyGraph.property("")
   val pipenvExecutable: ObservableMutableProperty<String> = propertyGraph.property("")
   val venvPath: ObservableMutableProperty<String> = propertyGraph.property("")
   val inheritSitePackages = propertyGraph.property(false)
@@ -314,5 +309,5 @@ internal suspend fun PythonAddInterpreterModel.getBaseCondaOrError(): Result<PyC
   if (baseConda != null) return Result.success(baseConda)
   detectCondaEnvironments()?.let { return failure(it) }
   baseConda = state.baseCondaEnv.get()
-  return if (baseConda != null) Result.success(baseConda) else failure(PyBundle.message("python.sdk.conda.no.base.env.error"))
+  return if (baseConda != null) Result.success(baseConda) else failure(message("python.sdk.conda.no.base.env.error"))
 }

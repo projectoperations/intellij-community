@@ -7,6 +7,8 @@ import com.intellij.openapi.progress.runBlockingMaybeCancellable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.platform.diagnostic.telemetry.helpers.useWithScope
+import com.intellij.platform.diagnostic.telemetry.rt.context.TelemetryContext
 import com.intellij.platform.util.progress.RawProgressReporter
 import kotlinx.coroutines.*
 import org.jetbrains.annotations.TestOnly
@@ -16,9 +18,6 @@ import org.jetbrains.idea.maven.buildtool.MavenSyncConsole
 import org.jetbrains.idea.maven.model.*
 import org.jetbrains.idea.maven.project.MavenConsole
 import org.jetbrains.idea.maven.project.MavenProject
-import org.jetbrains.idea.maven.server.MavenEmbedderWrapper.LongRunningEmbedderTask
-import org.jetbrains.idea.maven.telemetry.getCurrentTelemetryIds
-import org.jetbrains.idea.maven.telemetry.scheduleExportTelemetryTrace
 import org.jetbrains.idea.maven.telemetry.tracer
 import org.jetbrains.idea.maven.utils.MavenLog
 import org.jetbrains.idea.maven.utils.MavenProgressIndicator
@@ -27,6 +26,8 @@ import java.io.Serializable
 import java.nio.file.Path
 import java.rmi.RemoteException
 import java.util.*
+import java.util.concurrent.TimeUnit
+import kotlin.Throws
 
 // FIXME: still some missing transforms?
 abstract class MavenEmbedderWrapper internal constructor(private val project: Project) :
@@ -177,6 +178,7 @@ abstract class MavenEmbedderWrapper internal constructor(private val project: Pr
     artifacts: List<MavenArtifactInfo>,
     remoteRepositories: List<MavenRemoteRepository>,
   ): MavenArtifactResolveResult {
+    if (artifacts.isEmpty()) return MavenArtifactResolveResult(emptyList(), null)
     return runBlockingMaybeCancellable {
       getOrCreateWrappee().resolveArtifactsTransitively(ArrayList(artifacts), ArrayList(remoteRepositories), ourToken)
     }.transform()
@@ -186,6 +188,7 @@ abstract class MavenEmbedderWrapper internal constructor(private val project: Pr
     artifacts: List<MavenArtifactInfo>,
     remoteRepositories: List<MavenRemoteRepository>,
   ): MavenArtifactResolveResult {
+    if (artifacts.isEmpty()) return MavenArtifactResolveResult(emptyList(), null)
     return getOrCreateWrappee().resolveArtifactsTransitively(ArrayList(artifacts), ArrayList(remoteRepositories), ourToken).transform()
   }
 
@@ -316,26 +319,31 @@ abstract class MavenEmbedderWrapper internal constructor(private val project: Pr
     eventHandler: MavenEventHandler,
   ): R {
     val longRunningTaskId = UUID.randomUUID().toString()
-    val embedder = getOrCreateWrappee()
+    val embedder = tracer.spanBuilder("getOrCreateWrappee").useWithScope {
+      getOrCreateWrappee()
+    }
 
     return coroutineScope {
       val progressIndication = launch {
-        while (isActive) {
-          delay(500)
-          blockingContext {
-            try {
-              val status = embedder.getLongRunningTaskStatus(longRunningTaskId, ourToken)
-              val fraction = status.fraction()
-              if (fraction > 1.0) {
-                MavenLog.LOG.warn("fraction is more than one: $status")
+        tracer.spanBuilder("waitForLongRunningTask").useWithScope { span ->
+          while (isActive) {
+            span.addEvent("poll", System.currentTimeMillis(), TimeUnit.MILLISECONDS)
+            delay(500)
+            blockingContext {
+              try {
+                val status = embedder.getLongRunningTaskStatus(longRunningTaskId, ourToken)
+                val fraction = status.fraction()
+                if (fraction > 1.0) {
+                  MavenLog.LOG.warn("fraction is more than one: $status")
+                }
+                progressReporter?.fraction(fraction.coerceAtMost(1.0))
+                eventHandler.handleConsoleEvents(status.consoleEvents())
+                eventHandler.handleDownloadEvents(status.downloadEvents())
               }
-              progressReporter?.fraction(fraction.coerceAtMost(1.0))
-              eventHandler.handleConsoleEvents(status.consoleEvents())
-              eventHandler.handleDownloadEvents(status.downloadEvents())
-            }
-            catch (e: Throwable) {
-              if (isActive) {
-                throw e
+              catch (e: Throwable) {
+                if (isActive) {
+                  throw e
+                }
               }
             }
           }
@@ -354,16 +362,16 @@ abstract class MavenEmbedderWrapper internal constructor(private val project: Pr
       }
 
       try {
-        withContext(Dispatchers.IO + tracer.span("runLongRunningTask")) {
-          val telemetryIds = getCurrentTelemetryIds()
-          blockingContext {
-            val longRunningTaskInput = LongRunningTaskInput(longRunningTaskId, telemetryIds.traceId, telemetryIds.spanId)
-            val response = task.run(embedder, longRunningTaskInput)
-            val status = response.status
-            eventHandler.handleConsoleEvents(status.consoleEvents())
-            eventHandler.handleDownloadEvents(status.downloadEvents())
-            scheduleExportTelemetryTrace(project, response.telemetryTrace)
-            response.result
+        withContext(Dispatchers.IO) {
+          tracer.spanBuilder("runMavenExecution").useWithScope { span ->
+            blockingContext {
+              val longRunningTaskInput = LongRunningTaskInput(longRunningTaskId, TelemetryContext.current())
+              val response = task.run(embedder, longRunningTaskInput)
+              val status = response.status
+              eventHandler.handleConsoleEvents(status.consoleEvents())
+              eventHandler.handleDownloadEvents(status.downloadEvents())
+              response.result
+            }
           }
         }
       }

@@ -18,8 +18,15 @@
     <module name="intellij.platform.execution.dashboard"/>
     <module name="intellij.platform.execution.serviceView"/>
 
+    <module name="intellij.platform.vcs.impl.backend"/>
+    <module name="intellij.platform.vcs.impl.frontend"/>
+    <module name="intellij.platform.vcs.impl.shared"/>
+
     <module name="intellij.platform.debugger.impl.frontend"/>
     <module name="intellij.platform.debugger.impl.backend"/>
+
+    <module name="intellij.platform.bookmarks.backend"/>
+    <module name="intellij.platform.bookmarks.frontend"/>
 
     <module name="intellij.platform.frontend"/>
 

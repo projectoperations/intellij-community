@@ -37,6 +37,7 @@ class K2DataFlowInspectionTest : AbstractK2InspectionTest() {
     fun testCallWithSideEffect() = doTest()
     fun testCastArray() = doTest()
     fun testCastGenericMethodReturn() = doTest()
+    fun testCharExtension() = doTest()
     fun testClassRef() = doTest()
     fun testCollectionConstructors() = doTest()
     fun testCompareInLoop() = doTest()
@@ -60,6 +61,7 @@ class K2DataFlowInspectionTest : AbstractK2InspectionTest() {
     fun testInlineLambda() = doTest()
     fun testInlineStandardCalls() = doTest()
     fun testIndices() = doTest()
+    fun testErrorTypes() = doTest()
     fun testJavaFields() {
         myFixture.addClass("""
             public class Point {
@@ -81,6 +83,7 @@ class K2DataFlowInspectionTest : AbstractK2InspectionTest() {
     fun testMath() = doTest()
     fun testMembers() = doTest()
     fun testNestedLoopLabel() = doTest()
+    fun testNestedThis() = doTest()
     fun testNothingType() = doTest()
     fun testPlatformType() {
         // KTIJ-22430
@@ -94,6 +97,7 @@ class K2DataFlowInspectionTest : AbstractK2InspectionTest() {
         doTest()
     }
     fun testPrimitiveAndNullK2() = doTest()
+    fun testPrimitiveBound() = doTest()
     fun testProperty() = doTest()
     fun testQualifierK2() = doTest()
     fun testRangeAnnotation() = doTest()
@@ -122,6 +126,7 @@ class K2DataFlowInspectionTest : AbstractK2InspectionTest() {
     fun testWhenInLambdaK2() = doTest()
     fun testWhenIsObject() = doTest()
     fun testWhenGuarded() = doTest()
+    fun testWhenGuardedElse() = doTest()
     fun testWhileLoop() = doTest()
 
     fun doTest(warnOnConstantRefs: Boolean = true) {

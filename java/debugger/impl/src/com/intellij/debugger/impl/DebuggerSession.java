@@ -106,8 +106,7 @@ public final class DebuggerSession implements AbstractDebuggerSession {
     resetIgnoreStepFiltersFlag();
   }
 
-  @NotNull
-  public GlobalSearchScope getSearchScope() {
+  public @NotNull GlobalSearchScope getSearchScope() {
     return mySearchScope;
   }
 
@@ -144,9 +143,8 @@ public final class DebuggerSession implements AbstractDebuggerSession {
       myDebuggerContext = SESSION_EMPTY_CONTEXT;
     }
 
-    @NotNull
     @Override
-    public DebuggerContextImpl getContext() {
+    public @NotNull DebuggerContextImpl getContext() {
       return myDebuggerContext;
     }
 
@@ -158,7 +156,7 @@ public final class DebuggerSession implements AbstractDebuggerSession {
      * In this case, assume that the latter setState is ignored since the thread was resumed.
      */
     @Override
-    public void setState(@NotNull final DebuggerContextImpl context,
+    public void setState(final @NotNull DebuggerContextImpl context,
                          final State state,
                          final Event event,
                          final @NlsContexts.Label String description) {
@@ -176,11 +174,12 @@ public final class DebuggerSession implements AbstractDebuggerSession {
         fireStateChanged(context, event);
       };
 
-      if (context.getSuspendContext() == null) {
+      SuspendContextImpl suspendContext = context.getSuspendContext();
+      if (suspendContext == null) {
         setStateRunnable.run();
       }
       else {
-        getProcess().getManagerThread().schedule(new SuspendContextCommandImpl(context.getSuspendContext()) {
+        suspendContext.getManagerThread().schedule(new SuspendContextCommandImpl(suspendContext) {
           @Override
           public Priority getPriority() {
             return Priority.HIGH;
@@ -196,7 +195,7 @@ public final class DebuggerSession implements AbstractDebuggerSession {
     }
   }
 
-  static DebuggerSession create(@NotNull final DebugProcessImpl debugProcess, DebugEnvironment environment)
+  static DebuggerSession create(final @NotNull DebugProcessImpl debugProcess, DebugEnvironment environment)
     throws ExecutionException {
     DebuggerSession session = new DebuggerSession(environment.getSessionName(), debugProcess, environment);
     try {
@@ -209,7 +208,7 @@ public final class DebuggerSession implements AbstractDebuggerSession {
     return session;
   }
 
-  private DebuggerSession(@Nls String sessionName, @NotNull final DebugProcessImpl debugProcess, DebugEnvironment environment) {
+  private DebuggerSession(@Nls String sessionName, final @NotNull DebugProcessImpl debugProcess, DebugEnvironment environment) {
     mySessionName = sessionName;
     myDebugProcess = debugProcess;
     SESSION_EMPTY_CONTEXT = DebuggerContextImpl.createDebuggerContext(this, null, null, null);
@@ -237,13 +236,11 @@ public final class DebuggerSession implements AbstractDebuggerSession {
     mySearchScope = scope;
   }
 
-  @NotNull
-  public DebuggerStateManager getContextManager() {
+  public @NotNull DebuggerStateManager getContextManager() {
     return myContextManager;
   }
 
-  @NotNull
-  public Project getProject() {
+  public @NotNull Project getProject() {
     return getProcess().getProject();
   }
 
@@ -251,8 +248,7 @@ public final class DebuggerSession implements AbstractDebuggerSession {
     return mySessionName;
   }
 
-  @NotNull
-  public DebugProcessImpl getProcess() {
+  public @NotNull DebugProcessImpl getProcess() {
     return myDebugProcess;
   }
 
@@ -297,7 +293,7 @@ public final class DebuggerSession implements AbstractDebuggerSession {
   public void stepOut(int stepSize) {
     SuspendContextImpl suspendContext = getSuspendContext();
     DebugProcessImpl.ResumeCommand cmd =
-      DebuggerUtilsImpl.computeSafeIfAny(JvmSteppingCommandProvider.EP_NAME,
+      DebugUtilsKt.computeSafeIfAny(JvmSteppingCommandProvider.EP_NAME,
                                          handler -> handler.getStepOutCommand(suspendContext, stepSize));
     if (cmd == null) {
       cmd = myDebugProcess.createStepOutCommand(suspendContext, stepSize);
@@ -313,7 +309,7 @@ public final class DebuggerSession implements AbstractDebuggerSession {
   public void stepOver(boolean ignoreBreakpoints, @Nullable MethodFilter methodFilter, int stepSize) {
     SuspendContextImpl suspendContext = getSuspendContext();
     DebugProcessImpl.ResumeCommand cmd =
-      DebuggerUtilsImpl.computeSafeIfAny(JvmSteppingCommandProvider.EP_NAME,
+      DebugUtilsKt.computeSafeIfAny(JvmSteppingCommandProvider.EP_NAME,
                                          handler -> handler.getStepOverCommand(suspendContext, ignoreBreakpoints, stepSize));
     if (cmd == null) {
       cmd = myDebugProcess.createStepOverCommand(suspendContext, ignoreBreakpoints, methodFilter, stepSize);
@@ -333,7 +329,7 @@ public final class DebuggerSession implements AbstractDebuggerSession {
   public void stepInto(final boolean ignoreFilters, final @Nullable MethodFilter smartStepFilter, int stepSize) {
     final SuspendContextImpl suspendContext = getSuspendContext();
     DebugProcessImpl.ResumeCommand cmd =
-      DebuggerUtilsImpl.computeSafeIfAny(JvmSteppingCommandProvider.EP_NAME,
+      DebugUtilsKt.computeSafeIfAny(JvmSteppingCommandProvider.EP_NAME,
                                          handler -> handler.getStepIntoCommand(suspendContext, ignoreFilters, smartStepFilter, stepSize));
     if (cmd == null) {
       cmd = myDebugProcess.createStepIntoCommand(suspendContext, ignoreFilters, smartStepFilter, stepSize);
@@ -364,7 +360,7 @@ public final class DebuggerSession implements AbstractDebuggerSession {
     try {
       SuspendContextImpl suspendContext = getSuspendContext();
       DebugProcessImpl.ResumeCommand runToCursorCommand =
-        DebuggerUtilsImpl.computeSafeIfAny(JvmSteppingCommandProvider.EP_NAME,
+        DebugUtilsKt.computeSafeIfAny(JvmSteppingCommandProvider.EP_NAME,
                                            handler -> handler.getRunToCursorCommand(suspendContext, position, ignoreBreakpoints));
       if (runToCursorCommand == null) {
         runToCursorCommand = myDebugProcess.createRunToCursorCommand(suspendContext, position, ignoreBreakpoints);
@@ -783,7 +779,7 @@ public final class DebuggerSession implements AbstractDebuggerSession {
 
   public static void switchContext(@NotNull SuspendContextImpl suspendContext) {
     DebugProcessImpl debugProcess = suspendContext.getDebugProcess();
-    debugProcess.getManagerThread().schedule(new SuspendContextCommandImpl(suspendContext) {
+    suspendContext.getManagerThread().schedule(new SuspendContextCommandImpl(suspendContext) {
       @Override
       public void contextAction(@NotNull SuspendContextImpl suspendContext) {
         DebuggerSession session = debugProcess.getSession();
@@ -815,8 +811,7 @@ public final class DebuggerSession implements AbstractDebuggerSession {
     if (session != null) session.sessionResumed();
   }
 
-  @Nullable
-  public XDebugSession getXDebugSession() {
+  public @Nullable XDebugSession getXDebugSession() {
     JavaDebugProcess process = myDebugProcess.getXdebugProcess();
     return process != null ? process.getSession() : null;
   }

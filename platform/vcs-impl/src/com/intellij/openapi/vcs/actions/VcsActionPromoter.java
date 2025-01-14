@@ -8,7 +8,9 @@ import com.intellij.openapi.vcs.VcsDataKeys;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.vcs.commit.CommitActionsPanel;
 import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Unmodifiable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -16,10 +18,10 @@ import java.util.List;
 @ApiStatus.Internal
 public final class VcsActionPromoter implements ActionPromoter {
   @Override
-  public List<AnAction> promote(@NotNull List<? extends AnAction> actions, @NotNull DataContext context) {
+  public @Unmodifiable List<AnAction> promote(@NotNull @Unmodifiable List<? extends AnAction> actions, @NotNull DataContext context) {
     ActionManager am = ActionManager.getInstance();
     List<AnAction> reorderedActions = new ArrayList<>(actions);
-    List<String> reorderedIds = ContainerUtil.map(reorderedActions, it -> am.getId(it));
+    List<String> reorderedIds = new ArrayList<>(ContainerUtil.map(reorderedActions, it -> am.getId(it)));
 
     reorderActionPair(reorderedActions, reorderedIds, "Vcs.MoveChangedLinesToChangelist", "ChangesView.Move");
     reorderActionPair(reorderedActions, reorderedIds, "Vcs.RollbackChangedLines", "ChangesView.Revert");
@@ -55,7 +57,9 @@ public final class VcsActionPromoter implements ActionPromoter {
    * Ensures that one global action has priority over another global action.
    * But is not pushing it ahead of other actions (ex: of some local action with same shortcut).
    */
-  private static void reorderActionPair(List<AnAction> reorderedActions, List<String> reorderedIds,
+  @Contract(mutates = "param1, param2")
+  private static void reorderActionPair(List<AnAction> reorderedActions,
+                                        List<String> reorderedIds,
                                         String highPriority, String lowPriority) {
     int highPriorityIndex = reorderedIds.indexOf(highPriority);
     int lowPriorityIndex = reorderedIds.indexOf(lowPriority);

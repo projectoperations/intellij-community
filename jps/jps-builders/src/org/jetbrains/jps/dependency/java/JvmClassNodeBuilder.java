@@ -1,16 +1,15 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.jps.dependency.java;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Ref;
-import com.intellij.util.ArrayUtil;
 import com.intellij.util.SmartList;
-import kotlinx.metadata.Attributes;
-import kotlinx.metadata.KmDeclarationContainer;
-import kotlinx.metadata.KmFunction;
-import kotlinx.metadata.KmProperty;
-import kotlinx.metadata.jvm.JvmExtensionsKt;
-import kotlinx.metadata.jvm.JvmMethodSignature;
+import kotlin.metadata.Attributes;
+import kotlin.metadata.KmDeclarationContainer;
+import kotlin.metadata.KmFunction;
+import kotlin.metadata.KmProperty;
+import kotlin.metadata.jvm.JvmExtensionsKt;
+import kotlin.metadata.jvm.JvmMethodSignature;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.dependency.NodeBuilder;
@@ -178,7 +177,7 @@ public final class JvmClassNodeBuilder extends ClassVisitor implements NodeBuild
       }
       else {
         argName = myArrayName;
-        // not interested in collecting complete array value; need to know just array type
+        // not interested in collecting complete array value; need to know just an array type
         myArrayName = null;
       }
       if (argName != null) {
@@ -196,7 +195,7 @@ public final class JvmClassNodeBuilder extends ClassVisitor implements NodeBuild
       }
       else {
         argName = myArrayName;
-        // not interested in collecting complete array value; need to know just array type
+        // not interested in collecting complete array value; need to know just an array type
         myArrayName = null;
       }
       if (argName != null) {
@@ -283,7 +282,8 @@ public final class JvmClassNodeBuilder extends ClassVisitor implements NodeBuild
     @Override
     public AnnotationVisitor visitArray(String name) {
       return new AnnotationVisitor(ASM_API_VERSION) {
-        private final List<Object> values = new SmartList<>();
+        private final List<Object> values = new ArrayList<>();
+
         @Override
         public void visit(String name, Object value) {
           if (value != null) {
@@ -604,7 +604,7 @@ public final class JvmClassNodeBuilder extends ClassVisitor implements NodeBuild
 
   private KmDeclarationContainer findKotlinDeclarationContainer() {
     KotlinMeta meta = (KotlinMeta)Iterators.find(myMetadata, md-> md instanceof KotlinMeta);
-    return meta != null? meta.getDeclarationContainer() : null;
+    return meta == null ? null : meta.getDeclarationContainer();
   }
 
   @Override
@@ -624,14 +624,22 @@ public final class JvmClassNodeBuilder extends ClassVisitor implements NodeBuild
         if ((access & Opcodes.ACC_SYNTHETIC) == 0 || (access & Opcodes.ACC_BRIDGE) > 0 || (access & Opcodes.ACC_PRIVATE) == 0) {
           if (isInlined) {
             // use 'defaultValue' attribute to store the hash of the function body to track changes in inline method implementation
-            ContentHashBuilder hashBuilder = ContentHashBuilder.create();
-            for (Object o : printer.getText()) {
-              hashBuilder.update(o);
-            }
-            defaultValue.set(hashBuilder.getResult());
+            defaultValue.set(buildContentHash(ContentHashBuilder.create(), printer.getText()).getResult());
           }
           myMethods.add(new JvmMethod(new JVMFlags(access), signature, n, desc, annotations, paramAnnotations, Iterators.asIterable(exceptions), defaultValue.get()));
         }
+      }
+
+      private ContentHashBuilder buildContentHash(ContentHashBuilder builder, Iterable<?> dataSequence) {
+        for (Object o : dataSequence) {
+          if (o instanceof Iterable) {
+            buildContentHash(builder, (Iterable<?>)o);
+          }
+          else {
+            builder.update(o);
+          }
+        }
+        return builder;
       }
 
       @Override
@@ -667,7 +675,7 @@ public final class JvmClassNodeBuilder extends ClassVisitor implements NodeBuild
               if (!myAcc.isEmpty()) {
                 final Object elem = myAcc.get(0);
                 if (elem != null) {
-                  template = ArrayUtil.newArray(elem.getClass(), 0);
+                  template = (Object[])Array.newInstance(elem.getClass(), 0);
                 }
               }
               defaultValue.set(template != null? myAcc.toArray(template) : myAcc.toArray());
@@ -799,12 +807,13 @@ public final class JvmClassNodeBuilder extends ClassVisitor implements NodeBuild
 
         if (LAMBDA_FACTORY_CLASS.equals(bsm.getOwner())) {
           // This invokeDynamic implements a lambda or method reference usage.
-          // Need to register method usage for the corresponding SAM-type.
-          // First three arguments to the bootstrap methods are provided automatically by VM.
-          // Arguments in args array are expected to be as following:
+          // Need to register method usage for the corresponding SAM type.
+          // The first three arguments to the bootstrap methods are provided automatically by VM.
+          // Arguments in an args array are expected to be as following:
           // [0]: Type: Signature and return type of method to be implemented by the function object.
           // [1]: Handle: implementation method handle
-          // [2]: Type: The signature and return type that should be enforced dynamically at invocation time. May be the same as samMethodType, or may be a specialization of it
+          // [2]: Type: The signature and return type that should be enforced dynamically at invocation time.
+          // Maybe the same as samMethodType, or may be a specialization of it
           // [...]: optional additional arguments
 
           if (returnType.getSort() == Type.OBJECT && bsmArgs.length >= 3) {
@@ -866,7 +875,7 @@ public final class JvmClassNodeBuilder extends ClassVisitor implements NodeBuild
   }
 
   /**
-   * @return corresponding field access opcode or -1 if the handle does not represent field access handle
+   * @return corresponding field access opcode or -1 if the handle does not represent a field access handle
    */
   private static int getFieldAccessOpcode(Handle handle) {
     switch (handle.getTag()) {
@@ -936,7 +945,7 @@ public final class JvmClassNodeBuilder extends ClassVisitor implements NodeBuild
         return wrap(new ContentHashBuilder() {
           @Override
           public void update(Object data) {
-            digest.update(String.valueOf(data).getBytes(StandardCharsets.UTF_8));
+            digest.update(String.valueOf(data).trim().getBytes(StandardCharsets.UTF_8));
           }
 
           @Override
@@ -960,7 +969,7 @@ public final class JvmClassNodeBuilder extends ClassVisitor implements NodeBuild
         int hash = 0;
         @Override
         public void update(Object data) {
-          hash = 31 * hash + (data == null? "null" : data).hashCode();
+          hash = 31 * hash + String.valueOf(data).trim().hashCode();
         }
 
         @Override

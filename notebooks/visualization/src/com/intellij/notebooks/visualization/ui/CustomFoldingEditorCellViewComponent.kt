@@ -1,15 +1,14 @@
 package com.intellij.notebooks.visualization.ui
 
 import com.intellij.codeInsight.hints.presentation.InlayPresentation
+import com.intellij.notebooks.ui.bind
+import com.intellij.notebooks.ui.visualization.NotebookUtil.notebookAppearance
 import com.intellij.notebooks.visualization.UpdateContext
 import com.intellij.notebooks.visualization.ui.EditorEmbeddedComponentLayoutManager.CustomFoldingConstraint
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.editor.CustomFoldRegion
 import com.intellij.openapi.editor.CustomFoldRegionRenderer
 import com.intellij.openapi.editor.ex.EditorEx
-import com.intellij.openapi.editor.impl.EditorGutterColor
-import com.intellij.openapi.editor.impl.EditorImpl
-import com.intellij.openapi.editor.markup.GutterIconRenderer
 import com.intellij.openapi.editor.markup.TextAttributes
 import org.jetbrains.annotations.TestOnly
 import java.awt.*
@@ -34,7 +33,6 @@ class CustomFoldingEditorCellViewComponent(
   private val bottomContainer = JPanel().apply {
     isOpaque = false
     layout = BoxLayout(this, BoxLayout.Y_AXIS)
-    background = EditorGutterColor.getEditorGutterBackgroundColor(editor as EditorImpl, false)
   }
 
   private val mainComponent = JPanel(BorderLayout()).apply {
@@ -51,7 +49,7 @@ class CustomFoldingEditorCellViewComponent(
   }
 
   private fun updateGutterIcons(gutterAction: AnAction?) {
-    cell.manager.update { ctx ->
+    editor.updateManager.update { ctx ->
       gutterActionRenderer = gutterAction?.let { ActionToGutterRendererAdapter(it) }
       ctx.addFoldingOperation { modelEx ->
         foldingRegion?.update()
@@ -64,17 +62,20 @@ class CustomFoldingEditorCellViewComponent(
       updateGutterIcons(action)
     }
     updateGutterIcons(cell.gutterAction.get())
+    editor.notebookAppearance.editorBackgroundColor.bind(this) {
+      bottomContainer.background = it
+    }
   }
 
-  override fun dispose() = cell.manager.update { ctx ->
+  override fun dispose(): Unit = editor.updateManager.update { ctx ->
     disposeFolding(ctx)
   }
 
   private fun disposeFolding(ctx: UpdateContext) {
-    ctx.addFoldingOperation {
+    ctx.addFoldingOperation { foldingModel ->
       foldingRegion?.let { region ->
         if (region.isValid == true) {
-          editor.foldingModel.removeFoldRegion(region)
+          foldingModel.removeFoldRegion(region)
         }
       }
       foldingRegion = null
@@ -89,25 +90,16 @@ class CustomFoldingEditorCellViewComponent(
   }
 
   override fun updateCellFolding(updateContext: UpdateContext) {
-    updateContext.addFoldingOperation {
-      foldingRegion?.dispose()
-      val fr = editor.foldingModel.addCustomLinesFolding(
+    updateContext.addFoldingOperation { foldingModel ->
+      foldingRegion?.let { foldingModel.removeFoldRegion(it) }
+      val fr = foldingModel.addCustomLinesFolding(
         cell.interval.lines.first, cell.interval.lines.last, object : CustomFoldRegionRenderer {
-        override fun calcWidthInPixels(region: CustomFoldRegion): Int {
-          return mainComponent.width
-        }
-
-        override fun calcHeightInPixels(region: CustomFoldRegion): Int {
-          return mainComponent.height
-        }
-
-        override fun paint(region: CustomFoldRegion, g: Graphics2D, targetRegion: Rectangle2D, textAttributes: TextAttributes) {
-        }
-
-        override fun calcGutterIconRenderer(region: CustomFoldRegion): GutterIconRenderer? {
-          return gutterActionRenderer
-        }
+        override fun calcWidthInPixels(region: CustomFoldRegion) = mainComponent.width
+        override fun calcHeightInPixels(region: CustomFoldRegion) = mainComponent.height
+        override fun paint(region: CustomFoldRegion, g: Graphics2D, targetRegion: Rectangle2D, textAttributes: TextAttributes) = Unit
+        override fun calcGutterIconRenderer(region: CustomFoldRegion) = gutterActionRenderer
       }) ?: error("Failed to create folding region ${cell.interval.lines}")
+      fr.putUserData(CustomFoldRegion.IMMUTABLE_FOLD_REGION, true)
       foldingRegion = fr
       editor.componentContainer.add(mainComponent, CustomFoldingConstraint(fr, true))
     }

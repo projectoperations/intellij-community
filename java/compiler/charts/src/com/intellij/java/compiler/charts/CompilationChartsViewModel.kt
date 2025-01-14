@@ -3,6 +3,8 @@ package com.intellij.java.compiler.charts
 
 import com.intellij.java.compiler.charts.CompilationChartsViewModel.Modules.EventKey
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.NlsContexts
 import com.jetbrains.rd.framework.impl.RdList
 import com.jetbrains.rd.framework.impl.RdMap
 import com.jetbrains.rd.framework.impl.RdProperty
@@ -15,7 +17,7 @@ import java.util.function.Predicate
 import kotlin.math.roundToLong
 
 
-class CompilationChartsViewModel(val lifetime: Lifetime, val disposable: Disposable) {
+class CompilationChartsViewModel(val project: Project, val lifetime: Lifetime, val disposable: Disposable) {
   val modules: Modules = Modules(Long.MAX_VALUE, 0, RdMap())
   val statistics: Statistics = Statistics()
   val cpuMemory: RdProperty<CpuMemoryStatisticsType> = RdProperty(CpuMemoryStatisticsType.MEMORY)
@@ -40,7 +42,8 @@ class CompilationChartsViewModel(val lifetime: Lifetime, val disposable: Disposa
 
     if (value.cpu > 0) {
       statistics.cpu.add(StatisticData(value.time, value.cpu))
-    } else {
+    }
+    else {
       val lastElement = statistics.cpu.lastOrNull()?.data ?: 0L
       statistics.cpu.add(StatisticData(value.time, calculateNewLastCpuValue(lastElement)))
     }
@@ -68,7 +71,7 @@ class CompilationChartsViewModel(val lifetime: Lifetime, val disposable: Disposa
         get() = EventKey(target.name, target.type, target.isTest)
     }
 
-    data class EventKey(val name: String, val type: String, val test: Boolean)
+    data class EventKey(@NlsContexts.Label val name: String, val type: String, val test: Boolean)
     data class StartEvent(override val target: StartTarget) : Event
     data class FinishEvent(override val target: FinishTarget) : Event
   }
@@ -77,25 +80,35 @@ class CompilationChartsViewModel(val lifetime: Lifetime, val disposable: Disposa
     override fun compareTo(other: StatisticData): Int = time.compareTo(other.time)
   }
 
-  data class Statistics(val memoryUsed: RdList<StatisticData> = RdList(),
-                        val memoryMax: RdList<StatisticData> = RdList(),
-                        val cpu: RdList<StatisticData> = RdList(),
-                        var maxMemory: Long = 0,
-                        var start: Long = Long.MAX_VALUE,
-                        var end: Long = 0)
+  data class Statistics(
+    val memoryUsed: RdList<StatisticData> = RdList(),
+    val memoryMax: RdList<StatisticData> = RdList(),
+    val cpu: RdList<StatisticData> = RdList(),
+    var maxMemory: Long = 0,
+    var start: Long = Long.MAX_VALUE,
+    var end: Long = 0,
+  )
 
-  data class ViewModules(var filter: Predicate<EventKey> = Filter(),
-                         val data: MutableMap<EventKey, List<Modules.Event>> = ConcurrentHashMap()) {
+  data class ViewModules(
+    var filter: Predicate<EventKey> = Filter(),
+    val data: MutableMap<EventKey, List<Modules.Event>> = ConcurrentHashMap(),
+  ) {
     fun data(): Map<EventKey, List<Modules.Event>> = data(filter)
     fun data(filter: Predicate<EventKey>): Map<EventKey, List<Modules.Event>> = data.filter { filter.test(it.key) }
   }
 
-  data class Filter(val text: List<String> = listOf(), val production: Boolean = true, val test: Boolean = true) : Predicate<EventKey> {
-    fun setText(text: List<String>): Filter = Filter(text, production, test)
-    fun setProduction(production: Boolean): Filter = Filter(text, production, test)
-    fun setTest(test: Boolean): Filter = Filter(text, production, test)
+  data class Filter(
+    val text: List<String> = listOf(), val production: Boolean = true,
+    val test: Boolean = true, val dependenciesFor: FilterDependenciesFor? = null,
+  ) : Predicate<EventKey> {
+    fun setText(text: List<String>): Filter = Filter(text, production, test, null)
+    fun setProduction(production: Boolean): Filter = Filter(text, production, test, null)
+    fun setTest(test: Boolean): Filter = Filter(text, production, test, null)
+    fun setDependenciesFor(dependenciesFor: FilterDependenciesFor?): Filter = Filter(text, production, test, dependenciesFor)
 
     override fun test(key: EventKey): Boolean {
+      if (dependenciesFor != null && !dependenciesFor.predicate.invoke(key)) return false
+
       if (text.isNotEmpty()) {
         if (!text.all { key.name.contains(it) }) return false
       }
@@ -109,6 +122,8 @@ class CompilationChartsViewModel(val lifetime: Lifetime, val disposable: Disposa
       return true
     }
   }
+
+  data class FilterDependenciesFor(val name: String, val predicate: ((EventKey) -> Boolean))
 
   enum class CpuMemoryStatisticsType {
     CPU {

@@ -59,22 +59,23 @@ public final class PsiUtil extends PsiUtilCore {
   private static final @NotNull Map<CharSequence, JavaFeature> SOFT_KEYWORDS = CollectionFactory.createCharSequenceMap(true);
 
   static {
-    SOFT_KEYWORDS.put(VAR, JavaFeature.LVTI);
-    SOFT_KEYWORDS.put(RECORD, JavaFeature.RECORDS);
-    SOFT_KEYWORDS.put(YIELD, JavaFeature.SWITCH_EXPRESSION);
-    SOFT_KEYWORDS.put(SEALED, JavaFeature.SEALED_CLASSES);
-    SOFT_KEYWORDS.put(PERMITS, JavaFeature.SEALED_CLASSES);
-    SOFT_KEYWORDS.put(WHEN, JavaFeature.PATTERN_GUARDS_AND_RECORD_PATTERNS);
-    SOFT_KEYWORDS.put(OPEN, JavaFeature.MODULES);
-    SOFT_KEYWORDS.put(MODULE, JavaFeature.MODULES);
-    SOFT_KEYWORDS.put(REQUIRES, JavaFeature.MODULES);
     SOFT_KEYWORDS.put(EXPORTS, JavaFeature.MODULES);
+    SOFT_KEYWORDS.put(MODULE, JavaFeature.MODULES);
+    SOFT_KEYWORDS.put(OPEN, JavaFeature.MODULES);
     SOFT_KEYWORDS.put(OPENS, JavaFeature.MODULES);
-    SOFT_KEYWORDS.put(USES, JavaFeature.MODULES);
+    SOFT_KEYWORDS.put(PERMITS, JavaFeature.SEALED_CLASSES);
     SOFT_KEYWORDS.put(PROVIDES, JavaFeature.MODULES);
-    SOFT_KEYWORDS.put(TRANSITIVE, JavaFeature.MODULES);
+    SOFT_KEYWORDS.put(RECORD, JavaFeature.RECORDS);
+    SOFT_KEYWORDS.put(REQUIRES, JavaFeature.MODULES);
+    SOFT_KEYWORDS.put(SEALED, JavaFeature.SEALED_CLASSES);
     SOFT_KEYWORDS.put(TO, JavaFeature.MODULES);
+    SOFT_KEYWORDS.put(TRANSITIVE, JavaFeature.MODULES);
+    SOFT_KEYWORDS.put(USES, JavaFeature.MODULES);
+    SOFT_KEYWORDS.put(VAR, JavaFeature.LVTI);
+    SOFT_KEYWORDS.put(VALUE, JavaFeature.VALHALLA_VALUE_CLASSES);
+    SOFT_KEYWORDS.put(WHEN, JavaFeature.PATTERN_GUARDS_AND_RECORD_PATTERNS);
     SOFT_KEYWORDS.put(WITH, JavaFeature.MODULES);
+    SOFT_KEYWORDS.put(YIELD, JavaFeature.SWITCH_EXPRESSION);
   }
 
   private PsiUtil() {}
@@ -131,8 +132,7 @@ public final class PsiUtil extends PsiUtilCore {
     return (virtualFile == null || place.getResolveScope().contains(virtualFile)) && isAccessible(member, place, null);
   }
 
-  @NotNull
-  public static JavaResolveResult getAccessObjectClass(@NotNull PsiExpression expression) {
+  public static @NotNull JavaResolveResult getAccessObjectClass(@NotNull PsiExpression expression) {
     if (expression instanceof PsiSuperExpression) return JavaResolveResult.EMPTY;
     PsiType type = expression.getType();
     JavaResolveResult accessObject = getAccessObjectClass(type, expression);
@@ -147,8 +147,7 @@ public final class PsiUtil extends PsiUtilCore {
     return JavaResolveResult.EMPTY;
   }
 
-  @Nullable
-  private static JavaResolveResult getAccessObjectClass(@Nullable PsiType type, @NotNull PsiElement place) {
+  private static @Nullable JavaResolveResult getAccessObjectClass(@Nullable PsiType type, @NotNull PsiElement place) {
     if (type instanceof PsiClassType) {
       return ((PsiClassType)type).resolveGenerics();
     }
@@ -267,8 +266,7 @@ public final class PsiUtil extends PsiUtilCore {
   /**
    * @return enclosing outermost (method or class initializer) body but not higher than scope
    */
-  @Nullable
-  public static PsiElement getTopLevelEnclosingCodeBlock(@Nullable PsiElement element, PsiElement scope) {
+  public static @Nullable PsiElement getTopLevelEnclosingCodeBlock(@Nullable PsiElement element, PsiElement scope) {
     PsiElement blockSoFar = null;
     while (element != null) {
       // variable can be defined in for loop initializer
@@ -326,9 +324,8 @@ public final class PsiUtil extends PsiUtilCore {
   /**
    * @return topmost code block where variable makes sense
    */
-  @Nullable
   @Contract(pure = true)
-  public static PsiElement getVariableCodeBlock(@NotNull PsiVariable variable, @Nullable PsiElement context) {
+  public static @Nullable PsiElement getVariableCodeBlock(@NotNull PsiVariable variable, @Nullable PsiElement context) {
     PsiElement codeBlock = null;
     if (variable instanceof PsiParameter) {
       PsiElement declarationScope = ((PsiParameter)variable).getDeclarationScope();
@@ -371,6 +368,9 @@ public final class PsiUtil extends PsiUtilCore {
       PsiElement scope = variable.getParent() == null ? null : variable.getParent().getParent();
       codeBlock = getTopLevelEnclosingCodeBlock(variable, scope);
       if (codeBlock != null && codeBlock.getParent() instanceof PsiSwitchStatement) codeBlock = codeBlock.getParent().getParent();
+      if (codeBlock == null && scope instanceof PsiCodeBlock && scope.getParent() instanceof PsiSwitchExpression) {
+        codeBlock = scope;
+      }
     }
     return codeBlock;
   }
@@ -384,8 +384,7 @@ public final class PsiUtil extends PsiUtilCore {
     return false;
   }
 
-  @Unmodifiable
-  public static @NotNull List<PsiExpression> getSwitchResultExpressions(@NotNull PsiSwitchExpression switchExpression) {
+  public static @Unmodifiable @NotNull List<PsiExpression> getSwitchResultExpressions(@NotNull PsiSwitchExpression switchExpression) {
     PsiCodeBlock body = switchExpression.getBody();
     if (body != null) {
       List<PsiExpression> result = new ArrayList<>();
@@ -438,8 +437,7 @@ public final class PsiUtil extends PsiUtilCore {
    * @see com.intellij.lang.jvm.util.JvmUtil#getAccessModifier(int) for JVM language analogue.
    */
   @PsiModifier.ModifierConstant
-  @NotNull
-  public static String getAccessModifier(@AccessLevel int accessLevel) {
+  public static @NotNull String getAccessModifier(@AccessLevel int accessLevel) {
     if (accessLevel <= 0 || accessLevel > accessModifiers.length) {
       throw new IllegalArgumentException("Unknown level:" + accessLevel);
     }
@@ -493,8 +491,7 @@ public final class PsiUtil extends PsiUtilCore {
     return element instanceof PsiCodeBlock;
   }
 
-  @Nullable
-  public static PsiElement getEnclosingStatement(PsiElement element) {
+  public static @Nullable PsiElement getEnclosingStatement(PsiElement element) {
     while (element != null) {
       if (element.getParent() instanceof PsiCodeBlock) return element;
       element = element.getParent();
@@ -503,8 +500,7 @@ public final class PsiUtil extends PsiUtilCore {
   }
 
 
-  @Nullable
-  public static PsiElement getElementInclusiveRange(@NotNull PsiElement scope, @NotNull TextRange range) {
+  public static @Nullable PsiElement getElementInclusiveRange(@NotNull PsiElement scope, @NotNull TextRange range) {
     PsiElement psiElement = scope.findElementAt(range.getStartOffset());
     while (psiElement != null && !psiElement.getTextRange().contains(range)) {
       if (psiElement == scope) return null;
@@ -513,8 +509,7 @@ public final class PsiUtil extends PsiUtilCore {
     return psiElement;
   }
 
-  @Nullable
-  public static PsiClass resolveClassInType(@Nullable PsiType type) {
+  public static @Nullable PsiClass resolveClassInType(@Nullable PsiType type) {
     if (type instanceof PsiClassType) {
       return ((PsiClassType) type).resolve();
     }
@@ -530,13 +525,11 @@ public final class PsiUtil extends PsiUtilCore {
     return null;
   }
 
-  @Nullable
-  public static PsiClass resolveClassInClassTypeOnly(@Nullable PsiType type) {
+  public static @Nullable PsiClass resolveClassInClassTypeOnly(@Nullable PsiType type) {
     return type instanceof PsiClassType ? ((PsiClassType)type).resolve() : null;
   }
 
-  @NotNull
-  public static PsiClassType.ClassResolveResult resolveGenericsClassInType(@Nullable PsiType type) {
+  public static @NotNull PsiClassType.ClassResolveResult resolveGenericsClassInType(@Nullable PsiType type) {
     if (type instanceof PsiClassType) {
       PsiClassType classType = (PsiClassType) type;
       return classType.resolveGenerics();
@@ -553,8 +546,7 @@ public final class PsiUtil extends PsiUtilCore {
     return PsiClassType.ClassResolveResult.EMPTY;
   }
 
-  @NotNull
-  public static PsiType convertAnonymousToBaseType(@NotNull PsiType type) {
+  public static @NotNull PsiType convertAnonymousToBaseType(@NotNull PsiType type) {
     PsiClass psiClass = resolveClassInType(type);
     if (psiClass instanceof PsiAnonymousClass) {
       type = PsiTypesUtil.createArrayType(((PsiAnonymousClass) psiClass).getBaseClassType(), type.getArrayDimensions());
@@ -767,9 +759,8 @@ public final class PsiUtil extends PsiUtilCore {
     return true;
   }
 
-  @Nullable
   @Contract("null -> null")
-  public static PsiExpression deparenthesizeExpression(PsiExpression expression) {
+  public static @Nullable PsiExpression deparenthesizeExpression(PsiExpression expression) {
     while (true) {
       if (expression instanceof PsiParenthesizedExpression) {
         expression = ((PsiParenthesizedExpression)expression).getExpression();
@@ -791,8 +782,7 @@ public final class PsiUtil extends PsiUtilCore {
     return !aClass.hasModifierProperty(PsiModifier.STATIC) && aClass.getContainingClass() != null;
   }
 
-  @Nullable
-  public static PsiElement findModifierInList(@NotNull PsiModifierList modifierList, String modifier) {
+  public static @Nullable PsiElement findModifierInList(@NotNull PsiModifierList modifierList, String modifier) {
     PsiElement[] children = modifierList.getChildren();
     for (PsiElement child : children) {
       if (child.getText().equals(modifier)) return child;
@@ -800,15 +790,12 @@ public final class PsiUtil extends PsiUtilCore {
     return null;
   }
 
-  @Nullable
-  public static PsiClass getTopLevelClass(@NotNull PsiElement element) {
+  public static @Nullable PsiClass getTopLevelClass(@NotNull PsiElement element) {
     PsiClass topClass = JBIterable.generate(element, PsiElement::getParent).takeWhile(e -> !(e instanceof PsiFile)).filter(PsiClass.class).last();
     return topClass instanceof PsiTypeParameter ? null : topClass;
   }
 
-  @NlsSafe
-  @Nullable
-  public static String getPackageName(@NotNull PsiClass aClass) {
+  public static @NlsSafe @Nullable String getPackageName(@NotNull PsiClass aClass) {
     PsiClass topClass = getTopLevelClass(aClass);
     if (topClass != null) {
       String fqName = topClass.getQualifiedName();
@@ -831,8 +818,7 @@ public final class PsiUtil extends PsiUtilCore {
    * @return element with static modifier enclosing place and enclosed by aClass (if not null).
    * Note that traversal goes through context elements.
    */
-  @Nullable
-  public static PsiModifierListOwner getEnclosingStaticElement(@NotNull PsiElement place, @Nullable PsiClass aClass) {
+  public static @Nullable PsiModifierListOwner getEnclosingStaticElement(@NotNull PsiElement place, @Nullable PsiClass aClass) {
     LOG.assertTrue(aClass == null || !place.isPhysical() || PsiTreeUtil.isContextAncestor(aClass, place, false));
     PsiElement parent = place;
     while (parent != aClass) {
@@ -849,8 +835,7 @@ public final class PsiUtil extends PsiUtilCore {
    * @param element element to get the associated type from (return type for method, or variable type for variable)
    * @return the associated type, might be null
    */
-  @Nullable
-  public static PsiType getTypeByPsiElement(@NotNull PsiElement element) {
+  public static @Nullable PsiType getTypeByPsiElement(@NotNull PsiElement element) {
     if (element instanceof PsiVariable) {
       return ((PsiVariable)element).getType();
     }
@@ -861,8 +846,7 @@ public final class PsiUtil extends PsiUtilCore {
   /**
    * Applies capture conversion to the type in context
    */
-  @NotNull
-  public static PsiType captureToplevelWildcards(@NotNull PsiType type, @NotNull PsiElement context) {
+  public static @NotNull PsiType captureToplevelWildcards(@NotNull PsiType type, @NotNull PsiElement context) {
     if (!(type instanceof PsiClassType)) return type;
     PsiClassType.ClassResolveResult result = ((PsiClassType)type).resolveGenerics();
     PsiClass aClass = result.getElement();
@@ -921,9 +905,7 @@ public final class PsiUtil extends PsiUtilCore {
     return PsiTreeUtil.getParentOfType(element, PsiDocComment.class, true, PsiMember.class) != null;
   }
 
-  @NotNull
-  @Unmodifiable
-  public static List<PsiTypeElement> getParameterTypeElements(@NotNull PsiParameter parameter) {
+  public static @NotNull @Unmodifiable List<PsiTypeElement> getParameterTypeElements(@NotNull PsiParameter parameter) {
     PsiTypeElement typeElement = parameter.getTypeElement();
     return typeElement != null && typeElement.getType() instanceof PsiDisjunctionType
            ? PsiTreeUtil.getChildrenOfTypeAsList(typeElement, PsiTypeElement.class)
@@ -936,8 +918,7 @@ public final class PsiUtil extends PsiUtilCore {
     }
   }
 
-  @Nullable
-  public static VirtualFile getJarFile(@NotNull PsiElement candidate) {
+  public static @Nullable VirtualFile getJarFile(@NotNull PsiElement candidate) {
     VirtualFile file = candidate.getContainingFile().getVirtualFile();
     if (file != null && file.getFileSystem().getProtocol().equals("jar")) {
       return VfsUtilCore.getVirtualFileForJar(file);
@@ -983,13 +964,11 @@ public final class PsiUtil extends PsiUtilCore {
    * Returns iterator of type parameters visible in owner. Type parameters are iterated in
    * inner-to-outer, right-to-left order.
    */
-  @NotNull
-  public static Iterator<PsiTypeParameter> typeParametersIterator(@NotNull PsiTypeParameterListOwner owner) {
+  public static @NotNull Iterator<PsiTypeParameter> typeParametersIterator(@NotNull PsiTypeParameterListOwner owner) {
     return typeParametersIterable(owner).iterator();
   }
 
-  @NotNull
-  public static Iterable<PsiTypeParameter> typeParametersIterable(@NotNull PsiTypeParameterListOwner owner) {
+  public static @NotNull Iterable<PsiTypeParameter> typeParametersIterable(@NotNull PsiTypeParameterListOwner owner) {
     Iterable<PsiTypeParameter> result = null;
 
     PsiTypeParameterListOwner currentOwner = owner;
@@ -1048,8 +1027,7 @@ public final class PsiUtil extends PsiUtilCore {
     return result;
   }
 
-  @Nullable
-  public static PsiMember findEnclosingConstructorOrInitializer(PsiElement expression) {
+  public static @Nullable PsiMember findEnclosingConstructorOrInitializer(PsiElement expression) {
     PsiMember parent = PsiTreeUtil.getParentOfType(expression, PsiClassInitializer.class, PsiEnumConstantInitializer.class, PsiMethod.class, PsiField.class);
     if (parent instanceof PsiMethod && !((PsiMethod)parent).isConstructor()) return null;
     return parent;
@@ -1129,8 +1107,8 @@ public final class PsiUtil extends PsiUtilCore {
    * @param element element to get Java language level for
    * @return the language level.
    */
-  @NotNull
-  public static LanguageLevel getLanguageLevel(@NotNull PsiElement element) {
+  @Contract(pure = true)
+  public static @NotNull LanguageLevel getLanguageLevel(@NotNull PsiElement element) {
     if (element instanceof PsiDirectory) {
       return JavaDirectoryService.getInstance().getLanguageLevel((PsiDirectory)element);
     }
@@ -1159,8 +1137,7 @@ public final class PsiUtil extends PsiUtilCore {
     return instance != null ? instance.getEffectiveLanguageLevel(getVirtualFile(file)) : LanguageLevel.HIGHEST;
   }
 
-  @NotNull
-  public static LanguageLevel getLanguageLevel(@NotNull Project project) {
+  public static @NotNull LanguageLevel getLanguageLevel(@NotNull Project project) {
     LanguageLevelProjectExtension instance = LanguageLevelProjectExtension.getInstance(project);
     return instance != null ? instance.getLanguageLevel() : LanguageLevel.HIGHEST;
   }
@@ -1197,15 +1174,13 @@ public final class PsiUtil extends PsiUtilCore {
   }
 
   @Contract("null, _ -> null")
-  @Nullable
-  public static PsiType extractIterableTypeParameter(@Nullable PsiType psiType, boolean eraseTypeParameter) {
+  public static @Nullable PsiType extractIterableTypeParameter(@Nullable PsiType psiType, boolean eraseTypeParameter) {
     PsiType type = substituteTypeParameter(psiType, CommonClassNames.JAVA_LANG_ITERABLE, 0, eraseTypeParameter);
     return type != null ? type : substituteTypeParameter(psiType, CommonClassNames.JAVA_UTIL_COLLECTION, 0, eraseTypeParameter);
   }
 
   @Contract("null, _, _, _ -> null")
-  @Nullable
-  public static PsiType substituteTypeParameter(@Nullable PsiType psiType, @NotNull String superClass, int typeParamIndex, boolean eraseTypeParameter) {
+  public static @Nullable PsiType substituteTypeParameter(@Nullable PsiType psiType, @NotNull String superClass, int typeParamIndex, boolean eraseTypeParameter) {
     PsiClassType.ClassResolveResult classResolveResult = resolveClass(psiType);
     PsiClass psiClass = classResolveResult.getElement();
     if (psiClass == null) return null;
@@ -1217,8 +1192,7 @@ public final class PsiUtil extends PsiUtilCore {
   }
 
   @Contract("null, _, _, _ -> null")
-  @Nullable
-  public static PsiType substituteTypeParameter(@Nullable PsiType psiType, @NotNull PsiClass superClass, int typeParamIndex, boolean eraseTypeParameter) {
+  public static @Nullable PsiType substituteTypeParameter(@Nullable PsiType psiType, @NotNull PsiClass superClass, int typeParamIndex, boolean eraseTypeParameter) {
     PsiClassType.ClassResolveResult classResolveResult = resolveClass(psiType);
     PsiClass psiClass = classResolveResult.getElement();
     if (psiClass == null) return null;
@@ -1230,11 +1204,10 @@ public final class PsiUtil extends PsiUtilCore {
     return psiType instanceof PsiClassType ? ((PsiClassType)psiType).resolveGenerics() : PsiClassType.ClassResolveResult.EMPTY;
   }
 
-  @Nullable
-  private static PsiType substituteType(int typeParamIndex,
-                                        boolean eraseTypeParameter,
-                                        PsiClassType.ClassResolveResult classResolveResult,
-                                        PsiClass psiClass, PsiClass baseClass) {
+  private static @Nullable PsiType substituteType(int typeParamIndex,
+                                                  boolean eraseTypeParameter,
+                                                  PsiClassType.ClassResolveResult classResolveResult,
+                                                  PsiClass psiClass, PsiClass baseClass) {
     if (!psiClass.isEquivalentTo(baseClass) && !psiClass.isInheritor(baseClass, true)) return null;
 
     PsiTypeParameter[] parameters = baseClass.getTypeParameters();
@@ -1300,8 +1273,7 @@ public final class PsiUtil extends PsiUtilCore {
   }
 
   @Contract("null -> null")
-  @Nullable
-  public static PsiExpression skipParenthesizedExprDown(@Nullable PsiExpression expression) {
+  public static @Nullable PsiExpression skipParenthesizedExprDown(@Nullable PsiExpression expression) {
     while (expression instanceof PsiParenthesizedExpression) {
       expression = ((PsiParenthesizedExpression)expression).getExpression();
     }
@@ -1362,8 +1334,7 @@ public final class PsiUtil extends PsiUtilCore {
     }
   }
 
-  @Nullable
-  public static String getMemberQualifiedName(@NotNull PsiMember member) {
+  public static @Nullable String getMemberQualifiedName(@NotNull PsiMember member) {
     if (member instanceof PsiClass) {
       return ((PsiClass)member).getQualifiedName();
     }
@@ -1461,8 +1432,7 @@ public final class PsiUtil extends PsiUtilCore {
     return true;
   }
 
-  @NotNull
-  public static PsiModifierListOwner preferCompiledElement(@NotNull PsiModifierListOwner element) {
+  public static @NotNull PsiModifierListOwner preferCompiledElement(@NotNull PsiModifierListOwner element) {
     PsiElement original = element.getOriginalElement();
     return original instanceof PsiModifierListOwner ? (PsiModifierListOwner)original : element;
   }
@@ -1540,11 +1510,11 @@ public final class PsiUtil extends PsiUtilCore {
     return false;
   }
 
-  private static final Set<String> KEYWORDS = ContainerUtil.immutableSet(
+  private static final Set<String> KEYWORDS = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
     ABSTRACT, BOOLEAN, BREAK, BYTE, CASE, CATCH, CHAR, CLASS, CONST, CONTINUE, DEFAULT, DO, DOUBLE, ELSE, EXTENDS, FINAL, FINALLY,
     FLOAT, FOR, GOTO, IF, IMPLEMENTS, IMPORT, INSTANCEOF, INT, INTERFACE, LONG, NATIVE, NEW, PACKAGE, PRIVATE, PROTECTED, PUBLIC,
     RETURN, SHORT, STATIC, STRICTFP, SUPER, SWITCH, SYNCHRONIZED, THIS, THROW, THROWS, TRANSIENT, TRY, VOID, VOLATILE, WHILE,
-    TRUE, FALSE, NULL, NON_SEALED);
+    TRUE, FALSE, NULL, NON_SEALED)));
 
   /**
    * @param id word to check
@@ -1578,8 +1548,7 @@ public final class PsiUtil extends PsiUtilCore {
   /**
    * @return containing class for {@code element} ignoring {@link PsiAnonymousClass} if {@code element} is located in corresponding expression list
    */
-  @Nullable
-  public static PsiClass getContainingClass(PsiElement element) {
+  public static @Nullable PsiClass getContainingClass(PsiElement element) {
     PsiClass currentClass;
     while (true) {
       currentClass = PsiTreeUtil.getParentOfType(element, PsiClass.class);

@@ -1,6 +1,7 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build
 
+import com.intellij.platform.buildData.productInfo.CustomProperty
 import com.intellij.platform.runtime.product.ProductMode
 import com.jetbrains.plugin.structure.base.plugin.PluginCreationFail
 import com.jetbrains.plugin.structure.base.plugin.PluginCreationResult
@@ -12,7 +13,6 @@ import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.intellij.build.impl.PlatformLayout
-import org.jetbrains.intellij.build.impl.productInfo.CustomProperty
 import org.jetbrains.intellij.build.impl.qodana.QodanaProductProperties
 import org.jetbrains.jps.model.JpsProject
 import org.jetbrains.jps.model.module.JpsModule
@@ -189,19 +189,18 @@ abstract class ProductProperties {
   var buildCrossPlatformDistribution: Boolean = false
 
   /**
-   * Specifies the main module of JetBrains Client product which distribution should be embedded into the IDE's distribution to allow 
-   * running JetBrains Client. 
-   * If it's set to a non-null value and [BuildOptions.enableEmbeddedJetBrainsClient] is set to `true`, product-modules.xml from the 
-   * specified module is used to compute [JetBrainsClientModuleFilter]. 
+   * Specifies the main module of a frontend variant (JetBrains Client) which distribution should be embedded into the IDE's distribution. 
+   * If it's set to a non-null value and [BuildOptions.enableEmbeddedFrontend] is set to `true`, product-modules.xml from the 
+   * specified module is used to compute [FrontendModuleFilter]. 
    */
   @ApiStatus.Experimental
-  var embeddedJetBrainsClientMainModule: String? = null
+  var embeddedFrontendRootModule: String? = null
 
   /**
-   * Specifies a factory function for an instance which will be used to generate launchers for the embedded JetBrains Client. 
+   * Specifies a factory function for an instance which will be used to generate launchers for the embedded frontend variant (JetBrains Client). 
    */
   @ApiStatus.Experimental
-  var embeddedJetBrainsClientProperties: (() -> ProductProperties)? = null
+  var embeddedFrontendProperties: (() -> ProductProperties)? = null
 
   /**
    * Set to the root product module (the one containing product-modules.xml file) to enable using module-based loader for the product. 

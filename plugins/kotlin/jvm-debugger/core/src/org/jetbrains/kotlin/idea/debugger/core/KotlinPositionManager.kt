@@ -17,14 +17,14 @@ import com.intellij.debugger.jdi.VirtualMachineProxyImpl
 import com.intellij.debugger.requests.ClassPrepareRequestor
 import com.intellij.debugger.ui.breakpoints.Breakpoint
 import com.intellij.debugger.ui.impl.watch.StackFrameDescriptorImpl
-import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.application.smartReadAction
 import com.intellij.openapi.fileTypes.FileType
-import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.runBlockingMaybeCancellable
 import com.intellij.openapi.project.DumbService
+import com.intellij.openapi.project.IndexNotReadyException
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.ThrowableComputable
 import com.intellij.openapi.util.io.FileUtil
@@ -59,6 +59,7 @@ import org.jetbrains.kotlin.analysis.api.symbols.KaNamedFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.types.KaFunctionType
 import org.jetbrains.kotlin.analysis.api.types.KaUsualClassType
 import org.jetbrains.kotlin.analysis.decompiler.psi.file.KtClsFile
+import org.jetbrains.kotlin.codegen.inline.KOTLIN_STRATA_NAME
 import org.jetbrains.kotlin.fileClasses.JvmFileClassUtil
 import org.jetbrains.kotlin.idea.base.projectStructure.RootKindFilter
 import org.jetbrains.kotlin.idea.base.projectStructure.matches
@@ -67,7 +68,6 @@ import org.jetbrains.kotlin.idea.base.util.KOTLIN_FILE_TYPES
 import org.jetbrains.kotlin.idea.codeinsight.utils.getInlineArgumentSymbol
 import org.jetbrains.kotlin.idea.core.syncNonBlockingReadAction
 import org.jetbrains.kotlin.idea.debugger.base.util.*
-import org.jetbrains.kotlin.idea.debugger.base.util.KotlinDebuggerConstants.KOTLIN_STRATA_NAME
 import org.jetbrains.kotlin.idea.debugger.core.*
 import org.jetbrains.kotlin.idea.debugger.core.DebuggerUtils
 import org.jetbrains.kotlin.idea.debugger.core.DebuggerUtils.getBorders
@@ -125,23 +125,7 @@ class KotlinPositionManager(private val debugProcess: DebugProcess) : MultiReque
         return listOf(KotlinStackFrame(descriptor, visibleVariables))
     }
 
-    override fun getSourcePositionAsync(location: Location?): CompletableFuture<SourcePosition?> =
-        invokeCommandAsCompletableFuture {
-            getSourcePositionInternal(location)
-        }
-
-    override fun getSourcePosition(location: Location?): SourcePosition? {
-        if (ApplicationManager.getApplication().isInternal
-            && ApplicationManager.getApplication().isReadAccessAllowed
-            && !ProgressManager.getInstance().hasProgressIndicator()) {
-            LOG.error("Call runBlocking from read action without indicator")
-        }
-        return runBlockingMaybeCancellable {
-            getSourcePositionInternal(location)
-        }
-    }
-
-    private suspend fun getSourcePositionInternal(location: Location?): SourcePosition? {
+    override suspend fun getSourcePositionAsync(location: Location?): SourcePosition? {
         DebuggerManagerThreadImpl.assertIsManagerThread()
         if (location == null) throw NoDataException.INSTANCE
 
@@ -606,9 +590,12 @@ class KotlinPositionManager(private val debugProcess: DebugProcess) : MultiReque
     private fun getClassesWithInlinedCode(candidatesWithInline: List<String>, line: Int): List<ReferenceType> {
         val candidatesWithInlineInternalNames = candidatesWithInline.map { it.fqnToInternalName() }
         val futures = debugProcess.virtualMachineProxy.allClasses().map { type ->
-            hasInlinedLinesToAsync(type, line, candidatesWithInlineInternalNames).thenApply { hasInlinedLines ->
-                type.takeIf { hasInlinedLines }
-            }
+            hasInlinedLinesToAsync(type, line, candidatesWithInlineInternalNames)
+                .thenApply { hasInlinedLines -> type.takeIf { hasInlinedLines } }
+                .exceptionally { e ->
+                    val exception = DebuggerUtilsAsync.unwrap(e)
+                    if (exception is ObjectCollectedException) null else throw e
+                }
         }.toTypedArray()
         CompletableFuture.allOf(*futures).join()
         return futures.mapNotNull { it.get() }
@@ -638,7 +625,9 @@ class KotlinPositionManager(private val debugProcess: DebugProcess) : MultiReque
                 // If we cannot get source debug extension information, we approximate information for inline functions.
                 // This allows us to stop on some breakpoints in inline functions, but does not work very well.
                 // Source debug extensions are not available on Android devices before Android O.
-                val inlineLocations = runReadAction { DebuggerUtils.getLocationsOfInlinedLine(type, position, debugProcess.searchScope) }
+                val inlineLocations = ReadAction.nonBlocking<List<Location>> {
+                    DebuggerUtils.getLocationsOfInlinedLine(type, position, debugProcess.searchScope)
+                }.executeSynchronously()
                 if (inlineLocations.isNotEmpty()) {
                     return inlineLocations
                 }
@@ -808,12 +797,16 @@ private suspend fun findFileCandidatesWithBackgroundProcess(
         project, KotlinDebuggerCoreBundle.message("progress.title.kt.file.search"),
         cancellable = false
     ) {
-        val files = readAction {
-            FileBasedIndex.getInstance().ignoreDumbMode(DumbModeAccessType.RELIABLE_DATA_ONLY, ThrowableComputable {
-                val files = DebuggerUtils.findSourceFilesForClass(project, scopes, className, sourceName)
-                if (files.isNotEmpty()) return@ThrowableComputable files
-                DebuggerUtils.tryFindFileByClassNameAndFileName(project, className, sourceName, scopes)
-            })
+        val files = try {
+            readAction {
+                FileBasedIndex.getInstance().ignoreDumbMode(DumbModeAccessType.RELIABLE_DATA_ONLY, ThrowableComputable {
+                    val files = DebuggerUtils.findSourceFilesForClass(project, scopes, className, sourceName)
+                    if (files.isNotEmpty()) return@ThrowableComputable files
+                    DebuggerUtils.tryFindFileByClassNameAndFileName(project, className, sourceName, scopes)
+                })
+            }
+        } catch (_: IndexNotReadyException) {
+            emptyList()
         }
         if (files.isNotEmpty()) return@withBackgroundProgress files
 

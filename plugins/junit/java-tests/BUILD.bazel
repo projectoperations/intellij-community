@@ -1,0 +1,33 @@
+### auto-generated section `build intellij.junit.java.tests` start
+load("@rules_java//java:defs.bzl", "java_library")
+load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_test")
+
+java_library(
+  name = "java-tests",
+  visibility = ["//visibility:public"]
+)
+
+jvm_library(
+  name = "java-tests_test_lib",
+  visibility = ["//visibility:public"],
+  srcs = glob(["test/**/*.kt", "test/**/*.java"], allow_empty = True),
+  deps = [
+    "//platform/util/jdom",
+    "//plugins/junit_rt:junit-rt",
+    "//plugins/properties/properties-psi-impl:psi-impl",
+    "//plugins/junit/testFramework",
+    "//platform/testFramework",
+    "//platform/testFramework:testFramework_test_lib",
+    "//platform/smRunner",
+    "//platform/smRunner:smRunner_test_lib",
+    "//java/testFramework",
+    "//platform/platform-util-io:ide-util-io",
+    "//java/execution/impl:java-execution-impl",
+  ]
+)
+
+jvm_test(
+  name = "java-tests_test",
+  runtime_deps = [":java-tests_test_lib"]
+)
+### auto-generated section `build intellij.junit.java.tests` end

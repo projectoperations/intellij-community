@@ -14,6 +14,7 @@ import org.jetbrains.idea.maven.project.MavenProjectsManager
 import org.jetbrains.idea.maven.wizards.AbstractMavenModuleBuilder
 import org.jetbrains.idea.maven.wizards.MavenJavaModuleBuilder
 import org.junit.Test
+import java.nio.file.Path
 
 class MavenModuleBuilderSameFolderAsParentTest : MavenMultiVersionImportingTestCase() {
   private var myBuilder: AbstractMavenModuleBuilder? = null
@@ -25,10 +26,10 @@ class MavenModuleBuilderSameFolderAsParentTest : MavenMultiVersionImportingTestC
     setModuleNameAndRoot("module", projectPath)
   }
 
-  private fun setModuleNameAndRoot(name: String, root: String) {
+  private fun setModuleNameAndRoot(name: String, root: Path) {
     myBuilder!!.name = name
-    myBuilder!!.moduleFilePath = "$root/$name.iml"
-    myBuilder!!.setContentEntryPath(root)
+    myBuilder!!.moduleFilePath = Path.of(root.toString(), "$name.iml").toString()
+    myBuilder!!.setContentEntryPath(root.toString())
   }
 
   private fun setParentProject(pom: VirtualFile) {

@@ -191,6 +191,11 @@ public final class ShowUsagesAction extends AnAction implements PopupAction, Hin
 
   @Override
   public void actionPerformed(@NotNull AnActionEvent e) {
+    performShowUsagesAction(e);
+  }
+
+  @ApiStatus.Internal
+  public static void performShowUsagesAction(@NotNull AnActionEvent e) {
     Project project = e.getProject();
     if (project == null) return;
 
@@ -1435,7 +1440,10 @@ public final class ShowUsagesAction extends AnAction implements PopupAction, Hin
                                    boolean showCodePreview,
                                    int dataSize) {
 
-    if (Registry.is("find.usages.disable.smart.size", false)) return;
+    if (Registry.is("find.usages.disable.smart.size", false)) {
+      calcMaxWidth(table);
+      return;
+    }
 
     if (isCodeWithMeClientInstance(popup)) return;
 

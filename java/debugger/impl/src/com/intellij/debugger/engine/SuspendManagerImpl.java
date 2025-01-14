@@ -16,7 +16,10 @@ import com.sun.jdi.request.EventRequest;
 import org.intellij.lang.annotations.MagicConstant;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.*;
+import java.util.Deque;
+import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -53,9 +56,8 @@ public class SuspendManagerImpl implements SuspendManager {
     });
   }
 
-  @NotNull
   @Override
-  public SuspendContextImpl pushSuspendContext(@MagicConstant(flagsFromClass = EventRequest.class) final int suspendPolicy, int nVotes) {
+  public @NotNull SuspendContextImpl pushSuspendContext(@MagicConstant(flagsFromClass = EventRequest.class) final int suspendPolicy, int nVotes) {
     SuspendContextImpl suspendContext = new SuspendContextImpl(myDebugProcess, suspendPolicy, nVotes, null, mySuspendContextNextId.incrementAndGet()) {
       @Override
       protected void resumeImpl() {
@@ -83,9 +85,8 @@ public class SuspendManagerImpl implements SuspendManager {
     return suspendContext;
   }
 
-  @NotNull
   @Override
-  public SuspendContextImpl pushSuspendContext(final @NotNull EventSet set) {
+  public @NotNull SuspendContextImpl pushSuspendContext(final @NotNull EventSet set) {
     SuspendContextImpl suspendContext = new SuspendContextImpl(myDebugProcess, set.suspendPolicy(), set.size(), set, mySuspendContextNextId.incrementAndGet()) {
       @Override
       protected void resumeImpl() {
@@ -204,8 +205,7 @@ public class SuspendManagerImpl implements SuspendManager {
 
   @Override
   public List<SuspendContextImpl> getEventContexts() {
-    DebuggerManagerThreadImpl.assertIsManagerThread();
-    return new ArrayList<>(myEventContexts);
+    return List.copyOf(myEventContexts);
   }
 
   @Override
@@ -348,7 +348,7 @@ public class SuspendManagerImpl implements SuspendManager {
     }
     // resume in a separate request to allow other requests be processed (e.g. dependent bpts enable)
     suspendContext.myIsGoingToResume = true;
-    myDebugProcess.getManagerThread().schedule(PrioritizedTask.Priority.HIGH, () -> resume(suspendContext));
+    suspendContext.getManagerThread().schedule(PrioritizedTask.Priority.HIGH, () -> resume(suspendContext));
   }
 
   private void notifyPaused(@NotNull SuspendContextImpl suspendContext, boolean pushPaused) {
@@ -374,7 +374,7 @@ public class SuspendManagerImpl implements SuspendManager {
 
   @Override
   public @NotNull List<SuspendContextImpl> getPausedContexts() {
-    return new ArrayList<>(myPausedContexts);
+    return List.copyOf(myPausedContexts);
   }
 
   public boolean hasPausedContext(SuspendContextImpl suspendContext) {

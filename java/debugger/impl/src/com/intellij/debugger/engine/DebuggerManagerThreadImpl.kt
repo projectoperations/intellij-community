@@ -12,6 +12,7 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.ComponentManagerEx
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.util.ProgressIndicatorListener
 import com.intellij.openapi.progress.util.ProgressWindow
@@ -38,10 +39,15 @@ class DebuggerManagerThreadImpl(parent: Disposable, private val parentScope: Cor
   private var myDisposed = false
 
   private val myDebuggerThreadDispatcher = DebuggerThreadDispatcher(this)
-  val unfinishedCommands = ConcurrentCollectionFactory.createConcurrentSet<DebuggerCommandImpl>()
+
+  /**
+   * This set is used for testing purposes as it is the only way to check that there are any (possibly async) debugger commands.
+   */
+  @ApiStatus.Internal
+  val unfinishedCommands: MutableSet<DebuggerCommandImpl> = ConcurrentCollectionFactory.createConcurrentSet<DebuggerCommandImpl>()
 
   @ApiStatus.Internal
-  var coroutineScope = createScope()
+  var coroutineScope: CoroutineScope = createScope()
     private set
 
   init {
@@ -58,14 +64,15 @@ class DebuggerManagerThreadImpl(parent: Disposable, private val parentScope: Cor
     progressTitle: @ProgressTitle String,
     progressText: @Nls String,
     deferred: CompletableDeferred<Unit>,
-    howToCancel: () -> Unit
+    howToCancel: () -> Unit,
   ) {
     coroutineScope.launch {
       withBackgroundProgress(project, progressTitle) {
         withProgressText(progressText) {
           try {
             deferred.await()
-          } catch (e: CancellationException) {
+          }
+          catch (e: CancellationException) {
             howToCancel()
             throw e
           }
@@ -83,6 +90,7 @@ class DebuggerManagerThreadImpl(parent: Disposable, private val parentScope: Cor
 
   fun invoke(managerCommand: DebuggerCommandImpl) {
     if (currentThread() === this) {
+      setCommandManagerThread(managerCommand)
       processEvent(managerCommand)
     }
     else {
@@ -144,7 +152,7 @@ class DebuggerManagerThreadImpl(parent: Disposable, private val parentScope: Cor
             try {
               currentRequest.join()
             }
-            catch (ignored: InterruptedException) {
+            catch (_: InterruptedException) {
             }
             catch (e: Exception) {
               throw RuntimeException(e)
@@ -216,20 +224,25 @@ class DebuggerManagerThreadImpl(parent: Disposable, private val parentScope: Cor
     finally {
       val request = getCurrentThreadRequest()
 
-      if (LOG.isDebugEnabled) {
-        LOG.debug("Switching back to $request")
-      }
+      LOG.debug { "Switching back to $request" }
 
+      var cancelled = false
       super.invokeAndWait(object : DebuggerCommandImpl() {
         override fun action() {
           switchToRequest(request)
         }
 
         override fun commandCancelled() {
-          LOG.debug("Event queue was closed, killing request")
+          cancelled = true
+          LOG.debug { "Event queue was closed, killing request $request" }
           request.requestStop()
         }
       })
+
+      // the queue is already closed - we need to stop asap
+      if (cancelled) {
+        throw VMDisconnectedException()
+      }
     }
   }
 
@@ -313,27 +326,53 @@ class DebuggerManagerThreadImpl(parent: Disposable, private val parentScope: Cor
 
     @JvmStatic
     fun getCurrentCommand(): DebuggerCommandImpl? = myCurrentCommands.get().peek()
+
+    /**
+     * Debugger thread runs in a progress indicator itself, so we need to check whether we have any other progress indicator additionally.
+     */
+    internal fun hasNonDefaultProgressIndicator(): Boolean {
+      val hasProgressIndicator = ProgressManager.getInstance().hasProgressIndicator()
+      if (!hasProgressIndicator) return false
+      if (!isManagerThread()) return true
+      val currentIndicator = ProgressManager.getInstance().progressIndicator
+      val debuggerIndicator = currentThread().currentRequest.progressIndicator
+      return currentIndicator !== debuggerIndicator
+    }
   }
 }
 
-@ApiStatus.Experimental
-fun <T> invokeCommandAsCompletableFuture(action: suspend () -> T): CompletableFuture<T> {
+private fun findCurrentContext(): Triple<DebuggerManagerThreadImpl, PrioritizedTask.Priority, SuspendContextImpl?> {
   DebuggerManagerThreadImpl.assertIsManagerThread()
   val managerThread = InvokeThread.currentThread() as DebuggerManagerThreadImpl
   val command = DebuggerManagerThreadImpl.getCurrentCommand()
   val priority = command?.priority ?: PrioritizedTask.Priority.LOW
   val suspendContext = (command as? SuspendContextCommandImpl)?.suspendContext
+  return Triple(managerThread, priority, suspendContext)
+}
+
+/**
+ * Executes [action] in debugger manager thread and returns a future.
+ * **This method can only be called in debugger manager thread.**
+ * Use [invokeCommandAsCompletableFuture] with managerThread param if you are not.
+ */
+@ApiStatus.Experimental
+fun <T> invokeCommandAsCompletableFuture(action: suspend () -> T): CompletableFuture<T> {
+  val (managerThread, priority, suspendContext) = findCurrentContext()
   return invokeCommandAsCompletableFuture(managerThread, priority, suspendContext, action)
 }
 
+/**
+ * Executes [action] in debugger manager thread and returns a future.
+ */
 @ApiStatus.Experimental
-fun <T> invokeCommandAsCompletableFuture(managerThread: DebuggerManagerThreadImpl,
-                                         priority: PrioritizedTask.Priority = PrioritizedTask.Priority.LOW,
-                                         suspendContext: SuspendContextImpl? = null,
-                                         action: suspend () -> T): CompletableFuture<T> {
+fun <T> invokeCommandAsCompletableFuture(
+  managerThread: DebuggerManagerThreadImpl,
+  priority: PrioritizedTask.Priority = PrioritizedTask.Priority.LOW,
+  suspendContext: SuspendContextImpl? = null,
+  action: suspend () -> T,
+): CompletableFuture<T> {
   val res = DebuggerCompletableFuture<T>()
-
-  suspend fun doRun() {
+  executeOnDMT(managerThread, priority, suspendContext, { res.cancel(false) }) {
     try {
       res.complete(action())
     }
@@ -341,25 +380,120 @@ fun <T> invokeCommandAsCompletableFuture(managerThread: DebuggerManagerThreadImp
       res.completeExceptionally(e)
     }
   }
+  return res
+}
 
+/**
+ * This call launches the coroutine [action].
+ *
+ * **This method can only be called in debugger manager thread.** Use [executeOnDMT] if you are not.
+ *
+ * Starts a [SuspendContextCommandImpl] if was in a [SuspendContextCommandImpl], else starts a [DebuggerCommandImpl].
+ *
+ * Pass [onCommandCancelled] to be notified if the command is canceled.
+ */
+@ApiStatus.Internal
+@ApiStatus.Experimental
+fun launchInDebuggerCommand(
+  onCommandCancelled: (() -> Unit)? = null,
+  action: suspend () -> Unit,
+) {
+  val (managerThread, priority, suspendContext) = findCurrentContext()
+  executeOnDMT(managerThread, priority, suspendContext, onCommandCancelled, action)
+}
+
+/**
+ * Runs [action] in debugger manager thread.
+ * Pass [onCommandCancelled] to be notified if the command is canceled.
+ *
+ * This is similar to [DebuggerManagerThreadImpl.invoke] call.
+ */
+@ApiStatus.Internal
+@ApiStatus.Experimental
+fun executeOnDMT(
+  suspendContext: SuspendContextImpl,
+  priority: PrioritizedTask.Priority = PrioritizedTask.Priority.LOW,
+  onCommandCancelled: (() -> Unit)? = null,
+  action: suspend () -> Unit,
+): Unit = executeOnDMT(suspendContext.managerThread, priority, suspendContext, onCommandCancelled, action)
+
+/**
+ * Runs [action] in debugger manager thread as a [SuspendContextCommandImpl].
+ * Pass [onCommandCancelled] to be notified if the command is canceled.
+ *
+ * This is similar to [DebuggerManagerThreadImpl.invoke] call.
+ */
+@ApiStatus.Internal
+@ApiStatus.Experimental
+fun executeOnDMT(
+  managerThread: DebuggerManagerThreadImpl,
+  priority: PrioritizedTask.Priority = PrioritizedTask.Priority.LOW,
+  suspendContext: SuspendContextImpl? = null,
+  onCommandCancelled: (() -> Unit)? = null,
+  action: suspend () -> Unit,
+) {
   if (suspendContext != null) {
     managerThread.invoke(object : SuspendContextCommandImpl(suspendContext) {
-      override suspend fun contextActionSuspend(suspendContext: SuspendContextImpl) = doRun()
+      override suspend fun contextActionSuspend(suspendContext: SuspendContextImpl) = action()
       override fun getPriority() = priority
       override fun commandCancelled() {
-        res.cancel(false)
+        onCommandCancelled?.invoke()
       }
     })
   }
   else {
     managerThread.invoke(object : DebuggerCommandImpl(priority) {
-      override suspend fun actionSuspend() = doRun()
+      override suspend fun actionSuspend() = action()
       override fun commandCancelled() {
-        res.cancel(false)
+        onCommandCancelled?.invoke()
       }
     })
   }
+}
 
-  return res
+/**
+ * Runs [block] in debugger manager thread as a [SuspendContextCommandImpl].
+ *
+ * The coroutine is canceled if the corresponding command is canceled.
+ *
+ * This is similar to [withContext] call to switch to the debugger thread inside a coroutine.
+ */
+@ApiStatus.Internal
+@ApiStatus.Experimental
+suspend fun <T> withDebugContext(
+  suspendContext: SuspendContextImpl,
+  priority: PrioritizedTask.Priority = PrioritizedTask.Priority.LOW,
+  block: suspend () -> T,
+): T = withDebugContext(suspendContext.managerThread, priority, suspendContext, block)
+
+/**
+ * Runs [block] in debugger manager thread.
+ *
+ * When the passed [suspendContext] is null, starts a [DebuggerCommandImpl], else [SuspendContextCommandImpl].
+ * The coroutine is canceled if the corresponding command is canceled.
+ *
+ * This is similar to [withContext] call to switch to the debugger thread inside a coroutine.
+ */
+@ApiStatus.Internal
+@ApiStatus.Experimental
+suspend fun <T> withDebugContext(
+  managerThread: DebuggerManagerThreadImpl,
+  priority: PrioritizedTask.Priority = PrioritizedTask.Priority.LOW,
+  suspendContext: SuspendContextImpl? = null,
+  block: suspend () -> T,
+): T = if (managerThread === InvokeThread.currentThread()) {
+  block()
+} else suspendCancellableCoroutine { continuation ->
+  executeOnDMT(managerThread, priority, suspendContext,
+               onCommandCancelled = { continuation.cancel() }
+  ) {
+    val result = try {
+      Result.success(block())
+    }
+    catch (e: Throwable) {
+      Result.failure(e)
+    }
+    continuation.resumeWith(result)
+  }
 }
 

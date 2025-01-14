@@ -14,10 +14,8 @@ import com.intellij.platform.runtime.repository.serialization.RuntimeModuleRepos
 import com.intellij.util.containers.FList
 import org.assertj.core.api.SoftAssertions
 import org.jetbrains.intellij.build.BuildContext
-import org.jetbrains.intellij.build.impl.MODULE_DESCRIPTORS_JAR_PATH
-import org.jetbrains.intellij.build.impl.SUPPORTED_DISTRIBUTIONS
-import org.jetbrains.intellij.build.impl.getOsAndArchSpecificDistDirectory
-import java.nio.file.Files
+import org.jetbrains.intellij.build.impl.*
+import java.io.IOException
 import java.nio.file.Path
 import kotlin.io.path.*
 
@@ -25,7 +23,7 @@ import kotlin.io.path.*
  * Checks that runtime module descriptors in the product distribution are valid.
  */
 @OptIn(ExperimentalPathApi::class)
-class RuntimeModuleRepositoryChecker private constructor(
+internal class RuntimeModuleRepositoryChecker private constructor(
   private val commonDistPath: Path,
   private val osSpecificDistPath: Path?,
   private val currentMode: ProductMode,
@@ -167,7 +165,7 @@ class RuntimeModuleRepositoryChecker private constructor(
         continue
       }
       val module = context.findModule(rawModuleId)
-      if (module != null && Files.exists(context.getModuleOutputDir(module).resolve("${module.name}.xml"))) {
+      if (module != null && context.hasModuleOutputPath(module, "${module.name}.xml")) {
         // such a descriptor indicates that it's a module in plugin model V2, and its ClassLoader ignores classes from irrelevant packages,
         // so including its JAR to classpath should not cause problems
         continue
@@ -202,9 +200,16 @@ class RuntimeModuleRepositoryChecker private constructor(
   }
 
   private suspend fun loadProductModules(productModulesModule: String): ProductModules {
-    val moduleOutputDir = context.getModuleOutputDir(context.findRequiredModule(productModulesModule))
-    return ProductModulesSerialization.loadProductModules(
-      moduleOutputDir.resolve("META-INF/$productModulesModule/product-modules.xml"), currentMode, repository)
+    val relativePath = "META-INF/$productModulesModule/product-modules.xml"
+    val debugName = "${context.getModuleOutputDir(context.findRequiredModule(productModulesModule))}/$relativePath"
+    val content = context.getModuleOutputFileContent(context.findRequiredModule(productModulesModule), relativePath)
+                  ?: throw MalformedRepositoryException("File '$relativePath' is not found in module $productModulesModule output")
+    try {
+      return ProductModulesSerialization.loadProductModules(content.inputStream(), debugName, currentMode, repository)
+    }
+    catch (e: IOException) {
+      throw MalformedRepositoryException("Failed to load module group from $debugName", e)
+    }
   }
 
   private fun RuntimeModuleRepository.collectDependencies(moduleDescriptor: RuntimeModuleDescriptor, path: FList<String>, result: MutableMap<RuntimeModuleId, FList<String>> = LinkedHashMap()): MutableMap<RuntimeModuleId, FList<String>> {

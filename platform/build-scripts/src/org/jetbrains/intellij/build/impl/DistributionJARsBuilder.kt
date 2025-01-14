@@ -6,7 +6,6 @@ package org.jetbrains.intellij.build.impl
 import com.fasterxml.jackson.jr.ob.JSON
 import com.intellij.openapi.util.io.FileUtilRt
 import com.intellij.openapi.util.io.NioFiles
-import com.intellij.openapi.util.text.StringUtil
 import com.intellij.util.io.Compressor
 import com.jetbrains.plugin.blockmap.core.BlockMap
 import com.jetbrains.plugin.blockmap.core.FileHash
@@ -37,6 +36,7 @@ import org.jetbrains.jps.util.JpsPathUtil
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.nio.ByteBuffer
+import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
@@ -413,7 +413,6 @@ internal suspend fun buildNonBundledPlugins(
 
     // buildPlugins pluginBuilt listener is called concurrently
     val pluginSpecs = ConcurrentLinkedQueue<PluginRepositorySpec>()
-    val autoPublishPluginChecker = loadPluginAutoPublishList(context)
     val prepareCustomPluginRepository = context.productProperties.productLayout.prepareCustomPluginRepositoryForPublishedPlugins &&
                                         !context.isStepSkipped(BuildOptions.ARCHIVE_PLUGINS)
     val mappings = buildPlugins(
@@ -437,7 +436,7 @@ internal suspend fun buildNonBundledPlugins(
         ).pluginVersion
       }
 
-      val targetDirectory = if (autoPublishPluginChecker.test(plugin)) {
+      val targetDirectory = if (context.pluginAutoPublishList.test(plugin)) {
         context.nonBundledPluginsToBePublished
       } else {
         context.nonBundledPlugins
@@ -472,8 +471,14 @@ internal suspend fun buildNonBundledPlugins(
 
     if (prepareCustomPluginRepository) {
       val list = pluginSpecs.sortedBy { it.pluginZip }
-      generatePluginRepositoryMetaFile(list, context.nonBundledPlugins, context)
-      generatePluginRepositoryMetaFile(list.filter { it.pluginZip.startsWith(context.nonBundledPluginsToBePublished) }, context.nonBundledPluginsToBePublished, context)
+      if (list.isNotEmpty()) {
+        generatePluginRepositoryMetaFile(list, context.nonBundledPlugins, context)
+      }
+
+      val pluginsToBePublished = list.filter { it.pluginZip.startsWith(context.nonBundledPluginsToBePublished) }
+      if (pluginsToBePublished.isNotEmpty()) {
+        generatePluginRepositoryMetaFile(pluginsToBePublished, context.nonBundledPluginsToBePublished, context)
+      }
     }
 
     validatePlugins(context, pluginSpecs)
@@ -774,10 +779,11 @@ suspend fun layoutPlatformDistribution(
       }
       launch(CoroutineName("write patched app info")) {
         spanBuilder("write patched app info").use {
-          val module = context.findRequiredModule("intellij.platform.core")
+          val moduleName = "intellij.platform.core"
+          val module = context.findRequiredModule(moduleName)
           val relativePath = "com/intellij/openapi/application/ApplicationNamesInfo.class"
           val result = injectAppInfo(inFileBytes = context.readFileContentFromModuleOutput(module, relativePath) ?: error("app info not found"), newFieldValue = context.appInfoXml)
-          moduleOutputPatcher.patchModuleOutput("intellij.platform.core", relativePath, result)
+          moduleOutputPatcher.patchModuleOutput(moduleName, relativePath, result)
         }
       }
     }
@@ -805,12 +811,14 @@ private suspend fun patchKeyMapWithAltClickReassignedToMultipleCarets(moduleOutp
   }
 
   val moduleName = "intellij.platform.resources"
-  val sourceFile = context.getModuleOutputDir((context.findModule(moduleName))!!).resolve("keymaps/\$default.xml")
-  var text = Files.readString(sourceFile)
+  val relativePath = "keymaps/\$default.xml"
+  val sourceFileContent = context.getModuleOutputFileContent(context.findRequiredModule(moduleName), relativePath)
+                          ?: error("Not found '$relativePath' in module $moduleName output")
+  var text = String(sourceFileContent, StandardCharsets.UTF_8)
   text = text.replace("<mouse-shortcut keystroke=\"alt button1\"/>", "<mouse-shortcut keystroke=\"to be alt shift button1\"/>")
   text = text.replace("<mouse-shortcut keystroke=\"alt shift button1\"/>", "<mouse-shortcut keystroke=\"alt button1\"/>")
   text = text.replace("<mouse-shortcut keystroke=\"to be alt shift button1\"/>", "<mouse-shortcut keystroke=\"alt shift button1\"/>")
-  moduleOutputPatcher.patchModuleOutput(moduleName, "keymaps/\$default.xml", text)
+  moduleOutputPatcher.patchModuleOutput(moduleName, relativePath, text)
 }
 
 fun getOsAndArchSpecificDistDirectory(osFamily: OsFamily, arch: JvmArchitecture, context: BuildContext): Path {
@@ -831,7 +839,7 @@ private suspend fun checkOutputOfPluginModules(
           excludes = moduleExcludes[module] ?: emptyList(),
           context = context,
         )) {
-      "Runtime classes of GUI designer must not be packaged to \'$module\' module in \'$mainPluginModule\' plugin, " +
+      "Runtime classes of GUI designer must not be packaged to '$module' module in '$mainPluginModule' plugin, " +
       "because they are included into a platform JAR. Make sure that 'Automatically copy form runtime classes " +
       "to the output directory' is disabled in Settings | Editor | GUI Designer."
     }
@@ -844,8 +852,8 @@ private suspend fun containsFileInOutput(
   excludes: Collection<String>,
   context: BuildContext,
 ): Boolean {
-  val moduleOutput = context.getModuleOutputDir(context.findRequiredModule(moduleName))
-  if (Files.notExists(moduleOutput.resolve(filePath))) {
+  val exists = context.hasModuleOutputPath(context.findRequiredModule(moduleName), filePath)
+  if (!exists) {
     return false
   }
 
@@ -856,26 +864,6 @@ private suspend fun containsFileInOutput(
   }
 
   return true
-}
-
-fun getPluginAutoUploadFile(context: BuildContext): Path? {
-  val autoUploadFile = context.paths.communityHomeDir.resolve("../build/plugins-autoupload.txt")
-  return when {
-    Files.isRegularFile(autoUploadFile) -> autoUploadFile
-    // public sources build
-    context.paths.projectHome.toUri() == context.paths.communityHomeDir.toUri() -> null
-    else -> error("File '$autoUploadFile' must exist")
-  }
-}
-
-fun readPluginAutoUploadFile(autoUploadFile: Path): Collection<String> {
-  return autoUploadFile.useLines { lines ->
-    lines
-      .map { StringUtil.split(it, "//", true, false)[0] }
-      .map { StringUtil.split(it, "#", true, false)[0].trim() }
-      .filter { !it.isEmpty() }
-      .toCollection(TreeSet(String.CASE_INSENSITIVE_ORDER))
-  }
 }
 
 private suspend fun scramble(platform: PlatformLayout, context: BuildContext) {
@@ -945,7 +933,7 @@ fun satisfiesBundlingRequirements(plugin: PluginLayout, osFamily: OsFamily?, arc
   }
 
   if (context.options.useReleaseCycleRelatedBundlingRestrictionsForContentReport) {
-    val isNightly = context.options.isNightlyBuild
+    val isNightly = context.isNightlyBuild
     val isEap = context.applicationInfo.isEAP
 
     val distributionCondition = when (bundlingRestrictions.includeInDistribution) {
@@ -963,33 +951,6 @@ fun satisfiesBundlingRequirements(plugin: PluginLayout, osFamily: OsFamily?, arc
     osFamily != null && (bundlingRestrictions.supportedOs == OsFamily.ALL || !bundlingRestrictions.supportedOs.contains(osFamily)) -> false
     arch == null && bundlingRestrictions.supportedArch != JvmArchitecture.ALL -> false
     else -> arch == null || bundlingRestrictions.supportedArch.contains(arch)
-  }
-}
-
-/**
- * @see [[build/plugins-autoupload.txt]] for the specification.
- *
- * @return predicate to test if the given plugin should be auto-published
- */
-private fun loadPluginAutoPublishList(context: BuildContext): Predicate<PluginLayout> {
-  val file = getPluginAutoUploadFile(context) ?: return Predicate<PluginLayout> { false }
-  val config = readPluginAutoUploadFile(file)
-
-  val productCode = context.applicationInfo.productCode
-  return Predicate<PluginLayout> { plugin ->
-    val mainModuleName = plugin.mainModule
-
-    val includeInAllProducts = config.contains(mainModuleName)
-    val includeInProduct = config.contains("+$productCode:$mainModuleName")
-    val excludedFromProduct = config.contains("-$productCode:$mainModuleName")
-
-    if (includeInProduct && (excludedFromProduct || includeInAllProducts)) {
-      context.messages.error("Unsupported rules combination: " + config.filter {
-        it == mainModuleName || it.endsWith(":$mainModuleName")
-      })
-    }
-
-    !excludedFromProduct && (includeInAllProducts || includeInProduct)
   }
 }
 

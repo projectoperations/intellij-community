@@ -30,9 +30,11 @@ import com.intellij.openapi.ui.popup.util.PopupUtil;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.NlsActions;
 import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.*;
 import com.intellij.openapi.wm.impl.status.widget.StatusBarWidgetsManager;
 import com.intellij.ui.BadgeIconSupplier;
+import com.intellij.ui.ClientProperty;
 import com.intellij.ui.ExperimentalUI;
 import com.intellij.ui.IconManager;
 import com.intellij.ui.components.JBLabel;
@@ -52,6 +54,7 @@ import org.jetbrains.annotations.Nullable;
 import javax.accessibility.AccessibleContext;
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -105,7 +108,7 @@ public final class SettingsEntryPointAction extends ActionGroup
 
   @ApiStatus.Internal
   public @NotNull JBPopup createPopup(@NotNull AnActionEvent e) {
-    JBPopup popup = createMainPopup(this, e.getDataContext());
+    JBPopup popup = createMainPopup(this, e.getDataContext(), e.getPlace());
     PopupUtil.addToggledStateListener(popup, e.getPresentation());
     return popup;
   }
@@ -168,6 +171,13 @@ public final class SettingsEntryPointAction extends ActionGroup
     result.add(Separator.getInstance());
     ContainerUtil.addIfNotNull(result, ActionManager.getInstance().getAction("SettingsEntryPointGroup"));
 
+    if (ExperimentalUI.isNewUI() &&
+        ContainerUtil.exists(event.getPlace().split("@"), place -> place.equals(ActionPlaces.MAIN_TOOLBAR))) {
+      result.add(Separator.getInstance());
+      AnAction customizeMainToolbarAction = ActionManager.getInstance().getAction("CustomizeMainToolbarGroup");
+      ContainerUtil.addIfNotNull(result, customizeMainToolbarAction);
+    }
+
     if (ExperimentalUI.isNewUI()) {
       for (ActionProvider provider : ActionProvider.EP_NAME.getExtensionList()) {
         try {
@@ -181,24 +191,36 @@ public final class SettingsEntryPointAction extends ActionGroup
     return result.toArray(AnAction.EMPTY_ARRAY);
   }
 
-  private static @NotNull ListPopup createMainPopup(@NotNull ActionGroup group, @NotNull DataContext context) {
+  private static @NotNull ListPopup createMainPopup(@NotNull ActionGroup group, @NotNull DataContext context, @Nullable String eventPlace) {
     boolean hasLastActions = ContainerUtil.find(
       ActionProvider.EP_NAME.getExtensionList(), o -> !o.getLastActions(context).isEmpty()) != null;
+
+    ListPopup popup;
+    String place = "SettingsEntryPoint";
+    if (eventPlace != null) {
+      place += "@" + eventPlace;
+    }
+    place = ActionPlaces.getPopupPlace(place);
+
     if (hasLastActions && ExperimentalUI.isNewUI()) {
-      return new MyPopup(group, context, new PresentationFactory());
+      popup = new MyPopup(group, context, new PresentationFactory(), place);
     }
     else {
-      return JBPopupFactory.getInstance().createActionGroupPopup(
-        null, group, context, ActionSelectionAid.MNEMONICS, true, ActionPlaces.getPopupPlace("SettingsEntryPoint"));
+      popup = JBPopupFactory.getInstance().createActionGroupPopup(
+        null, group, context, ActionSelectionAid.MNEMONICS, true, place);
     }
+
+    popup.setShowSubmenuOnHover(true);
+
+    return popup;
   }
 
   private static class MyPopup extends PopupFactoryImpl.ActionGroupPopup {
 
     final @NotNull PresentationFactory myPresentationFactory;
 
-    MyPopup(@NotNull ActionGroup group, @NotNull DataContext context, @NotNull PresentationFactory presentationFactory) {
-      super(null, null, group, context, ActionPlaces.POPUP, presentationFactory,
+    MyPopup(@NotNull ActionGroup group, @NotNull DataContext context, @NotNull PresentationFactory presentationFactory, @NotNull String place) {
+      super(null, null, group, context, place, presentationFactory,
             ActionPopupOptions.mnemonicsAndDisabled(), null);
       myPresentationFactory = presentationFactory;
     }
@@ -206,7 +228,44 @@ public final class SettingsEntryPointAction extends ActionGroup
     @Override
     protected JComponent createContent() {
       JComponent content = super.createContent();
-      getList().setBorder(JBUI.Borders.emptyTop(JBUI.CurrentTheme.Popup.bodyTopInsetNoHeader()));
+      var list = getList();
+      list.setBorder(JBUI.Borders.emptyTop(JBUI.CurrentTheme.Popup.bodyTopInsetNoHeader()));
+
+      var listener = new MouseAdapter() {
+        LastAction myLastMouseAction = null;
+
+        @Override
+        public void mouseMoved(MouseEvent e) {
+          int index = list.locationToIndex(e.getPoint());
+          var model = list.getModel();
+          if (index >= 0 && index < model.getSize()) {
+            Object value = model.getElementAt(index);
+            if (value instanceof PopupFactoryImpl.ActionItem item) {
+              AnAction action = item.getAction();
+              if (action instanceof CustomComponentAction && action instanceof LastAction lastAction) {
+                lastAction.handleMouseMove(e);
+                myLastMouseAction = lastAction;
+                return;
+              }
+            }
+          }
+          mouseExited(e);
+        }
+
+        @Override
+        public void mouseExited(MouseEvent e) {
+          if (myLastMouseAction != null) {
+            myLastMouseAction.handleMouseExit(e);
+            myLastMouseAction = null;
+          }
+        }
+      };
+
+      list.addMouseListener(listener);
+      list.addMouseMotionListener(listener);
+
+      ClientProperty.put(list, LastAction.POPUP, this);
+
       return content;
     }
 
@@ -218,6 +277,9 @@ public final class SettingsEntryPointAction extends ActionGroup
         if (value instanceof PopupFactoryImpl.ActionItem item) {
           AnAction action = item.getAction();
           Presentation presentation = myPresentationFactory.getPresentation(action);
+          if (action instanceof LastAction && action instanceof CustomComponentAction customComponent) {
+            return customComponent.createCustomComponent(presentation, "");
+          }
           //noinspection DialogTitleCapitalization
           String text = item.getText();
           //noinspection DialogTitleCapitalization
@@ -339,10 +401,21 @@ public final class SettingsEntryPointAction extends ActionGroup
         }
       }
     }
-    if (updates) {
-      return IdeBundle.message("settings.entry.point.with.updates.tooltip");
+    String message = updates
+                     ? IdeBundle.message("settings.entry.point.with.updates.tooltip")
+                     : IdeBundle.message(ourNewUiIcon ? "settings.entry.point.newUi.tooltip" : "settings.entry.point.tooltip");
+
+    List<String> tooltips =
+      new ArrayList<>(ContainerUtil.mapNotNull(ActionProvider.EP_NAME.getExtensionList(), provider -> provider.getTooltip()));
+    if (!tooltips.isEmpty()) {
+      tooltips.add(message);
+
+      return "<ul style='margin-top:0;margin-bottom:0;padding-top:0;padding-bottom:0;'>" + //NON-NLS
+             StringUtil.join(tooltips, element -> "<li>" + element + "</li>", "") +
+             "</ul>";
     }
-    return IdeBundle.message(ourNewUiIcon ? "settings.entry.point.newUi.tooltip" : "settings.entry.point.tooltip");
+
+    return message;
   }
 
   private static void resetActionIcon() {
@@ -584,7 +657,7 @@ public final class SettingsEntryPointAction extends ActionGroup
         Component component = event.getComponent();
         ListPopup popup = createMainPopup(
           (ActionGroup)ActionManager.getInstance().getAction("SettingsEntryPoint"),
-          DataManager.getInstance().getDataContext(component));
+          DataManager.getInstance().getDataContext(component), null);
         popup.addListener(new JBPopupListener() {
           @Override
           public void beforeShown(@NotNull LightweightWindowEvent event) {
@@ -610,6 +683,10 @@ public final class SettingsEntryPointAction extends ActionGroup
 
     default @NotNull Collection<LastAction> getLastActions(@NotNull DataContext context) {
       return Collections.emptyList();
+    }
+
+    default @Nls @Nullable String getTooltip() {
+      return null;
     }
   }
 
@@ -657,6 +734,14 @@ public final class SettingsEntryPointAction extends ActionGroup
     public @NotNull @NlsActions.ActionText String getSecondText() {
       return "";
     }
+
+    protected void handleMouseMove(@NotNull MouseEvent event) {
+    }
+
+    protected void handleMouseExit(@NotNull MouseEvent event) {
+    }
+
+    public static final Key<JBPopup> POPUP = Key.create("JBPopup");
 
     public static final Key<@NlsActions.ActionText String> SECOND_TEXT = Key.create("SECOND_TEXT");
   }

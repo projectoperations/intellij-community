@@ -1,17 +1,18 @@
 package org.jetbrains.plugins.textmate.language.syntax;
 
-import com.intellij.openapi.diagnostic.LoggerRt;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.textmate.Constants;
 import org.jetbrains.plugins.textmate.language.PreferencesReadUtil;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.*;
 
 final class SyntaxNodeDescriptorImpl implements MutableSyntaxNodeDescriptor {
-  private static final LoggerRt LOG = LoggerRt.getInstance(SyntaxNodeDescriptor.class);
+  private static final Logger LOG = LoggerFactory.getLogger(SyntaxNodeDescriptorImpl.class);
 
   private Int2ObjectMap<SyntaxNodeDescriptor> myRepository = new Int2ObjectOpenHashMap<>();
   private Map<Constants.StringKey, CharSequence> myStringAttributes = new EnumMap<>(Constants.StringKey.class);
@@ -22,8 +23,7 @@ final class SyntaxNodeDescriptorImpl implements MutableSyntaxNodeDescriptor {
 
   private final SyntaxNodeDescriptor myParentNode;
 
-  @Nullable
-  private final CharSequence myScopeName;
+  private final @Nullable CharSequence myScopeName;
 
   SyntaxNodeDescriptorImpl(@Nullable CharSequence scopeName, @Nullable SyntaxNodeDescriptor parentNode) {
     myParentNode = parentNode;
@@ -35,9 +35,8 @@ final class SyntaxNodeDescriptorImpl implements MutableSyntaxNodeDescriptor {
     myStringAttributes.put(key, value);
   }
 
-  @Nullable
   @Override
-  public CharSequence getStringAttribute(@NotNull Constants.StringKey key) {
+  public @Nullable CharSequence getStringAttribute(@NotNull Constants.StringKey key) {
     return myStringAttributes.get(key);
   }
 
@@ -56,25 +55,6 @@ final class SyntaxNodeDescriptorImpl implements MutableSyntaxNodeDescriptor {
     return myCaptures.get(key);
   }
 
-  @Nullable
-  @Override
-  public Int2ObjectMap<CharSequence> getCaptures(@NotNull Constants.CaptureKey key) {
-    TextMateCapture[] realCaptures = myCaptures.get(key);
-    if (realCaptures == null) {
-      return null;
-    }
-    Int2ObjectMap<CharSequence> captures = new Int2ObjectOpenHashMap<>(realCaptures.length);
-    for (int group = 0; group < myCaptures.get(key).length; group++) {
-      TextMateCapture capture = realCaptures[group];
-      if (capture != null) {
-        captures.put(group, capture instanceof TextMateCapture.Name
-                            ? ((TextMateCapture.Name)capture).getName()
-                            : "");
-      }
-    }
-    return captures;
-  }
-
   @Override
   public boolean hasBackReference(Constants.@NotNull CaptureKey key, int group) {
     return true;
@@ -85,9 +65,8 @@ final class SyntaxNodeDescriptorImpl implements MutableSyntaxNodeDescriptor {
     myChildren.add(descriptor);
   }
 
-  @NotNull
   @Override
-  public List<SyntaxNodeDescriptor> getChildren() {
+  public @NotNull List<SyntaxNodeDescriptor> getChildren() {
     return myChildren;
   }
 
@@ -128,9 +107,8 @@ final class SyntaxNodeDescriptorImpl implements MutableSyntaxNodeDescriptor {
     return list;
   }
 
-  @NotNull
   @Override
-  public List<InjectionNodeDescriptor> getInjections() {
+  public @NotNull List<InjectionNodeDescriptor> getInjections() {
     return myInjections;
   }
 
@@ -139,29 +117,26 @@ final class SyntaxNodeDescriptorImpl implements MutableSyntaxNodeDescriptor {
     myInjections.add(injection);
   }
 
-  @NotNull
   @Override
-  public SyntaxNodeDescriptor findInRepository(int ruleId) {
+  public @NotNull SyntaxNodeDescriptor findInRepository(int ruleId) {
     SyntaxNodeDescriptor syntaxNodeDescriptor = myRepository != null ? myRepository.get(ruleId) : null;
     if (syntaxNodeDescriptor == null && myParentNode != null) {
       return myParentNode.findInRepository(ruleId);
     }
     if (syntaxNodeDescriptor == null) {
-      LOG.warn("Can't find repository " + ruleId);
+      LOG.warn("Can't find repository {}", ruleId);
       return EMPTY_NODE;
     }
     return syntaxNodeDescriptor;
   }
 
-  @Nullable
   @Override
-  public CharSequence getScopeName() {
+  public @Nullable CharSequence getScopeName() {
     return myScopeName;
   }
 
-  @Nullable
   @Override
-  public SyntaxNodeDescriptor getParentNode() {
+  public @Nullable SyntaxNodeDescriptor getParentNode() {
     return myParentNode;
   }
 

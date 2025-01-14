@@ -53,15 +53,15 @@ import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
 
 @State(name = "NodeRendererSettings", storages = @Storage("debugger.xml"), category = SettingsCategory.TOOLS)
 public class NodeRendererSettings implements PersistentStateComponent<Element> {
   private static final Logger LOG = Logger.getInstance(NodeRendererSettings.class);
 
-  @NonNls private static final String REFERENCE_RENDERER = "Reference renderer";
-  @NonNls public static final String RENDERER_TAG = "Renderer";
-  @NonNls private static final String RENDERER_ID = "ID";
+  private static final @NonNls String REFERENCE_RENDERER = "Reference renderer";
+  public static final @NonNls String RENDERER_TAG = "Renderer";
+  private static final @NonNls String RENDERER_ID = "ID";
 
   private final EventDispatcher<NodeRendererSettingsListener> myDispatcher = EventDispatcher.create(NodeRendererSettingsListener.class);
   private final RendererConfiguration myCustomRenderers = new RendererConfiguration(this);
@@ -91,9 +91,9 @@ public class NodeRendererSettings implements PersistentStateComponent<Element> {
       createExpressionArrayChildrenRenderer("toArray()", "!isEmpty()", myArrayRenderer)
     )
   };
-  @NonNls private static final String HEX_VIEW_ENABLED = "HEX_VIEW_ENABLED";
-  @NonNls private static final String ALTERNATIVE_COLLECTION_VIEW_ENABLED = "ALTERNATIVE_COLLECTION_VIEW_ENABLED";
-  @NonNls private static final String CUSTOM_RENDERERS_TAG_NAME = "CustomRenderers";
+  private static final @NonNls String HEX_VIEW_ENABLED = "HEX_VIEW_ENABLED";
+  private static final @NonNls String ALTERNATIVE_COLLECTION_VIEW_ENABLED = "ALTERNATIVE_COLLECTION_VIEW_ENABLED";
+  private static final @NonNls String CUSTOM_RENDERERS_TAG_NAME = "CustomRenderers";
 
   public NodeRendererSettings() {
     // default configuration
@@ -115,6 +115,7 @@ public class NodeRendererSettings implements PersistentStateComponent<Element> {
     return myAlternateCollectionRenderers[0].isEnabled();
   }
 
+  @Override
   public boolean equals(Object o) {
     if (!(o instanceof NodeRendererSettings)) return false;
 
@@ -160,7 +161,7 @@ public class NodeRendererSettings implements PersistentStateComponent<Element> {
   }
 
   @Override
-  public void loadState(@NotNull final Element root) {
+  public void loadState(final @NotNull Element root) {
     final String hexEnabled = JDOMExternalizerUtil.readField(root, HEX_VIEW_ENABLED);
     if (hexEnabled != null) {
       myHexRenderer.setEnabled(Boolean.parseBoolean(hexEnabled));
@@ -266,20 +267,23 @@ public class NodeRendererSettings implements PersistentStateComponent<Element> {
 
   private void addAnnotationRenderers(List<NodeRenderer> renderers, Project project) {
     try {
-      visitAnnotatedElements(Debug.Renderer.class.getName().replace("$", "."), project, (e, annotation) -> {
-        if (e instanceof PsiClass cls) {
-          String text = getAttributeValue(annotation, "text");
-          LabelRenderer labelRenderer = StringUtil.isEmpty(text) ? null : createLabelRenderer(null, text);
-          String childrenArray = getAttributeValue(annotation, "childrenArray");
-          String isLeaf = getAttributeValue(annotation, "hasChildren");
-          ExpressionChildrenRenderer childrenRenderer =
-            StringUtil.isEmpty(childrenArray) ? null : createExpressionArrayChildrenRenderer(childrenArray, isLeaf, myArrayRenderer);
-          CompoundReferenceRenderer renderer = createCompoundReferenceRenderer(
-            cls.getQualifiedName(), cls.getQualifiedName(), labelRenderer, childrenRenderer);
-          renderer.setEnabled(true);
-          renderers.add(renderer);
-        }
-      }, PsiClass.class);
+      List<CompoundReferenceRenderer> annotationRenderers =
+        visitAnnotatedElements(List.of(Debug.Renderer.class.getName().replace("$", ".")), project, (e, annotation) -> {
+          if (e instanceof PsiClass cls) {
+            String text = getAttributeValue(annotation, "text");
+            LabelRenderer labelRenderer = StringUtil.isEmpty(text) ? null : createLabelRenderer(null, text);
+            String childrenArray = getAttributeValue(annotation, "childrenArray");
+            String isLeaf = getAttributeValue(annotation, "hasChildren");
+            ExpressionChildrenRenderer childrenRenderer =
+              StringUtil.isEmpty(childrenArray) ? null : createExpressionArrayChildrenRenderer(childrenArray, isLeaf, myArrayRenderer);
+            CompoundReferenceRenderer renderer = createCompoundReferenceRenderer(
+              cls.getQualifiedName(), cls.getQualifiedName(), labelRenderer, childrenRenderer);
+            renderer.setEnabled(true);
+            return renderer;
+          }
+          return null;
+        }, PsiClass.class);
+      renderers.addAll(annotationRenderers);
     }
     catch (IndexNotReadyException | ProcessCanceledException ignore) {
     }
@@ -326,8 +330,7 @@ public class NodeRendererSettings implements PersistentStateComponent<Element> {
     return renderer;
   }
 
-  @NotNull
-  public Element writeRenderer(Renderer renderer) throws WriteExternalException {
+  public @NotNull Element writeRenderer(Renderer renderer) throws WriteExternalException {
     Element root = new Element(RENDERER_TAG);
     if (renderer != null) {
       root.setAttribute(RENDERER_ID, renderer.getUniqueId());
@@ -364,14 +367,16 @@ public class NodeRendererSettings implements PersistentStateComponent<Element> {
     else if (rendererId.equals(CompoundReferenceRenderer.UNIQUE_ID) ||
              rendererId.equals(CompoundReferenceRenderer.UNIQUE_ID_OLD) ||
              rendererId.equals(REFERENCE_RENDERER)) {
-      return createCompoundReferenceRenderer("unnamed", CommonClassNames.JAVA_LANG_OBJECT, null, null);
+      CompoundReferenceRenderer renderer = createCompoundReferenceRenderer("unnamed", CommonClassNames.JAVA_LANG_OBJECT, null, null);
+      renderer.setHasOverhead(true);
+      return renderer;
     }
     return null;
   }
 
   public CompoundReferenceRenderer createCompoundReferenceRenderer(
-    @NonNls final String rendererName,
-    @NonNls final String className,
+    final @NonNls String rendererName,
+    final @NonNls String className,
     final ValueLabelRenderer labelRenderer,
     final ChildrenRenderer childrenRenderer
   ) {
@@ -476,9 +481,8 @@ public class NodeRendererSettings implements PersistentStateComponent<Element> {
       return "MapEntry renderer";
     }
 
-    @NotNull
     @Override
-    public String getLinkText() {
+    public @NotNull String getLinkText() {
       return JavaDebuggerBundle.message("message.node.evaluate");
     }
 
@@ -513,9 +517,8 @@ public class NodeRendererSettings implements PersistentStateComponent<Element> {
       }
     }
 
-    @NotNull
     @Override
-    public XValuePresentation getPresentation(ValueDescriptorImpl descriptor) {
+    public @NotNull XValuePresentation getPresentation(ValueDescriptorImpl descriptor) {
       boolean inCollection = descriptor instanceof ArrayElementDescriptor;
       return new JavaValuePresentation(descriptor) {
         @Override
@@ -542,9 +545,8 @@ public class NodeRendererSettings implements PersistentStateComponent<Element> {
           }
         }
 
-        @NotNull
         @Override
-        public String getSeparator() {
+        public @NotNull String getSeparator() {
           return inCollection ? "" : super.getSeparator();
         }
 
@@ -553,9 +555,8 @@ public class NodeRendererSettings implements PersistentStateComponent<Element> {
           return !inCollection;
         }
 
-        @Nullable
         @Override
-        public String getType() {
+        public @Nullable String getType() {
           return inCollection && !isMuted() ? null : super.getType();
         }
 
@@ -589,17 +590,24 @@ public class NodeRendererSettings implements PersistentStateComponent<Element> {
     }
   }
 
-  static <T extends PsiModifierListOwner> void visitAnnotatedElements(String annotationFqn,
-                                                                      Project project,
-                                                                      BiConsumer<? super PsiModifierListOwner, ? super PsiAnnotation> consumer,
-                                                                      Class<? extends T> @NotNull ... types) {
-    ReadAction.run(() -> {
-      PsiClass annotationClass = JavaPsiFacade.getInstance(project).findClass(annotationFqn, GlobalSearchScope.allScope(project));
-      if (annotationClass == null) return;
-      AnnotatedElementsSearch.searchElements(annotationClass, GlobalSearchScope.allScope(project), types)
-        .forEach((PsiModifierListOwner owner) -> {
-          consumer.accept(owner, AnnotationUtil.findAnnotation(owner, annotationFqn));
-        });
-    });
+  static <T extends PsiModifierListOwner, R> List<R> visitAnnotatedElements(List<String> annotationFqns,
+                                                                            Project project,
+                                                                            BiFunction<? super PsiModifierListOwner, ? super PsiAnnotation, R> consumer,
+                                                                            Class<? extends T> @NotNull ... types) {
+    return ReadAction.nonBlocking(() -> {
+      List<R> result = new ArrayList<>();
+      for (String annotationFqn : annotationFqns) {
+        PsiClass annotationClass = JavaPsiFacade.getInstance(project).findClass(annotationFqn, GlobalSearchScope.allScope(project));
+        if (annotationClass == null) continue;
+        AnnotatedElementsSearch.searchElements(annotationClass, GlobalSearchScope.allScope(project), types)
+          .forEach((PsiModifierListOwner owner) -> {
+            R element = consumer.apply(owner, AnnotationUtil.findAnnotation(owner, annotationFqn));
+            if (element != null) {
+              result.add(element);
+            }
+          });
+      }
+      return result;
+    }).executeSynchronously();
   }
 }

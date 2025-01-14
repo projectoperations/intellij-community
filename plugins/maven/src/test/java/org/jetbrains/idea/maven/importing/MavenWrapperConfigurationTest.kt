@@ -93,9 +93,9 @@ class MavenWrapperConfigurationTest : MavenImportingTestCase() {
 
     MavenWorkspaceSettingsComponent.getInstance(project).settings.generalSettings.setMavenHomeNoFire(MavenWrapper)
     removeFromLocalRepository("org/mytest/myartifact/")
-    assertFalse(helper.getTestData("local1/org/mytest/myartifact/1.0/myartifact-1.0.jar").isFile)
+    assertFalse(helper.getTestDataLegacy("local1/org/mytest/myartifact/1.0/myartifact-1.0.jar").isFile)
     importProjectAsync()
-    assertTrue(helper.getTestData("local1/org/mytest/myartifact/1.0/myartifact-1.0.jar").isFile)
+    assertTrue(helper.getTestDataLegacy("local1/org/mytest/myartifact/1.0/myartifact-1.0.jar").isFile)
   }
 
   private fun repackCurrentMavenAndStartWrapper(@Language(value = "XML", prefix = "<settings>",

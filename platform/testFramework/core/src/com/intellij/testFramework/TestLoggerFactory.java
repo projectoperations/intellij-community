@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.testFramework;
 
 import com.intellij.openapi.Disposable;
@@ -123,7 +123,8 @@ public final class TestLoggerFactory implements Logger.Factory {
 
       Path logFile = logDir.resolve(LOG_FILE_NAME);
       JulLogger.clearHandlers();
-      JulLogger.configureLogFileAndConsole(logFile, false, true, false, null);
+      JulLogger.configureLogFileAndConsole(logFile, false, true, false, null, null, null);
+      System.out.printf("Test log file: %s%n", logFile);
 
       if (Files.exists(logFile) && Files.size(logFile) >= LOG_SIZE_LIMIT) {
         Files.writeString(logFile, "");
@@ -228,11 +229,11 @@ public final class TestLoggerFactory implements Logger.Factory {
     if (t == null) return null;
 
     StringBuilder sb = new StringBuilder();
-    ExceptionUtil.findCauseAndSuppressed(t, ComparisonFailure.class).forEach(e ->
+    ExceptionUtil.causeAndSuppressed(t, ComparisonFailure.class).forEach(e ->
       logComparisonFailure(sb, e.getExpected(), e.getActual())
     );
 
-    ExceptionUtil.findCauseAndSuppressed(t, junit.framework.ComparisonFailure.class).forEach(e ->
+    ExceptionUtil.causeAndSuppressed(t, junit.framework.ComparisonFailure.class).forEach(e ->
       logComparisonFailure(sb, e.getExpected(), e.getActual())
     );
 
@@ -432,7 +433,7 @@ public final class TestLoggerFactory implements Logger.Factory {
 
       ErrorLog errorLog = TestLoggerKt.getErrorLog();
       if (actions.contains(LoggedErrorProcessor.Action.RETHROW) && errorLog != null) {
-        errorLog.recordLoggedError(message, details, t);
+        errorLog.recordLoggedError(message, t);
         return;
       }
       if (actions.contains(LoggedErrorProcessor.Action.LOG)) {
@@ -514,8 +515,7 @@ public final class TestLoggerFactory implements Logger.Factory {
      * Calling {@link com.intellij.openapi.application.ex.ApplicationManagerEx#isInStressTest} reflectively to avoid dependency on a platform module
      */
     private static class Accessor {
-      @NotNull
-      private static final MethodHandle isInStressTest = getMethodHandle();
+      private static final @NotNull MethodHandle isInStressTest = getMethodHandle();
 
       private static @NotNull MethodHandle getMethodHandle() {
         try {

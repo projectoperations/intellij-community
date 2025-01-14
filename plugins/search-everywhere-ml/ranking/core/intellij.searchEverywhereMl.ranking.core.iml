@@ -13,6 +13,7 @@
     <orderEntry type="library" name="jackson" level="project" />
     <orderEntry type="library" name="jackson-databind" level="project" />
     <orderEntry type="library" name="jackson-module-kotlin" level="project" />
+    <orderEntry type="module" module-name="intellij.platform.ide.impl" />
     <orderEntry type="library" name="caffeine" level="project" />
     <orderEntry type="module" module-name="intellij.platform.lang.impl" />
     <orderEntry type="module" module-name="intellij.platform.statistics" exported="" />
@@ -149,10 +150,7 @@
       </library>
     </orderEntry>
     <orderEntry type="module" module-name="intellij.searchEverywhereMl.ranking.ext" />
-    <orderEntry type="module" module-name="intellij.searchEverywhereMl.ranking.java" scope="RUNTIME" />
-    <orderEntry type="module" module-name="intellij.searchEverywhereMl.ranking.vcs" scope="RUNTIME" />
-    <orderEntry type="module" module-name="intellij.searchEverywhereMl.ranking.yaml" scope="RUNTIME" />
-    <orderEntry type="module" module-name="intellij.searchEverywhereMl.typos" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.searchEverywhereMl" />
+    <orderEntry type="module" module-name="intellij.platform.bookmarks" scope="TEST" />
   </component>
 </module>

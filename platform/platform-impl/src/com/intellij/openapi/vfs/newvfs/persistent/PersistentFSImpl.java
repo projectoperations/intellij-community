@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.vfs.newvfs.persistent;
 
 import com.intellij.concurrency.ConcurrentCollectionFactory;
@@ -42,8 +42,8 @@ import com.intellij.util.containers.*;
 import com.intellij.util.io.ReplicatorInputStream;
 import io.opentelemetry.api.metrics.Meter;
 import it.unimi.dsi.fastutil.Hash;
-import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.*;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.objects.ObjectLinkedOpenCustomHashSet;
 import it.unimi.dsi.fastutil.objects.ReferenceOpenHashSet;
 import org.jetbrains.annotations.*;
@@ -53,9 +53,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.*;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -153,10 +153,12 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
     ShutDownTracker.getInstance().registerCacheShutdownTask(this::disconnect);
 
     setupOTelMonitoring(TelemetryManager.getInstance().getMeter(PlatformScopesKt.VFS));
+
+    LOG.info("VFS.MAX_FILE_LENGTH_TO_CACHE: " + PersistentFSConstants.MAX_FILE_LENGTH_TO_CACHE);
   }
 
   @ApiStatus.Internal
-  synchronized public void connect() {
+  public synchronized void connect() {
     LOG.assertTrue(!myConnected.get());// vfsPeer could be !=null after disconnect
     myIdToDirCache.clear();
     myVfsData = new VfsData(app, this);
@@ -165,7 +167,7 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
   }
 
   @ApiStatus.Internal
-  synchronized public void disconnect() {
+  public synchronized void disconnect() {
     if (myConnected.compareAndSet(true, false)) {
       for (PersistentFsConnectionListener listener : PersistentFsConnectionListener.EP_NAME.getExtensionList()) {
         listener.beforeConnectionClosed();
@@ -310,17 +312,17 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
 
   @Override
   @ApiStatus.Internal
-  public @NotNull List<? extends ChildInfo> listAll(@NotNull VirtualFile file) {
+  public @Unmodifiable @NotNull List<? extends ChildInfo> listAll(@NotNull VirtualFile file) {
     checkReadAccess();
 
     int id = fileId(file);
     return areChildrenCached(id)
            ? vfsPeer.list(id).children
-           : persistAllChildren(file, id);
+           : persistAllChildren(file, id, file.isCaseSensitive());
   }
 
   // return actual children
-  private @NotNull List<? extends ChildInfo> persistAllChildren(VirtualFile dir, int dirId) {
+  private @NotNull List<? extends ChildInfo> persistAllChildren(@NotNull VirtualFile dir, int dirId, boolean isCaseSensitive) {
     NewVirtualFileSystem fs = getFileSystem(dir);
 
     try {
@@ -412,8 +414,6 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
   @Override
   public @NotNull AttributeOutputStream writeAttribute(@NotNull VirtualFile file,
                                                        @NotNull FileAttribute attribute) {
-    //TODO RC: ThreadingAssertions.assertWriteAccess();
-
     return vfsPeer.writeAttribute(fileId(file), attribute);
   }
 
@@ -423,13 +423,11 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
 
   private @NotNull OutputStream writeContent(@NotNull VirtualFile file,
                                              boolean contentOfFixedSize) {
-    ThreadingAssertions.assertWriteAccess();
     return vfsPeer.writeContent(fileId(file), contentOfFixedSize);
   }
 
   @Override
   public int storeUnlinkedContent(byte @NotNull [] bytes) throws ContentTooBigException {
-    //TODO RC: ThreadingAssertions.assertWriteAccess();
     return vfsPeer.writeContentRecord(new ByteArraySequence(bytes));
   }
 
@@ -536,8 +534,6 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
   @Override
   public void setWritable(@NotNull VirtualFile file,
                           boolean writableFlag) throws IOException {
-    ThreadingAssertions.assertWriteAccess();
-
     getFileSystem(file).setWritable(file, writableFlag);
     boolean oldWritable = isWritable(file);
     if (oldWritable != writableFlag) {
@@ -647,7 +643,27 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
   @Override
   public long getLength(@NotNull VirtualFile file) {
     int fileId = fileId(file);
+
+    //speculate: read under read-lock assuming length is already cached:
+    long length = vfsPeer.readRecordFields(fileId, record -> {
+      int flags = record.getFlags();
+      boolean mustReloadLength = BitUtil.isSet(flags, Flags.MUST_RELOAD_LENGTH);
+      long cachedLength = record.getLength();
+      if (!mustReloadLength && cachedLength >= 0) {
+        return cachedLength;
+      }
+      return -1L;
+    });
+    if (length >= 0) {
+      return length;
+    }
+
+    //speculation failed: re-read, and update cache:
     NewVirtualFileSystem fileSystem = getFileSystem(file);
+    //1) do IO outside lock 2) some FileSystems (e.g. ArchiveFileSystem) .getLength() impl can call other VirtualFile.getLength(),
+    // which creates a possibility for deadlock, if lock segments happen to be the same. The downside is that we call
+    // getLength() even if the length is already set by racing thread -- but that should be a rare case, so ignore it
+    long actualLength = fileSystem.getLength(file);
 
     long[] lengthRef = new long[1];
     vfsPeer.updateRecordFields(fileId, record -> {
@@ -659,7 +675,6 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
         return false;
       }
 
-      long actualLength = fileSystem.getLength(file);
       record.setLength(actualLength);
       record.removeFlags(Flags.MUST_RELOAD_LENGTH);
 
@@ -680,8 +695,6 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
                                        @NotNull VirtualFile file,
                                        @NotNull VirtualFile parent,
                                        @NotNull String name) throws IOException {
-    ThreadingAssertions.assertWriteAccess();
-
     getFileSystem(file).copyFile(requestor, file, parent, name);
     processEvent(new VFileCopyEvent(requestor, file, parent, name));
 
@@ -696,8 +709,6 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
   public @NotNull VirtualFile createChildDirectory(Object requestor,
                                                    @NotNull VirtualFile parent,
                                                    @NotNull String dir) throws IOException {
-    ThreadingAssertions.assertWriteAccess();
-
     getFileSystem(parent).createChildDirectory(requestor, parent, dir);
 
     processEvent(new VFileCreateEvent(requestor, parent, dir, true, null, null, ChildInfo.EMPTY_ARRAY));
@@ -717,8 +728,6 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
   public @NotNull VirtualFile createChildFile(Object requestor,
                                               @NotNull VirtualFile parent,
                                               @NotNull String name) throws IOException {
-    ThreadingAssertions.assertWriteAccess();
-
     getFileSystem(parent).createChildFile(requestor, parent, name);
     processEvent(new VFileCreateEvent(requestor, parent, name, false, null, null, null));
     VFileEvent caseSensitivityEvent = VirtualDirectoryImpl.generateCaseSensitivityChangedEventForUnknownCase(parent, name);
@@ -751,8 +760,6 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
 
   @Override
   public void deleteFile(Object requestor, @NotNull VirtualFile file) throws IOException {
-    ThreadingAssertions.assertWriteAccess();
-
     NewVirtualFileSystem fs = getFileSystem(file);
     fs.deleteFile(requestor, file);
     if (!fs.exists(file)) {
@@ -764,8 +771,6 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
   public void renameFile(Object requestor,
                          @NotNull VirtualFile file,
                          @NotNull String newName) throws IOException {
-    ThreadingAssertions.assertWriteAccess();
-
     getFileSystem(file).renameFile(requestor, file, newName);
     String oldName = file.getName();
     if (!newName.equals(oldName)) {
@@ -799,7 +804,7 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
 
       byte[] content = fs.contentsToByteArray(file);
 
-      if (mayCacheContent && shouldCache(content.length)) {
+      if (mayCacheContent && shouldCacheFileContentInVFS(content.length)) {
         updateContentForFile(fileId, new ByteArraySequence(content));
       }
       else {
@@ -891,7 +896,7 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
     InputStream contentStream;
     if (result.contentRecordId <= 0 || result.mustReloadContent) {
       InputStream fileStream = fs.getInputStream(file);
-      if (shouldCache(result.actualFileLength)) {
+      if (shouldCacheFileContentInVFS(result.actualFileLength)) {
         contentStream = createReplicatorAndStoreContent(file, fileStream, result.actualFileLength);
       }
       else {
@@ -905,8 +910,8 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
     return contentStream;
   }
 
-  private static boolean shouldCache(long len) {
-    return len <= PersistentFSConstants.FILE_LENGTH_TO_CACHE_THRESHOLD;
+  private static boolean shouldCacheFileContentInVFS(long fileLength) {
+    return fileLength <= PersistentFSConstants.MAX_FILE_LENGTH_TO_CACHE;
   }
 
   private @NotNull InputStream createReplicatorAndStoreContent(@NotNull VirtualFile file,
@@ -998,31 +1003,44 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
         if (closed) return;
         super.close();
 
-        ThreadingAssertions.assertWriteAccess();
-
         long oldLength = getLastRecordedLength(file);
         VFileContentChangeEvent event = new VFileContentChangeEvent(
-          requestor, file, file.getModificationStamp(), modStamp, file.getTimeStamp(), -1, oldLength, count);
+          requestor, file, file.getModificationStamp(), modStamp, file.getTimeStamp(), -1, oldLength, count
+        );
         List<VFileEvent> events = List.of(event);
         fireBeforeEvents(getPublisher(), events);
+
         NewVirtualFileSystem fs = getFileSystem(file);
-        // `FSRecords.ContentOutputStream` already buffered, no need to wrap in `BufferedStream`
-        try (OutputStream persistenceStream = writeContent(file, /*contentOfFixedSize: */ fs.isReadOnly())) {
-          persistenceStream.write(buf, 0, count);
+        try {
+          if (shouldCacheFileContentInVFS(count)) {
+            // `FSRecords.ContentOutputStream` is already buffered => no need to wrap in `BufferedStream`
+            try (OutputStream persistenceStream = writeContent(file, /*contentOfFixedSize: */ fs.isReadOnly())) {
+              persistenceStream.write(buf, 0, count);
+            }
+          }
+          else {
+            cleanPersistedContent(fileId(file));//so next turn content will be loaded from FS again
+          }
         }
         finally {
-          try (OutputStream ioFileStream = fs.getOutputStream(file, requestor, modStamp, timeStamp)) {
-            ioFileStream.write(buf, 0, count);
-          }
-          finally {
-            closed = true;
-            FileAttributes attributes = fs.getAttributes(file);
-            // due to FS rounding, the timestamp of the file can significantly differ from the current time
-            long newTimestamp = attributes != null ? attributes.lastModified : DEFAULT_TIMESTAMP;
-            long newLength = attributes != null ? attributes.length : DEFAULT_LENGTH;
-            executeTouch(file, false, event.getModificationStamp(), newLength, newTimestamp);
-            fireAfterEvents(getPublisher(), events);
-          }
+          writeToDisk(fs, event, events);
+        }
+      }
+
+      private void writeToDisk(@NotNull NewVirtualFileSystem fs,
+                               @NotNull VFileContentChangeEvent event,
+                               @NotNull List<VFileEvent> events) throws IOException {
+        try (OutputStream ioFileStream = fs.getOutputStream(file, requestor, modStamp, timeStamp)) {
+          ioFileStream.write(buf, 0, count);
+        }
+        finally {
+          closed = true;
+          FileAttributes attributes = fs.getAttributes(file);
+          // due to FS rounding, the timestamp of the file can significantly differ from the current time
+          long newTimestamp = attributes != null ? attributes.lastModified : DEFAULT_TIMESTAMP;
+          long newLength = attributes != null ? attributes.length : DEFAULT_LENGTH;
+          executeTouch(file, false, event.getModificationStamp(), newLength, newTimestamp);
+          fireAfterEvents(getPublisher(), events);
         }
       }
     };
@@ -1055,8 +1073,6 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
   }
 
   private void processEvent(@NotNull VFileEvent event) {
-    ThreadingAssertions.assertWriteAccess();
-
     if (!event.isValid()) return;
 
     List<VFileEvent> outValidatedEvents = new ArrayList<>();
@@ -1381,8 +1397,6 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
 
   @ApiStatus.Internal
   public void processEventsImpl(@NotNull List<? extends CompoundVFileEvent> events, boolean excludeAsyncListeners) {
-    ThreadingAssertions.assertWriteAccess();
-
     int startIndex = 0;
     int cappedInitialSize = Math.min(events.size(), INNER_ARRAYS_THRESHOLD);
     List<Runnable> applyActions = new ArrayList<>(cappedInitialSize);
@@ -1769,8 +1783,7 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
    * so we need to extract path from url (IDEA-341011)
    * Path should not end with '!' because then '!' won't be stripped and file won't be found (see {@link ArchiveFileSystem#findLocalByRootPath})
    */
-  @NotNull
-  private static String getRootPath(@NotNull String rootUrl, @NotNull String rootName) {
+  private static @NotNull String getRootPath(@NotNull String rootUrl, @NotNull String rootName) {
     NewVirtualFileSystem fs = detectFileSystem(rootUrl, rootName);
     if (fs instanceof ArchiveFileSystem) {
       String path = VirtualFileManager.extractPath(rootUrl);
@@ -2367,8 +2380,8 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
   }
 
   @TestOnly
-  public void cleanPersistedContent(int id) {
-    doCleanPersistedContent(id);
+  public void cleanPersistedContent(int fileId) {
+    doCleanPersistedContent(fileId);
   }
 
   @TestOnly
@@ -2388,6 +2401,7 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
 
   private void doCleanPersistedContent(int id) {
     vfsPeer.updateRecordFields(id, record -> {
+      //current .contentId, if any, should be ignored when MUST_RELOAD_CONTENT flag is set
       return record.addFlags(Flags.MUST_RELOAD_CONTENT | Flags.MUST_RELOAD_LENGTH);
     });
   }

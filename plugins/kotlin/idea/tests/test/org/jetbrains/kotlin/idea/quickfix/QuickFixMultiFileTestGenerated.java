@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.kotlin.idea.quickfix;
 
@@ -765,6 +765,11 @@ public abstract class QuickFixMultiFileTestGenerated extends AbstractQuickFixMul
             @TestMetadata("infixCall2.before.Main.kt")
             public void testInfixCall2() throws Exception {
                 runTest("testData/quickfix/autoImports/infixCall2.before.Main.kt");
+            }
+
+            @TestMetadata("infixCallK1.before.Main.kt")
+            public void testInfixCallK1() throws Exception {
+                runTest("testData/quickfix/autoImports/infixCallK1.before.Main.kt");
             }
 
             @TestMetadata("invokeExtension.test")
@@ -2102,6 +2107,11 @@ public abstract class QuickFixMultiFileTestGenerated extends AbstractQuickFixMul
                     runTest("testData/quickfix/deprecatedSymbolUsage/classUsages/wholeProject/annotation.before.Main.kt");
                 }
 
+                @TestMetadata("classUsage.before.Main.kt")
+                public void testClassUsage() throws Exception {
+                    runTest("testData/quickfix/deprecatedSymbolUsage/classUsages/wholeProject/classUsage.before.Main.kt");
+                }
+
                 @TestMetadata("noParenthesesAnnotation.before.Main.kt")
                 public void testNoParenthesesAnnotation() throws Exception {
                     runTest("testData/quickfix/deprecatedSymbolUsage/classUsages/wholeProject/noParenthesesAnnotation.before.Main.kt");
@@ -2170,6 +2180,11 @@ public abstract class QuickFixMultiFileTestGenerated extends AbstractQuickFixMul
             @TestMetadata("addImportsWithSameName.before.Main.kt")
             public void testAddImportsWithSameName() throws Exception {
                 runTest("testData/quickfix/deprecatedSymbolUsage/imports/addImportsWithSameName.before.Main.kt");
+            }
+
+            @TestMetadata("changeImports.before.Main.kt")
+            public void testChangeImports() throws Exception {
+                runTest("testData/quickfix/deprecatedSymbolUsage/imports/changeImports.before.Main.kt");
             }
 
             @TestMetadata("rootPackage.before.Main.kt")
@@ -2619,6 +2634,35 @@ public abstract class QuickFixMultiFileTestGenerated extends AbstractQuickFixMul
             @TestMetadata("twoPackages.before.Main.kt")
             public void testTwoPackages() throws Exception {
                 runTest("testData/quickfix/override/nothingToOverride/twoPackages.before.Main.kt");
+            }
+        }
+
+        @RunWith(JUnit3RunnerWithInners.class)
+        @TestMetadata("testData/quickfix/override/overriddenJavaAccessor")
+        public static class OverriddenJavaAccessor extends AbstractQuickFixMultiFileTest {
+            @java.lang.Override
+            @org.jetbrains.annotations.NotNull
+            public final KotlinPluginMode getPluginMode() {
+                return KotlinPluginMode.K1;
+            }
+
+            private void runTest(String testDataFilePath) throws Exception {
+                KotlinTestUtils.runTest(this::doTestWithExtraFile, this, testDataFilePath);
+            }
+
+            @TestMetadata("getterWithDifferentType.test")
+            public void testGetterWithDifferentType() throws Exception {
+                runTest("testData/quickfix/override/overriddenJavaAccessor/getterWithDifferentType.test");
+            }
+
+            @TestMetadata("notAGetterSignature.test")
+            public void testNotAGetterSignature() throws Exception {
+                runTest("testData/quickfix/override/overriddenJavaAccessor/notAGetterSignature.test");
+            }
+
+            @TestMetadata("simpleGetter.test")
+            public void testSimpleGetter() throws Exception {
+                runTest("testData/quickfix/override/overriddenJavaAccessor/simpleGetter.test");
             }
         }
 

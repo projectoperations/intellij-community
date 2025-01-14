@@ -22,6 +22,9 @@ import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.ThrowableComputable;
 import com.intellij.openapi.util.UserDataHolder;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.platform.eel.EelApi;
+import com.intellij.platform.eel.provider.EelProviderUtil;
+import com.intellij.platform.eel.provider.utils.EelPathUtils;
 import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.search.FilenameIndex;
 import com.intellij.psi.search.GlobalSearchScope;
@@ -43,6 +46,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 final class JUnitDevKitPatcher extends JUnitPatcher {
@@ -74,14 +78,18 @@ final class JUnitDevKitPatcher extends JUnitPatcher {
       String basePath = project.getBasePath();
       if (!vm.hasProperty(PathManager.PROPERTY_SYSTEM_PATH)) {
         assert basePath != null;
-        vm.addProperty(PathManager.PROPERTY_SYSTEM_PATH, Path.of(basePath, "system/test").toAbsolutePath().toString());
+        vm.addProperty(PathManager.PROPERTY_SYSTEM_PATH, EelPathUtils.renderAsEelPath(Path.of(basePath, "system/test").toAbsolutePath()));
       }
       if (!vm.hasProperty(PathManager.PROPERTY_CONFIG_PATH)) {
         assert basePath != null;
-        vm.addProperty(PathManager.PROPERTY_CONFIG_PATH, Path.of(basePath, "config/test").toAbsolutePath().toString());
+        vm.addProperty(PathManager.PROPERTY_CONFIG_PATH, EelPathUtils.renderAsEelPath(Path.of(basePath, "config/test").toAbsolutePath()));
       }
 
       appendAddOpensWhenNeeded(project, jdk, vm);
+
+      if (!Boolean.parseBoolean(vm.getPropertyValue("intellij.devkit.junit.skip.settings.from.intellij.yaml"))) {
+        JUnitDevKitUnitTestingSettings.getInstance(project).apply(module, javaParameters);
+      }
     }
 
     jdk = IdeaJdk.findIdeaJdk(jdk);
@@ -145,8 +153,12 @@ final class JUnitDevKitPatcher extends JUnitPatcher {
       }
       else if (!files.isEmpty()) {
         var file = files.iterator().next();
+        String projectFilePath =
+          Objects.requireNonNull(project.getProjectFilePath(), "Run configurations should not be invoked on the default project");
+        EelApi eelApi = EelProviderUtil.getEelApiBlocking(Path.of(projectFilePath));
+        OS targetOs = EelProviderUtil.systemOs(eelApi);
         try (var stream = file.getInputStream()) {
-          JavaModuleOptions.readOptions(stream, OS.CURRENT).forEach(vm::add);
+          JavaModuleOptions.readOptions(stream, targetOs).forEach(vm::add);
         }
         catch (ProcessCanceledException e) {
           throw e; //unreachable

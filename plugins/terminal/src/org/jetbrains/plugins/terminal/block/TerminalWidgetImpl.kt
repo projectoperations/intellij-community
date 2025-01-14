@@ -14,6 +14,7 @@ import com.jediterm.core.util.TermSize
 import com.jediterm.terminal.TtyConnector
 import org.jetbrains.plugins.terminal.JBTerminalSystemSettingsProvider
 import org.jetbrains.plugins.terminal.ShellStartupOptions
+import org.jetbrains.plugins.terminal.block.reworked.ReworkedTerminalView
 import org.jetbrains.plugins.terminal.block.session.BlockTerminalSession
 import org.jetbrains.plugins.terminal.block.ui.BlockTerminalColorPalette
 import org.jetbrains.plugins.terminal.block.ui.TerminalUi
@@ -31,7 +32,8 @@ import javax.swing.JPanel
 internal class TerminalWidgetImpl(
   private val project: Project,
   private val settings: JBTerminalSystemSettingsProvider,
-  parent: Disposable
+  private val isReworked: Boolean,
+  parent: Disposable,
 ) : TerminalWidget {
   private val wrapper: Wrapper = Wrapper()
 
@@ -62,20 +64,13 @@ internal class TerminalWidgetImpl(
   @RequiresEdt(generateAssertion = false)
   fun initialize(options: ShellStartupOptions): CompletableFuture<TermSize> {
     val oldView = view
-    view = if (options.shellIntegration?.commandBlockIntegration != null) {
-      val session = BlockTerminalSession(settings, BlockTerminalColorPalette(), options.shellIntegration)
-      Disposer.register(this, session)
-      BlockTerminalView(project, session, settings, terminalTitle).also {
-        installStartupResponsivenessReporter(project, checkNotNull(options.startupMoment), session)
-        project.messageBus.syncPublisher(BlockTerminalInitializationListener.TOPIC).modelsInitialized(
-          it.promptView.controller.model,
-          it.outputView.controller.outputModel
-        )
-      }
+
+    view = when {
+      isReworked -> ReworkedTerminalView(project, settings)
+      options.shellIntegration?.commandBlockIntegration != null -> createBlockTerminalView(options)
+      else -> OldPlainTerminalView(project, settings, terminalTitle)
     }
-    else {
-      OldPlainTerminalView(project, settings, terminalTitle)
-    }
+
     if (oldView is TerminalPlaceholder) {
       oldView.moveTerminationCallbacksTo(view)
       oldView.executePostponedShellCommands(view)
@@ -91,6 +86,18 @@ internal class TerminalWidgetImpl(
     TerminalUiUtils.cancelFutureByTimeout(future, 2000, parentDisposable = view)
     return future.thenApply {
       view.getTerminalSize()
+    }
+  }
+
+  private fun createBlockTerminalView(options: ShellStartupOptions): TerminalContentView {
+    val session = BlockTerminalSession(settings, BlockTerminalColorPalette(), options.shellIntegration!!)
+    Disposer.register(this, session)
+    return BlockTerminalView(project, session, settings, terminalTitle).also {
+      installStartupResponsivenessReporter(project, checkNotNull(options.startupMoment), session)
+      project.messageBus.syncPublisher(BlockTerminalInitializationListener.TOPIC).modelsInitialized(
+        it.promptView.controller.model,
+        it.outputView.controller.outputModel
+      )
     }
   }
 

@@ -1,6 +1,5 @@
 package com.intellij.notebooks.visualization.ui
 
-import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.application.WriteIntentReadAction
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorKind
@@ -111,8 +110,3 @@ fun registerEditorSizeWatcher(
 
 val EditorEx.textEditingAreaWidth: Int
   get() = scrollingModel.visibleArea.width - scrollPane.verticalScrollBar.width
-
-fun JComponent.yOffsetFromEditor(editor: Editor): Int? =
-  SwingUtilities.convertPoint(this, 0, 0, editor.contentComponent).y
-    .takeIf { it >= 0 }
-    ?.let { it + insets.top }

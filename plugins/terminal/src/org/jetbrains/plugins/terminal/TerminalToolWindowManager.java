@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.terminal;
 
 import com.google.common.collect.Sets;
@@ -55,10 +55,7 @@ import com.intellij.util.PathUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.text.UniqueNameGenerator;
 import kotlin.Unit;
-import org.jetbrains.annotations.ApiStatus;
-import org.jetbrains.annotations.Nls;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.*;
 import org.jetbrains.plugins.terminal.action.MoveTerminalToolWindowTabLeftAction;
 import org.jetbrains.plugins.terminal.action.MoveTerminalToolWindowTabRightAction;
 import org.jetbrains.plugins.terminal.action.RenameTerminalSessionAction;
@@ -81,7 +78,7 @@ import java.util.function.Consumer;
 
 @Service(Service.Level.PROJECT)
 public final class TerminalToolWindowManager implements Disposable {
-  private final static Key<TerminalWidget> TERMINAL_WIDGET_KEY = new Key<>("TerminalWidget");
+  private static final Key<TerminalWidget> TERMINAL_WIDGET_KEY = new Key<>("TerminalWidget");
   private static final Logger LOG = Logger.getInstance(TerminalToolWindowManager.class);
   private static final Key<AbstractTerminalRunner<?>> RUNNER_KEY = Key.create("RUNNER_KEY");
 
@@ -91,8 +88,7 @@ public final class TerminalToolWindowManager implements Disposable {
   private TerminalDockContainer myDockContainer;
   private final Map<TerminalWidget, TerminalContainer> myContainerByWidgetMap = new HashMap<>();
 
-  @NotNull
-  public AbstractTerminalRunner<?> getTerminalRunner() {
+  public @NotNull AbstractTerminalRunner<?> getTerminalRunner() {
     return myTerminalRunner;
   }
 
@@ -115,7 +111,7 @@ public final class TerminalToolWindowManager implements Disposable {
    */
   @ApiStatus.Internal
   @Deprecated
-  public Set<JBTerminalWidget> getWidgets() {
+  public @Unmodifiable Set<JBTerminalWidget> getWidgets() {
     return ContainerUtil.map2SetNotNull(myContainerByWidgetMap.keySet(),
                                         widget -> JBTerminalWidget.asJediTermWidget(widget));
   }
@@ -257,18 +253,16 @@ public final class TerminalToolWindowManager implements Disposable {
     return toolWindow;
   }
 
-  @NotNull
-  public Content newTab(@NotNull ToolWindow toolWindow, @Nullable TerminalWidget terminalWidget) {
+  public @NotNull Content newTab(@NotNull ToolWindow toolWindow, @Nullable TerminalWidget terminalWidget) {
     return createNewTab(terminalWidget, myTerminalRunner, toolWindow, null, true, true);
   }
 
-  @NotNull
-  private Content createNewTab(@Nullable TerminalWidget terminalWidget,
-                               @NotNull AbstractTerminalRunner<?> terminalRunner,
-                               @NotNull ToolWindow toolWindow,
-                               @Nullable TerminalTabState tabState,
-                               boolean requestFocus,
-                               boolean deferSessionStartUntilUiShown) {
+  private @NotNull Content createNewTab(@Nullable TerminalWidget terminalWidget,
+                                        @NotNull AbstractTerminalRunner<?> terminalRunner,
+                                        @NotNull ToolWindow toolWindow,
+                                        @Nullable TerminalTabState tabState,
+                                        boolean requestFocus,
+                                        boolean deferSessionStartUntilUiShown) {
     TerminalStartupMoment startupMoment = requestFocus && deferSessionStartUntilUiShown ? new TerminalStartupMoment() : null;
     Content content = createTerminalContent(terminalRunner, toolWindow, terminalWidget, tabState, deferSessionStartUntilUiShown, startupMoment);
     content.putUserData(RUNNER_KEY, terminalRunner);
@@ -296,13 +290,12 @@ public final class TerminalToolWindowManager implements Disposable {
     return UniqueNameGenerator.generateUniqueName(suggestedName, "", "", " (", ")", o -> !names.contains(o));
   }
 
-  @NotNull
-  private Content createTerminalContent(@NotNull AbstractTerminalRunner<?> terminalRunner,
-                                        @NotNull ToolWindow toolWindow,
-                                        @Nullable TerminalWidget terminalWidget,
-                                        @Nullable TerminalTabState tabState,
-                                        boolean deferSessionStartUntilUiShown,
-                                        @Nullable TerminalStartupMoment startupMoment) {
+  private @NotNull Content createTerminalContent(@NotNull AbstractTerminalRunner<?> terminalRunner,
+                                                 @NotNull ToolWindow toolWindow,
+                                                 @Nullable TerminalWidget terminalWidget,
+                                                 @Nullable TerminalTabState tabState,
+                                                 boolean deferSessionStartUntilUiShown,
+                                                 @Nullable TerminalStartupMoment startupMoment) {
     TerminalToolWindowPanel panel = new TerminalToolWindowPanel(PropertiesComponent.getInstance(myProject), toolWindow);
 
     Content content = ContentFactory.getInstance().createContent(panel, null, false);
@@ -568,8 +561,7 @@ public final class TerminalToolWindowManager implements Disposable {
     myToolWindow.getContentManager().removeContent(content, true, true, true);
   }
 
-  @NotNull
-  private static FocusListener createFocusListener(@NotNull ToolWindow toolWindow) {
+  private static @NotNull FocusListener createFocusListener(@NotNull ToolWindow toolWindow) {
     return new FocusListener() {
       @Override
       public void focusGained(FocusEvent e) {
@@ -585,8 +577,7 @@ public final class TerminalToolWindowManager implements Disposable {
     };
   }
 
-  @Nullable
-  private static JComponent getComponentToFocus(@NotNull ToolWindow toolWindow) {
+  private static @Nullable JComponent getComponentToFocus(@NotNull ToolWindow toolWindow) {
     Content selectedContent = toolWindow.getContentManager().getSelectedContent();
     if (selectedContent != null) {
       return selectedContent.getPreferredFocusableComponent();
@@ -605,8 +596,7 @@ public final class TerminalToolWindowManager implements Disposable {
     createNewSession(myTerminalRunner, state);
   }
 
-  @Nullable
-  public static JBTerminalWidget getWidgetByContent(@NotNull Content content) {
+  public static @Nullable JBTerminalWidget getWidgetByContent(@NotNull Content content) {
     TerminalWidget data = content.getUserData(TERMINAL_WIDGET_KEY);
     return data != null ? JBTerminalWidget.asJediTermWidget(data) : null;
   }
@@ -640,15 +630,13 @@ public final class TerminalToolWindowManager implements Disposable {
   }
 
   private final class TerminalDockContainer implements DockContainer {
-    @NotNull
     @Override
-    public RelativeRectangle getAcceptArea() {
+    public @NotNull RelativeRectangle getAcceptArea() {
       return new RelativeRectangle(myToolWindow.getComponent());
     }
 
-    @NotNull
     @Override
-    public ContentResponse getContentResponse(@NotNull DockableContent content, RelativePoint point) {
+    public @NotNull ContentResponse getContentResponse(@NotNull DockableContent content, RelativePoint point) {
       return isTerminalSessionContent(content) ? ContentResponse.ACCEPT_MOVE : ContentResponse.DENY;
     }
 
@@ -715,8 +703,7 @@ final class TerminalToolWindowPanel extends SimpleToolWindowPanel implements UIS
     DnDSupport.createBuilder(window.getComponent()).setDropHandler(handler).install();
   }
 
-  @Nullable
-  private static PsiDirectory getDirectory(@Nullable PsiElement item) {
+  private static @Nullable PsiDirectory getDirectory(@Nullable PsiElement item) {
     if (item instanceof PsiFile) {
       return ((PsiFile)item).getParent();
     }

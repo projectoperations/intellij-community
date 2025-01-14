@@ -1,17 +1,29 @@
 module(name = "community")
 
-# bazel_dep(name = "rules_jps", version = "0.1")
-bazel_dep(name = "rules_kotlin", version = "2.0.0")
-bazel_dep(name = "rules_java", version = "7.12.2")
-bazel_dep(name = "rules_jvm_external", version = "6.5")
+bazel_dep(name = "rules_kotlin", version = "2.0.0-jb.6")
+bazel_dep(name = "rules_java", version = "8.6.3")
+bazel_dep(name = "rules_jvm", version = "0.0.1")
 
-bazel_dep(name = "libraries")
+bazel_dep(name = "lib")
 
 local_path_override(
-  module_name = "libraries",
-  path = "build/libraries",
+  module_name = "lib",
+  path = "lib",
 )
 local_path_override(
-  module_name = "community",
-  path = ".",
+  module_name = "rules_jvm",
+  path = "build/jvm-rules",
+)
+
+archive_override(
+  module_name = "rules_kotlin",
+  urls = ["https://github.com/develar/rules_kotlin/releases/download/v2.0.0-jb.13/rules_kotlin-v2.0.0-jb.13.tar.gz"],
+  integrity = "sha256-TfuGNoMHAf/2MDz63uE3blNcz8wJN96PIGpUpVRqySI=",
+)
+
+# GraalVM
+git_override(
+    module_name = "rules_graalvm",
+    remote = "https://github.com/develar/rules_graalvm",
+    commit = "9d12232f7798df7087952314600f1ee0f4e4f9f7",
 )

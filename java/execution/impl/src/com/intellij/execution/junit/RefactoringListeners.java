@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.execution.junit;
 
 import com.intellij.execution.JavaExecutionUtil;
@@ -21,7 +21,7 @@ public final class RefactoringListeners {
     final StringBuilder path = new StringBuilder();
     for (PsiPackage parent = accessor.getPsiElement(); parent != null; parent = parent.getParentPackage()) {
       if (parent.equals(psiPackage)) return new RefactorPackage(accessor, path.toString());
-      if (path.length() > 0) path.insert(0, '.');
+      if (!path.isEmpty()) path.insert(0, '.');
       path.insert(0, parent.getName());
     }
     return null;
@@ -33,7 +33,7 @@ public final class RefactoringListeners {
     final StringBuilder path = new StringBuilder();
     for (PsiClass parent = aClass; parent != null; parent = PsiTreeUtil.getParentOfType(parent, PsiClass.class, true)) {
       if (parent.equals(psiClass)) return new RefactorClass(accessor, path.toString());
-      if (path.length() > 0) path.insert(0, '$');
+      if (!path.isEmpty()) path.insert(0, '$');
       path.insert(0, parent.getName());
     }
     return null;
@@ -89,7 +89,7 @@ public final class RefactoringListeners {
     }
   }
 
-  private static abstract class RenameElement<T extends PsiElement> extends RefactoringElementAdapter
+  private abstract static class RenameElement<T extends PsiElement> extends RefactoringElementAdapter
                                                                     implements UndoRefactoringElementListener{
     private final Accessor<? super T> myAccessor;
     private final String myPath;
@@ -100,11 +100,11 @@ public final class RefactoringListeners {
     }
 
     @Override
-    public void elementRenamedOrMoved(@NotNull final PsiElement newElement) {
+    public void elementRenamedOrMoved(final @NotNull PsiElement newElement) {
       T newElement1 = convertNewElement(newElement);
       if (newElement1 == null) return;
       String qualifiedName = getQualifiedName(newElement1);
-      if (myPath.length() > 0) {
+      if (!myPath.isEmpty()) {
         qualifiedName = qualifiedName + "." + myPath;
         newElement1 = findNewElement(newElement1, qualifiedName);
       }
@@ -116,13 +116,11 @@ public final class RefactoringListeners {
       }
     }
 
-    @Nullable
-    protected T convertNewElement(PsiElement newElement) {
+    protected @Nullable T convertNewElement(PsiElement newElement) {
       return (T)newElement;
     }
 
-    @Nullable
-    protected abstract T findNewElement(T newParent, String qualifiedName);
+    protected abstract @Nullable T findNewElement(T newParent, String qualifiedName);
 
     protected abstract String getQualifiedName(@NotNull T element);
 
@@ -178,8 +176,7 @@ public final class RefactoringListeners {
     }
 
     @Override
-    @Nullable
-    public UClass findNewElement(final UClass psiClass, final String qualifiedName) {
+    public @Nullable UClass findNewElement(final UClass psiClass, final String qualifiedName) {
       final Module module = JavaExecutionUtil.findModule(psiClass);
       if (module == null) {
         return null;
@@ -200,8 +197,7 @@ public final class RefactoringListeners {
     }
 
     @Override
-    @Nullable
-    public PsiClass findNewElement(final PsiClass psiClass, final String qualifiedName) {
+    public @Nullable PsiClass findNewElement(final PsiClass psiClass, final String qualifiedName) {
       final Module module = JavaExecutionUtil.findModule(psiClass);
       if (module == null) {
         return null;
@@ -262,7 +258,7 @@ public final class RefactoringListeners {
     }
 
     private String getClassQName(final String packageQName) {
-      if (packageQName.length() > 0) {
+      if (!packageQName.isEmpty()) {
         return packageQName + '.' + myInpackageName;
       }
       else {

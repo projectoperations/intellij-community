@@ -1,6 +1,6 @@
 package org.jetbrains.plugins.textmate.language.syntax.lexer;
 
-import com.intellij.openapi.util.text.Strings;
+import kotlin.text.StringsKt;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -10,11 +10,9 @@ public final class TextMateScope {
   public static final TextMateScope EMPTY = new TextMateScope(null, null);
   public static final TextMateScope WHITESPACE = EMPTY.add("token.whitespace");
 
-  @Nullable
-  private final CharSequence scopeName;
+  private final @Nullable CharSequence scopeName;
 
-  @Nullable
-  private final TextMateScope parentScope;
+  private final @Nullable TextMateScope parentScope;
 
   private final int level;
 
@@ -28,7 +26,7 @@ public final class TextMateScope {
                        @Nullable TextMateScope parentScope) {
     this.scopeName = scopeName;
     this.parentScope = parentScope;
-    this.dotsCount = (scopeName != null ? Strings.countChars(scopeName, '.') : 0) +
+    this.dotsCount = (scopeName != null ? StringsKt.count(scopeName, c -> c == '.') : 0) +
                      (parentScope != null ? parentScope.dotsCount : 0);
     this.hashCode = Objects.hash(scopeName, parentScope);
     this.empty = (parentScope == null || parentScope.isEmpty()) && (scopeName == null || scopeName.isEmpty());
@@ -47,18 +45,15 @@ public final class TextMateScope {
     return new TextMateScope(scopeName, this);
   }
 
-  @Nullable
-  public CharSequence getScopeName() {
+  public @Nullable CharSequence getScopeName() {
     return scopeName;
   }
 
-  @Nullable
-  public TextMateScope getParent() {
+  public @Nullable TextMateScope getParent() {
     return parentScope;
   }
 
-  @NotNull
-  public TextMateScope getParentOrSelf() {
+  public @NotNull TextMateScope getParentOrSelf() {
     return parentScope != null ? parentScope : this;
   }
 

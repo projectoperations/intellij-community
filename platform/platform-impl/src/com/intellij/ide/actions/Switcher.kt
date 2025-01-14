@@ -22,7 +22,6 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.application.EDT
-import com.intellij.openapi.application.Experiments
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.components.service
@@ -66,6 +65,7 @@ import com.intellij.util.ui.JBDimension
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.StartupUiUtil
 import com.intellij.util.ui.SwingTextTrimmer
+import com.intellij.util.ui.accessibility.ScreenReader
 import com.intellij.util.ui.components.BorderLayoutPanel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -153,12 +153,7 @@ object Switcher : BaseSwitcherAction(null) {
       pinned = !onKeyRelease.isEnabled
       val onlyEdited = true == onlyEditedFiles
       speedSearch = if (recent && Registry.`is`("ide.recent.files.speed.search")) installOn(this) else null
-      cbShowOnlyEditedFiles = if (!recent || !Experiments.getInstance().isFeatureEnabled("recent.and.edited.files.together")) {
-        null
-      }
-      else {
-        JCheckBox(IdeBundle.message("recent.files.checkbox.label"))
-      }
+      cbShowOnlyEditedFiles = if (!recent) null else JCheckBox(IdeBundle.message("recent.files.checkbox.label"))
 
       val renderer = SwitcherListRenderer(this)
       val windows = renderer.toolWindows
@@ -209,7 +204,9 @@ object Switcher : BaseSwitcherAction(null) {
       }
       if (cbShowOnlyEditedFiles != null) {
         cbShowOnlyEditedFiles.isOpaque = false
-        cbShowOnlyEditedFiles.isFocusable = false
+        if (!ScreenReader.isActive()) {
+          cbShowOnlyEditedFiles.isFocusable = false
+        }
         cbShowOnlyEditedFiles.isSelected = onlyEdited
         cbShowOnlyEditedFiles.addItemListener(ItemListener(::updateFilesByCheckBox))
         header.add(HorizontalLayout.RIGHT, cbShowOnlyEditedFiles)
@@ -345,7 +342,12 @@ object Switcher : BaseSwitcherAction(null) {
         popup.setMinimumSize(JBDimension(if (windows.isEmpty()) 300 else 500, 200))
       }
       isFocusCycleRoot = true
-      focusTraversalPolicy = LayoutFocusTraversalPolicy()
+      if (ScreenReader.isActive()) {
+        focusTraversalPolicy = ListFocusTraversalPolicy(listOf(files, toolWindows, cbShowOnlyEditedFiles))
+      }
+      else {
+        focusTraversalPolicy = LayoutFocusTraversalPolicy()
+      }
       SwitcherListFocusAction(files, toolWindows, ListActions.Left.ID)
       SwitcherListFocusAction(toolWindows, files, ListActions.Right.ID)
       IdeEventQueue.getInstance().popupManager.closeAllPopups(false)

@@ -6,7 +6,6 @@ import com.intellij.java.compiler.charts.CompilationChartsViewModel
 import com.intellij.java.compiler.charts.CompilationChartsViewModel.CpuMemoryStatisticsType
 import com.intellij.java.compiler.charts.CompilationChartsViewModel.CpuMemoryStatisticsType.CPU
 import com.intellij.java.compiler.charts.CompilationChartsViewModel.CpuMemoryStatisticsType.MEMORY
-import com.intellij.java.compiler.charts.ui.CompilationChartsModuleInfo.CompilationChartsUsageInfo
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.colors.EditorColorsListener
 import com.intellij.openapi.editor.colors.EditorColorsManager
@@ -36,7 +35,7 @@ class CompilationChartsDiagramsComponent(
   var cpu: MutableSet<CompilationChartsViewModel.StatisticData> = ConcurrentSkipListSet()
   var memory: MutableSet<CompilationChartsViewModel.StatisticData> = ConcurrentSkipListSet()
   val statistic: Statistic = Statistic()
-  var cpuMemory = MEMORY
+  var cpuMemory: CpuMemoryStatisticsType = MEMORY
   var offset: Int = 0
   private val usageInfo: CompilationChartsUsageInfo
   private val charts: Charts
@@ -44,7 +43,6 @@ class CompilationChartsDiagramsComponent(
   private val imageRequestCount: MutableMap<Int, Int> = HashMap()
   private val ideSettings: IDESettings = IDESettings()
   private var flush: Boolean = true
-
 
   private val focusableEmptyButton = JButton().apply {
     preferredSize = Dimension(0, 0)
@@ -119,6 +117,7 @@ class CompilationChartsDiagramsComponent(
     }
 
     addMouseListener(charts.settings.mouse)
+    addMouseMotionListener(charts.settings.mouse)
     usageInfo = CompilationChartsUsageInfo(this, charts, zoom)
     addMouseMotionListener(usageInfo)
 

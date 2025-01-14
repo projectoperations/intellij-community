@@ -108,7 +108,8 @@ public final class YamlJsonPsiWalker implements JsonLikePsiWalker {
       return YamlPropertyAdapter.createValueAdapterByType((YAMLValue)element);
     }
     if (element instanceof YAMLDocument) {
-      return new YamlEmptyObjectAdapter(element);
+      if (element.getChildren().length == 0) return new YamlEmptyObjectAdapter(element);
+      return createValueAdapter(element.getFirstChild());
     }
     if (element instanceof LeafPsiElement leaf && leaf.getElementType() == YAMLTokenTypes.INDENT) {
       return YamlPropertyAdapter.createEmptyValueAdapter(element, true);
@@ -365,16 +366,14 @@ public final class YamlJsonPsiWalker implements JsonLikePsiWalker {
       return preferInline ? generator.createEmptyArray() : generator.createEmptySequence();
     }
 
-    @Nullable
-    private static PsiElement skipWsBackward(@Nullable PsiElement item) {
+    private static @Nullable PsiElement skipWsBackward(@Nullable PsiElement item) {
       while (item instanceof PsiWhiteSpace || item instanceof PsiComment) {
         item = PsiTreeUtil.prevLeaf(item);
       }
       return item;
     }
 
-    @Nullable
-    private static PsiElement skipWsForward(@Nullable PsiElement item) {
+    private static @Nullable PsiElement skipWsForward(@Nullable PsiElement item) {
       while (item instanceof PsiWhiteSpace || item instanceof PsiComment) {
         item = PsiTreeUtil.nextLeaf(item);
       }
@@ -440,9 +439,9 @@ public final class YamlJsonPsiWalker implements JsonLikePsiWalker {
         sequence.add(generator.createEol());
       }
       List<YAMLSequenceItem> items = sequence.getItems();
-      YAMLSequenceItem lastItem = items.get(items.size() - 1);
+      YAMLSequenceItem lastItem = items.isEmpty() ? null : items.get(items.size() - 1);
 
-      int indent = lastChild != null ? YAMLUtil.getIndentToThisElement(lastItem) : YAMLUtil.getIndentToThisElement(sequence) + 2;
+      int indent = lastChild != null && lastItem != null ? YAMLUtil.getIndentToThisElement(lastItem) : YAMLUtil.getIndentToThisElement(sequence) + 2;
       sequence.add(generator.createIndent(indent));
       return sequence.add(sequenceItem);
     }
@@ -543,9 +542,8 @@ public final class YamlJsonPsiWalker implements JsonLikePsiWalker {
       return sibling;
     }
 
-    @NotNull
     @Override
-    public PsiElement addProperty(@NotNull PsiElement contextForInsertion, @NotNull PsiElement newProperty) {
+    public @NotNull PsiElement addProperty(@NotNull PsiElement contextForInsertion, @NotNull PsiElement newProperty) {
       // Sometimes, post-write-action formatting can break the YAML structure if the area was not indented properly initially.
       // This is why we pre-format it to avoid problems.
       preFormatAround(contextForInsertion);

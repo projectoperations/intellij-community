@@ -5,9 +5,11 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.platform.eel.LocalEelApi
 import com.intellij.platform.eel.fs.getPath
-import com.intellij.platform.eel.provider.LocalEelKey
-import com.intellij.platform.eel.provider.getEelApiBlocking
-import com.intellij.platform.eel.provider.getEelApiKey
+import com.intellij.platform.eel.impl.utils.getEelApiBlocking
+import com.intellij.platform.eel.impl.utils.getEelDescriptor
+import com.intellij.platform.eel.provider.LocalEelDescriptor
+import com.intellij.platform.eel.provider.asEelPath
+import com.intellij.platform.eel.provider.asNioPath
 import org.jetbrains.idea.maven.server.MavenDistribution
 import org.jetbrains.idea.maven.server.MavenRemoteProcessSupportFactory
 import org.jetbrains.idea.maven.server.MavenRemoteProcessSupportFactory.MavenRemoteProcessSupport
@@ -31,14 +33,14 @@ class EelMavenRemoteProcessSupportFactory : MavenRemoteProcessSupportFactory {
 
   override fun isApplicable(project: Project): Boolean {
     // TODO: should we use eel also for local environments?
-    return project.getEelApiKey() != LocalEelKey
+    return project.getEelDescriptor() != LocalEelDescriptor
   }
 }
 
 class EelRemotePathTransformFactory : RemotePathTransformerFactory {
   override fun isApplicable(project: Project): Boolean {
     // TODO: should we use eel also for local environments?
-    return project.getEelApiKey() != LocalEelKey
+    return project.getEelDescriptor() != LocalEelDescriptor
   }
 
   override fun createTransformer(project: Project): RemotePathTransformerFactory.Transformer {
@@ -47,12 +49,13 @@ class EelRemotePathTransformFactory : RemotePathTransformerFactory {
     return object : RemotePathTransformerFactory.Transformer {
       override fun toRemotePath(localPath: String): String {
         if (localPath.isEmpty()) return localPath
-        return runCatching { eel.mapper.getOriginalPath(Path(localPath)).toString() }.getOrNull() ?: localPath
+        return runCatching { Path(localPath).asEelPath().toString() }.getOrNull() ?: localPath
       }
 
       override fun toIdePath(remotePath: String): String {
         if (remotePath.isEmpty()) return remotePath
-        return runCatching { eel.mapper.toNioPath(eel.fs.getPath(remotePath)).toString() }.getOrNull() ?: remotePath
+        val remotePathWithFixedSeparators = remotePath.replace('\\', '/')
+        return runCatching { eel.fs.getPath(remotePathWithFixedSeparators).asNioPath().toString() }.getOrNull() ?: remotePath
       }
 
       override fun canBeRemotePath(s: String?): Boolean {

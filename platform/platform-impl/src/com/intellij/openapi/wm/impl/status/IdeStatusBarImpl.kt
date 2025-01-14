@@ -23,6 +23,9 @@ import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.TaskInfo
 import com.intellij.openapi.progress.blockingContext
+import com.intellij.openapi.progress.impl.BridgeTaskSuspender
+import com.intellij.openapi.progress.impl.ProgressSuspender
+import com.intellij.openapi.progress.impl.TaskToProgressSuspenderSynchronizer
 import com.intellij.openapi.progress.util.AbstractProgressIndicatorExBase
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.MessageType
@@ -43,7 +46,9 @@ import com.intellij.openapi.wm.impl.welcomeScreen.cloneableProjects.CloneablePro
 import com.intellij.openapi.wm.impl.welcomeScreen.cloneableProjects.CloneableProjectsService.CloneProjectListener
 import com.intellij.platform.diagnostic.telemetry.impl.span
 import com.intellij.platform.ide.progress.ModalTaskOwner
+import com.intellij.platform.ide.progress.TaskCancellation
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
+import com.intellij.platform.ide.progress.suspender.TaskSuspender
 import com.intellij.platform.ide.progress.withBackgroundProgress
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.platform.util.progress.RawProgressReporter
@@ -99,7 +104,7 @@ open class IdeStatusBarImpl @ApiStatus.Internal constructor(
   private val widgetMap = LinkedHashMap<String, WidgetBean>()
   private var leftPanel: JPanel? = null
 
-  private val rightPanelLayout = GridBagLayout()
+  private var rightPanelLayout = GridBagLayout()
   private val rightPanel: JPanel
 
   private val centerPanel: JPanel
@@ -467,16 +472,22 @@ open class IdeStatusBarImpl @ApiStatus.Internal constructor(
 
     val indicatorFinished = CompletableDeferred<Unit>()
     indicator.addStateDelegate(object : AbstractProgressIndicatorExBase() {
-      override fun stop() {
-        super.stop()
+      override fun finish(task: TaskInfo) {
+        super.finish(task)
         indicatorFinished.complete(Unit)
       }
     })
 
+    // already finished, progress might not send another finished message
+    if (indicator.isFinished(info)) return
+
     coroutineScope.launch {
       val project = project ?: return@launch
 
-      withBackgroundProgress(project, info.title, info.isCancellable) {
+      val cancellation = if (info.isCancellable) TaskCancellation.cancellable() else TaskCancellation.nonCancellable()
+      val taskSuspender = BridgeTaskSuspender(indicator)
+
+      withBackgroundProgress(project, info.title, cancellation, taskSuspender) {
         val job1 = launch {
           reportRawProgress { reporter ->
             indicator.addStateDelegate(reporter.toBridgeIndicator())
@@ -530,7 +541,10 @@ open class IdeStatusBarImpl @ApiStatus.Internal constructor(
 
       override fun setFraction(fraction: Double) {
         super.setFraction(fraction)
-        reporter.fraction(fraction)
+        // RawProgressReporter logs an error if the value is not in the interval 0.0-1.0,
+        // but ProgressIndicator didn't have that check before (although, according to the documentation, it should be in the range),
+        // so some indicators report the wrong value and this can cause error spam - IJPL-166399
+        reporter.fraction(fraction.coerceIn(0.0, 1.0))
       }
     }
   }
@@ -747,11 +761,23 @@ open class IdeStatusBarImpl @ApiStatus.Internal constructor(
 
         val targetPanel = getTargetPanel(bean.position)
         targetPanel.remove(bean.component)
+        recreateLayoutIfIsEmptyRightPanel(targetPanel)
         targetPanel.revalidate()
         Disposer.dispose(bean.widget)
         fireWidgetRemoved(id)
       }
       updateChildren { it.removeWidget(id) }
+    }
+  }
+
+  private fun recreateLayoutIfIsEmptyRightPanel(panel: JPanel) {
+    if (panel === rightPanel && panel.components.none { it.isVisible }) {
+      // Workaround of a bug in AWT:
+      // GridBagLayout.componentAdjusting is not set to NULL after removing the last visible child component.
+      // That leads to a leak of the StatusBarWidget component, and that leads to a situation when the plugin can't be properly unloaded.
+      rightPanelLayout = GridBagLayout()
+      panel.layout = rightPanelLayout
+      sortRightWidgets()
     }
   }
 

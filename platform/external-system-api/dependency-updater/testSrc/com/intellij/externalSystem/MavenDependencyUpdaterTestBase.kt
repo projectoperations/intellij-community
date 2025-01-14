@@ -2,6 +2,7 @@ package com.intellij.externalSystem
 
 import com.intellij.externalSystem.DependencyModifierService.Companion.getInstance
 import com.intellij.maven.testFramework.MavenMultiVersionImportingTestCase
+import com.intellij.maven.testFramework.MavenMultiVersionImportingTestCaseLegacy
 import com.intellij.openapi.application.ex.PathManagerEx
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.util.io.FileUtil

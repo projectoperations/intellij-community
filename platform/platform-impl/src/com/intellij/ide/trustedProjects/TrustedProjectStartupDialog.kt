@@ -1,10 +1,12 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.trustedProjects
 
+import com.intellij.diagnostic.WindowsDefenderStatisticsCollector
 import com.intellij.icons.AllIcons
 import com.intellij.ide.IdeBundle
 import com.intellij.ide.impl.OpenUntrustedProjectChoice
 import com.intellij.ide.impl.TRUSTED_PROJECTS_HELP_TOPIC
+import com.intellij.ide.trustedProjects.impl.TrustedProjectUtil.findAllIndexesOfSymbol
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.observable.properties.PropertyGraph
 import com.intellij.openapi.project.Project
@@ -134,42 +136,47 @@ internal class TrustedProjectStartupDialog(
           row {
             text(message)
           }
-          row {
-            val trimmedFolderName =  StringUtil.shortenTextWithEllipsis(projectPath.parent.name, 40, 0, true)
-            checkBox(IdeBundle.message("untrusted.project.warning.trust.location.checkbox", trimmedFolderName))
-              .bindSelected(trustAll)
-              .apply {
-                component.toolTipText = null
-                component.addMouseMotionListener(TooltipMouseAdapter { listOf(getParentFolder().pathString) })
-              }
-              .onChanged {
-                if (it.isSelected) {
-                  windowsDefender.set(false)
+          if (getParentFolder() != null) {
+            row {
+              val trimmedFolderName = StringUtil.shortenTextWithEllipsis(getParentFolder()!!.name, 40, 0, true)
+              checkBox(IdeBundle.message("untrusted.project.warning.trust.location.checkbox", trimmedFolderName))
+                .bindSelected(trustAll)
+                .apply {
+                  component.toolTipText = null
+                  component.addMouseMotionListener(TooltipMouseAdapter { listOf(getParentFolder()!!.pathString) })
                 }
+                .onChanged {
+                  if (it.isSelected) {
+                    windowsDefender.set(false)
+                  }
 
-                if (trustAction != null) {
-                  val trustButton = getButton(trustAction!!)
-                  val text = if (it.isSelected) {
-                    val truncatedParentFolderName = StringUtil.shortenTextWithEllipsis(getTrustFolder(it.isSelected).name, 18, 0, true)
-                    IdeBundle.message("untrusted.project.dialog.trust.folder.button", truncatedParentFolderName)
-                  } else trustButtonText
-                  trustButton?.text = text
+                  if (trustAction != null) {
+                    val trustButton = getButton(trustAction!!)
+                    val text = if (it.isSelected) {
+                      val truncatedParentFolderName = StringUtil.shortenTextWithEllipsis(getTrustFolder(it.isSelected).name, 18, 0, true)
+                      IdeBundle.message("untrusted.project.dialog.trust.folder.button", truncatedParentFolderName)
+                    }
+                    else trustButtonText
+                    trustButton?.text = text
+                  }
+                  val trimmedFolderName = StringUtil.shortenTextWithEllipsis(getTrustFolder(it.isSelected).name, 18, 0, true)
+                  windowsDefenderCheckBox?.component?.text = IdeBundle.message("untrusted.project.windows.defender.trust.location.checkbox", trimmedFolderName)
                 }
-                val trimmedFolderName = StringUtil.shortenTextWithEllipsis(getTrustFolder(it.isSelected).name, 18, 0, true)
-                windowsDefenderCheckBox?.component?.text = IdeBundle.message("untrusted.project.windows.defender.trust.location.checkbox", trimmedFolderName)
-              }
+            }
           }
           row {
-            val trimmedFolderName = StringUtil.shortenTextWithEllipsis(projectPath.name, 18, 0, true)
+            val trimmedFolderName = StringUtil.shortenTextWithEllipsis(projectPath.name.ifEmpty { projectPath.toString() }
+
+                                                                       , 18, 0, true)
+            val idePaths = pathsToExclude.asSequence().filter { it != projectPath }.joinToString(separator = "<br>")
             windowsDefenderCheckBox = checkBox(IdeBundle.message("untrusted.project.windows.defender.trust.location.checkbox", trimmedFolderName))
               .bindSelected(windowsDefender)
               .apply {
                 component.toolTipText = null
-                component.addMouseMotionListener(TooltipMouseAdapter {
-                  listOf(pathsToExclude.joinToString(separator = "<br>"), getTrustFolder(isTrustAll()).pathString)
-                })
+                component.addMouseMotionListener(TooltipMouseAdapter { listOf(idePaths, getTrustFolder(isTrustAll()).pathString) })
                 comment(IdeBundle.message("untrusted.project.location.comment"))
                 visible(pathsToExclude.isNotEmpty())
+                if (pathsToExclude.isNotEmpty()) WindowsDefenderStatisticsCollector.checkboxShownInTrustDialog()
               }
           }
         }.align(AlignX.FILL + AlignY.FILL)
@@ -194,7 +201,7 @@ internal class TrustedProjectStartupDialog(
         checkBox.toolTipText = null
         return
       }
-      val quotePositions = StringUtil.findAllIndexesOfSymbol(textWithMarkedElements, '\'')
+      val quotePositions = findAllIndexesOfSymbol(textWithMarkedElements, '\'')
       // Estimate the character position based on mouse x-coordinate relative to bounds
       val positionX = ceil(mousePosition / (bounds.width / text.length)).toInt().coerceIn(0, text.length - 1)
 
@@ -212,9 +219,9 @@ internal class TrustedProjectStartupDialog(
     }
   }
 
-  private fun getTrustFolder(isTrustAll: Boolean): Path = if (isTrustAll) getParentFolder() else projectPath
+  private fun getTrustFolder(isTrustAll: Boolean): Path = if (isTrustAll) getParentFolder() ?: projectPath else projectPath
 
-  private fun getParentFolder(): Path = projectPath.parent
+  private fun getParentFolder(): Path? = projectPath.parent
 
   override fun createActions(): Array<out Action?> {
     val actions: MutableList<Action> = mutableListOf()

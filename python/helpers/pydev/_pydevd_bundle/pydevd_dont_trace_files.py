@@ -87,6 +87,7 @@ DONT_TRACE = {
     'pydevd_constants.py': PYDEV_FILE,
     'pydevd_custom_frames.py': PYDEV_FILE,
     'pydevd_cython_wrapper.py': PYDEV_FILE,
+    'pydevd_dataset.py': PYDEV_FILE,
     'pydevd_dont_trace.py': PYDEV_FILE,
     'pydevd_dont_trace_files.py': PYDEV_FILE,
     'pydevd_exec.py': PYDEV_FILE,
@@ -107,6 +108,7 @@ DONT_TRACE = {
     'pydevd_kill_all_pydevd_threads.py': PYDEV_FILE,
     'pydevd_modify_bytecode.py': PYDEV_FILE,
     'pydevd_numpy.py': PYDEV_FILE,
+    'pydevd_numpy_based.py': PYDEV_FILE,
     'pydevd_pandas.py': PYDEV_FILE,
     'pydevd_pep_669_tracing.py': PYDEV_FILE,
     'pydevd_pep_669_tracing_wrapper.py': PYDEV_FILE,
@@ -141,10 +143,12 @@ DONT_TRACE = {
     'pydevd_vars.py': PYDEV_FILE,
     'pydevd_vm_type.py': PYDEV_FILE,
     'pydevd_xml.py': PYDEV_FILE,
-    'test_common.py': PYDEV_FILE,
-    'test_pandas.py': PYDEV_FILE,
-    'test_pydev_nparray.py': PYDEV_FILE,
+    'test_pydev_common.py': PYDEV_FILE,
+    'test_pandas_internal_pydev.py': PYDEV_FILE,
+    'test_pydev_numpy_with_pandas.py': PYDEV_FILE,
+    'test_pydev_numpy_without_pandas.py': PYDEV_FILE,
     'test_pydev_pandas.py': PYDEV_FILE,
+    'test_pydev_polars.py': PYDEV_FILE,
 }
 
 DONT_TRACE['pydev_jupyter_plugin.py'] = PYDEV_FILE

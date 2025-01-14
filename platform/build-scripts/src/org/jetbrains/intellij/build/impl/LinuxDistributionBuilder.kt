@@ -3,6 +3,7 @@ package org.jetbrains.intellij.build.impl
 
 import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.openapi.util.io.NioFiles
+import com.intellij.platform.buildData.productInfo.ProductInfoLaunchData
 import io.opentelemetry.api.trace.Span
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.Dispatchers
@@ -11,7 +12,7 @@ import kotlinx.coroutines.withContext
 import org.jetbrains.intellij.build.*
 import org.jetbrains.intellij.build.impl.OsSpecificDistributionBuilder.Companion.suffix
 import org.jetbrains.intellij.build.impl.client.ADDITIONAL_EMBEDDED_CLIENT_VM_OPTIONS
-import org.jetbrains.intellij.build.impl.client.createJetBrainsClientContextForLaunchers
+import org.jetbrains.intellij.build.impl.client.createFrontendContextForLaunchers
 import org.jetbrains.intellij.build.impl.productInfo.*
 import org.jetbrains.intellij.build.impl.qodana.generateQodanaLaunchData
 import org.jetbrains.intellij.build.impl.support.RepairUtilityBuilder
@@ -65,7 +66,7 @@ class LinuxDistributionBuilder(
         }
         writeVmOptions(distBinDir)
         generateScripts(distBinDir, arch)
-        createJetBrainsClientContextForLaunchers(context)?.let { clientContext ->
+        createFrontendContextForLaunchers(context)?.let { clientContext ->
           writeLinuxVmOptions(distBinDir, clientContext)
           generateLauncherScript(distBinDir, arch, nonCustomizableJvmArgs = ADDITIONAL_EMBEDDED_CLIENT_VM_OPTIONS, clientContext)
         }
@@ -79,7 +80,7 @@ class LinuxDistributionBuilder(
   override suspend fun buildArtifacts(osAndArchSpecificDistPath: Path, arch: JvmArchitecture) {
     copyFilesForOsDistribution(osAndArchSpecificDistPath, arch)
     setLastModifiedTime(osAndArchSpecificDistPath, context)
-    val executableFileMatchers = generateExecutableFilesMatchers(true, arch).keys
+    val executableFileMatchers = generateExecutableFilesMatchers(includeRuntime = true, arch).keys
     updateExecutablePermissions(osAndArchSpecificDistPath, executableFileMatchers)
     context.executeStep(spanBuilder("Build Linux artifacts").setAttribute("arch", arch.name), BuildOptions.LINUX_ARTIFACTS_STEP) {
       if (customizer.buildArtifactWithoutRuntime) {
@@ -332,7 +333,7 @@ class LinuxDistributionBuilder(
   override fun isRuntimeBundled(file: Path): Boolean = !file.name.contains(NO_RUNTIME_SUFFIX)
 
   private suspend fun generateProductJson(targetDir: Path, arch: JvmArchitecture, withRuntime: Boolean = true): String {
-    val jetbrainsClientCustomLaunchData = generateJetBrainsClientLaunchData(arch, OsFamily.LINUX, context) {
+    val embeddedFrontendLaunchData = generateEmbeddedFrontendLaunchData(arch, OsFamily.LINUX, context) {
       "bin/${it.productProperties.baseFileName}64.vmoptions"
     }
     val qodanaCustomLaunchData = generateQodanaLaunchData(context, arch, OsFamily.LINUX)
@@ -340,17 +341,17 @@ class LinuxDistributionBuilder(
       relativePathToBin = "bin",
       builtinModules = context.builtinModule,
       launch = listOf(
-        ProductInfoLaunchData(
+        ProductInfoLaunchData.create(
           OsFamily.LINUX.osName,
           arch.dirName,
           launcherPath = "bin/${launcherFileName}",
           javaExecutablePath = if (withRuntime) "jbr/bin/java" else null,
           vmOptionsFilePath = "bin/${context.productProperties.baseFileName}64.vmoptions",
-          startupWmClass = getLinuxFrameClass(context),
           bootClassPathJarNames = context.bootClassPathJarNames,
           additionalJvmArguments = context.getAdditionalJvmArguments(OsFamily.LINUX, arch),
           mainClass = context.ideMainClassName,
-          customCommands = listOfNotNull(jetbrainsClientCustomLaunchData, qodanaCustomLaunchData)
+          startupWmClass = getLinuxFrameClass(context),
+          customCommands = listOfNotNull(embeddedFrontendLaunchData, qodanaCustomLaunchData)
         )
       ),
       context

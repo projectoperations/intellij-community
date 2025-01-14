@@ -35,6 +35,7 @@ import one.util.streamex.StreamEx;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
 
 import java.util.*;
 import java.util.function.Function;
@@ -338,7 +339,7 @@ public class NullableNotNullManagerImpl extends NullableNotNullManager implement
     return null;
   }
 
-  private @NotNull List<String> filterNickNames(@NotNull Nullability nullability) {
+  private @Unmodifiable @NotNull List<String> filterNickNames(@NotNull Nullability nullability) {
     return ContainerUtil.mapNotNull(getAllNullabilityNickNames(), c -> Jsr305Support.getNickNamedNullability(c) == nullability ? c.getQualifiedName() : null);
   }
 

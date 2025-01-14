@@ -2,6 +2,9 @@
 package org.jetbrains.intellij.build.productRunner
 
 import com.intellij.openapi.application.PathManager
+import com.intellij.platform.ijent.community.buildConstants.IJENT_WSL_FILE_SYSTEM_REGISTRY_KEY
+import com.intellij.platform.ijent.community.buildConstants.MULTI_ROUTING_FILE_SYSTEM_VMOPTIONS
+import com.intellij.platform.ijent.community.buildConstants.isIjentWslFsEnabledByDefaultForProduct
 import com.intellij.util.lang.HashMapZipFile
 import com.intellij.util.xml.dom.readXmlAsModel
 import com.jetbrains.plugin.structure.base.utils.exists
@@ -43,6 +46,12 @@ suspend fun runApplicationStarter(
   val jvmArgs = getCommandLineArgumentsForOpenPackages(context).toMutableList()
 
   val systemDir = tempDir.resolve("system")
+
+  val useMultiRoutingFs = isIjentWslFsEnabledByDefaultForProduct(context.productProperties.platformPrefix)
+  if (useMultiRoutingFs) {
+    jvmArgs.addAll(MULTI_ROUTING_FILE_SYSTEM_VMOPTIONS)
+  }
+
   jvmArgs.addAll(vmProperties.mutate {
     put(PathManager.PROPERTY_HOME_PATH, homePath.toString())
 
@@ -57,6 +66,10 @@ suspend fun runApplicationStarter(
 
     put("ij.dir.lock.debug", "true")
     put("intellij.log.to.json.stdout", "true")
+
+    if (!useMultiRoutingFs) {
+      put(IJENT_WSL_FILE_SYSTEM_REGISTRY_KEY, "false")
+    }
   }.toJvmArgs())
   jvmArgs.addAll(vmOptions.takeIf { it.isNotEmpty() } ?: listOf("-Xmx2g"))
   System.getProperty("intellij.build.${args.first()}.debug.port")?.let {
@@ -117,7 +130,7 @@ private fun readPluginId(pluginJar: Path): String? {
       return readXmlAsModel(zip.getInputStream("META-INF/plugin.xml") ?: return null).getChild("id")?.content
     }
   }
-  catch (ignore: NoSuchFileException) {
+  catch (_: NoSuchFileException) {
     return null
   }
 }
@@ -130,7 +143,7 @@ private fun disableCompatibleIgnoredPlugins(context: BuildContext, configDir: Pa
     val pluginId = child?.content ?: continue
     if (!explicitlyEnabledPlugins.contains(pluginId)) {
       toDisable.add(pluginId)
-      Span.current().addEvent("\'$pluginId\' will be disabled, because it\'s mentioned in \'compatiblePluginsToIgnore\'")
+      Span.current().addEvent("'$pluginId' will be disabled, because it's mentioned in 'compatiblePluginsToIgnore'")
     }
   }
   if (!toDisable.isEmpty()) {
@@ -141,7 +154,7 @@ private fun disableCompatibleIgnoredPlugins(context: BuildContext, configDir: Pa
 
 /**
  * Runs a java process which main class depends on IntelliJ platform modules.
- * 
+ *
  * Use [IntellijProductRunner.runProduct] to run an actual IntelliJ product with special command line arguments.
  */
 suspend fun runJavaForIntellijModule(
@@ -154,10 +167,15 @@ suspend fun runJavaForIntellijModule(
   workingDir: Path? = null,
   onError: (() -> Unit)? = null,
 ) {
+  val multiRoutingFsVmOptions =
+    if (isIjentWslFsEnabledByDefaultForProduct(null))
+      MULTI_ROUTING_FILE_SYSTEM_VMOPTIONS
+    else
+      listOf("-D$IJENT_WSL_FILE_SYSTEM_REGISTRY_KEY=false")
   runJava(
     mainClass = mainClass,
     args = args,
-    jvmArgs = getCommandLineArgumentsForOpenPackages(context) + jvmArgs + listOf("-Dij.dir.lock.debug=true", "-Dintellij.log.to.json.stdout=true"),
+    jvmArgs = getCommandLineArgumentsForOpenPackages(context) + jvmArgs + listOf("-Dij.dir.lock.debug=true", "-Dintellij.log.to.json.stdout=true") + multiRoutingFsVmOptions,
     classPath = classPath,
     javaExe = context.stableJavaExecutable,
     timeout = timeout,

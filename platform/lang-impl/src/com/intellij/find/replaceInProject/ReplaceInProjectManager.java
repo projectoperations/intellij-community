@@ -46,6 +46,7 @@ import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
 
 import javax.swing.*;
 import java.awt.event.ActionEvent;
@@ -240,7 +241,7 @@ public class ReplaceInProjectManager {
       .ask(myProject);
   }
 
-  private static Set<VirtualFile> getFiles(@NotNull Collection<Usage> usages) {
+  private static @Unmodifiable Set<VirtualFile> getFiles(@NotNull Collection<Usage> usages) {
     return ContainerUtil.map2Set(usages, usage -> ((UsageInfo2UsageAdapter)usage).getFile());
   }
 

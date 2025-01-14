@@ -1,0 +1,23 @@
+### auto-generated section `build intellij.tasks.jira` start
+load("@rules_jvm//:jvm.bzl", "jvm_library")
+
+jvm_library(
+  name = "tasks-jira",
+  module_name = "intellij.tasks.jira",
+  visibility = ["//visibility:public"],
+  srcs = glob(["src/**/*.kt", "src/**/*.java", "gen/**/*.kt", "gen/**/*.java"], allow_empty = True),
+  deps = [
+    "//plugins/tasks/tasks-core:core",
+    "//plugins/tasks/tasks-compatibility:compatibility",
+    "//platform/lang-api:lang",
+    "//platform/platform-impl:ide-impl",
+    "//platform/lang-impl",
+    "//platform/tasks-platform-impl:tasks-impl",
+    "//plugins/tasks/tasks-api:tasks",
+    "@lib//:xml_r_p_c",
+    "@lib//:gson",
+    "//platform/core-ui",
+    "//platform/util/jdom",
+  ]
+)
+### auto-generated section `build intellij.tasks.jira` end

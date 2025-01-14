@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight;
 
 import com.intellij.java.analysis.OuterModelsModificationTrackerManager;
@@ -27,6 +27,7 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.HashingStrategy;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentMap;
@@ -325,8 +326,7 @@ public abstract class MetaAnnotationUtil {
     return stream;
   }
 
-  @Nullable
-  private static PsiAnnotation metaAnnotationCached(PsiClass subjectAnnotation, String annotationToFind) {
+  private static @Nullable PsiAnnotation metaAnnotationCached(PsiClass subjectAnnotation, String annotationToFind) {
     return CachedValuesManager.getCachedValue(subjectAnnotation, () -> {
       ConcurrentMap<String, PsiAnnotation> metaAnnotationsMap = ConcurrentFactoryMap.createMap(
         anno -> findMetaAnnotation(subjectAnnotation, anno, new HashSet<>()));
@@ -334,29 +334,31 @@ public abstract class MetaAnnotationUtil {
     }).get(annotationToFind);
   }
 
-  @Nullable
-  private static PsiAnnotation findMetaAnnotation(PsiClass aClass, String annotation, Set<? super PsiClass> visited) {
-    PsiAnnotation directAnnotation = AnnotationUtil.findAnnotation(aClass, true, annotation);
-    if (directAnnotation != null) {
-      return directAnnotation;
-    }
+  private static @Nullable PsiAnnotation findMetaAnnotation(PsiClass aClass, String annotation, Set<? super PsiClass> visited) {
+    Deque<PsiClass> stack = new ArrayDeque<>();
+    stack.push(aClass);
 
-    List<PsiClass> resolvedAnnotations = getResolvedClassesInAnnotationsList(aClass);
-    for (PsiClass resolvedAnnotation : resolvedAnnotations) {
-      if (visited.add(resolvedAnnotation)) {
-        PsiAnnotation annotated = findMetaAnnotation(resolvedAnnotation, annotation, visited);
-        if (annotated != null) {
-          return annotated;
+    while (!stack.isEmpty()) {
+        PsiClass currentClass = stack.pop();
+        
+        PsiAnnotation directAnnotation = AnnotationUtil.findAnnotation(currentClass, true, annotation);
+        if (directAnnotation != null) {
+            return directAnnotation;
         }
-      }
+
+        List<PsiClass> resolvedAnnotations = getResolvedClassesInAnnotationsList(currentClass);
+        for (PsiClass resolvedAnnotation : resolvedAnnotations) {
+            if (visited.add(resolvedAnnotation)) {
+                stack.push(resolvedAnnotation);
+            }
+        }
     }
 
     return null;
-  }
+}
 
-  @NotNull
-  public static Stream<PsiAnnotation> findMetaAnnotations(@NotNull PsiModifierListOwner listOwner,
-                                                          @NotNull Collection<String> annotations) {
+  public static @NotNull Stream<PsiAnnotation> findMetaAnnotations(@NotNull PsiModifierListOwner listOwner,
+                                                                   @NotNull Collection<String> annotations) {
     Stream<PsiAnnotation> directAnnotations = Stream.of(AnnotationUtil.findAnnotations(listOwner, annotations));
 
     Stream<PsiClass> lazyResolvedAnnotations =
@@ -398,7 +400,7 @@ public abstract class MetaAnnotationUtil {
     return Stream.concat(directAnnotations, indirectAnnotations);
   }
 
-  private static List<PsiClass> getResolvedClassesInAnnotationsList(PsiModifierListOwner owner) {
+  private static @Unmodifiable List<PsiClass> getResolvedClassesInAnnotationsList(PsiModifierListOwner owner) {
     PsiModifierList modifierList = owner.getModifierList();
     if (modifierList != null) {
       return ContainerUtil.mapNotNull(modifierList.getApplicableAnnotations(), MetaAnnotationUtil::resolveAnnotationType);

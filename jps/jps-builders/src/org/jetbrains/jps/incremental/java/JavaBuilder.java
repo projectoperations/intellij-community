@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.jps.incremental.java;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -9,9 +9,9 @@ import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.io.FileFilters;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.util.text.Strings;
 import com.intellij.util.ExceptionUtil;
 import com.intellij.util.concurrency.Semaphore;
-import com.intellij.util.concurrency.SequentialTaskExecutor;
 import com.intellij.util.containers.FileCollectionFactory;
 import com.intellij.util.containers.SmartHashSet;
 import com.intellij.util.execution.ParametersListUtil;
@@ -56,18 +56,14 @@ import org.jetbrains.jps.model.serialization.PathMacroUtil;
 import org.jetbrains.jps.service.JpsServiceManager;
 import org.jetbrains.jps.service.SharedThreadPool;
 
-import javax.tools.Diagnostic;
-import javax.tools.DiagnosticListener;
-import javax.tools.JavaFileObject;
+import javax.tools.*;
 import java.io.File;
 import java.io.FileFilter;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.Executor;
-import java.util.concurrent.Future;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
@@ -154,12 +150,14 @@ public final class JavaBuilder extends ModuleLevelBuilder {
     ourClassProcessors.add(processor);
   }
 
-  private final Executor myTaskRunner;
+  private final Executor taskExecutor;
+  private final AtomicBoolean isRunning = new AtomicBoolean(false);
+  private final ConcurrentLinkedQueue<Runnable> taskQueue = new ConcurrentLinkedQueue<>();
   private final Collection<JavacFileReferencesRegistrar> myRefRegistrars = new ArrayList<>();
 
-  public JavaBuilder(Executor tasksExecutor) {
+  public JavaBuilder(Executor taskExecutor) {
     super(BuilderCategory.TRANSLATOR);
-    myTaskRunner = SequentialTaskExecutor.createSequentialApplicationPoolExecutor("JavaBuilder Pool", tasksExecutor);
+    this.taskExecutor = taskExecutor;
     //add here class processors in the sequence they should be executed
   }
 
@@ -169,7 +167,7 @@ public final class JavaBuilder extends ModuleLevelBuilder {
 
   @Override
   public @NotNull String getPresentableName() {
-    return StringUtil.capitalize(getBuilderName());
+    return Strings.capitalize(getBuilderName());
   }
 
   @Override
@@ -785,7 +783,7 @@ public final class JavaBuilder extends ModuleLevelBuilder {
     assert counter != null;
 
     counter.down();
-    myTaskRunner.execute(() -> {
+    taskQueue.add(() -> {
       try {
         taskRunnable.run();
       }
@@ -793,13 +791,32 @@ public final class JavaBuilder extends ModuleLevelBuilder {
         context.processMessage(new CompilerMessage(getBuilderName(), e));
       }
       finally {
-        counter.up();
+        try {
+          scheduleNext();
+        }
+        finally {
+          counter.up();
+        }
       }
     });
+
+    if (isRunning.compareAndSet(false, true)) {
+      scheduleNext();
+    }
+  }
+
+  private void scheduleNext() {
+    Runnable nextTask = taskQueue.poll();
+    if (nextTask == null) {
+      isRunning.set(false);
+    }
+    else {
+      taskExecutor.execute(nextTask);
+    }
   }
 
   private static synchronized @NotNull ExternalJavacManager ensureJavacServerStarted(@NotNull CompileContext context) throws IOException {
-    ExternalJavacManager server = ExternalJavacManager.KEY.get(context);
+    ExternalJavacManager server = ExternalJavacManagerKey.KEY.get(context);
     if (server != null) {
       return server;
     }
@@ -821,7 +838,7 @@ public final class JavaBuilder extends ModuleLevelBuilder {
       }
     };
     server.start(listenPort);
-    ExternalJavacManager.KEY.set(context, server);
+    ExternalJavacManagerKey.KEY.set(context, server);
     return server;
   }
 
@@ -1272,7 +1289,7 @@ public final class JavaBuilder extends ModuleLevelBuilder {
   @Override
   public void chunkBuildFinished(CompileContext context, ModuleChunk chunk) {
     JavaBuilderUtil.cleanupChunkResources(context);
-    ExternalJavacManager extJavacManager = ExternalJavacManager.KEY.get(context);
+    ExternalJavacManager extJavacManager = ExternalJavacManagerKey.KEY.get(context);
     if (extJavacManager != null) {
       extJavacManager.shutdownIdleProcesses();
     }

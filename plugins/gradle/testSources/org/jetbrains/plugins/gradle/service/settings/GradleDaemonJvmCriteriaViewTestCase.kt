@@ -5,8 +5,10 @@ import com.intellij.openapi.Disposable
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.junit5.TestDisposable
 import org.gradle.internal.jvm.inspection.JvmVendor
+import org.jetbrains.plugins.gradle.service.execution.GradleDaemonJvmCriteria
 import org.jetbrains.plugins.gradle.service.settings.GradleDaemonJvmCriteriaView.VendorItem
 import org.jetbrains.plugins.gradle.service.settings.GradleDaemonJvmCriteriaView.VersionItem
+import org.jetbrains.plugins.gradle.util.toJvmVendor
 import org.junit.jupiter.api.Assertions.assertEquals
 import javax.swing.ComboBoxModel
 
@@ -23,12 +25,14 @@ abstract class GradleDaemonJvmCriteriaViewTestCase {
     vendorDropdownList: List<JvmVendor.KnownJvmVendor>,
     displayAdvancedSettings: Boolean,
   ) = GradleDaemonJvmCriteriaView(
-    version,
-    vendor,
-    versionsDropdownList,
-    vendorDropdownList,
-    displayAdvancedSettings,
-    testRootDisposable
+    criteria = GradleDaemonJvmCriteria(
+      version = version,
+      vendor = vendor?.toJvmVendor()
+    ),
+    versionsDropdownList = versionsDropdownList,
+    vendorDropdownList = vendorDropdownList,
+    displayAdvancedSettings = displayAdvancedSettings,
+    disposable = testRootDisposable
   )
 
   fun assertVersionDropdownList(versions: IntRange, model: ComboBoxModel<VersionItem>) {

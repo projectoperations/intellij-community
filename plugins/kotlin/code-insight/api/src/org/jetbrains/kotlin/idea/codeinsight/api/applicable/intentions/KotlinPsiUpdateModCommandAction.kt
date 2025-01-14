@@ -3,6 +3,7 @@ package org.jetbrains.kotlin.idea.codeinsight.api.applicable.intentions
 
 import com.intellij.codeInsight.intention.FileModifier
 import com.intellij.modcommand.*
+import com.intellij.modcommand.PsiBasedModCommandAction
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.psi.PsiElement
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
@@ -11,7 +12,7 @@ import org.jetbrains.kotlin.idea.codeinsight.api.applicable.getElementContext
 import org.jetbrains.kotlin.psi.KtElement
 import kotlin.reflect.KClass
 
-sealed class KotlinPsiUpdateModCommandAction<E : PsiElement, C : Any> private constructor(
+sealed class KotlinPsiUpdateModCommandAction<E : PsiElement, C : Any>(
     element: E?,
     elementClass: KClass<E>?,
 ) : PsiBasedModCommandAction<E>(element, elementClass?.java) {
@@ -55,6 +56,10 @@ sealed class KotlinPsiUpdateModCommandAction<E : PsiElement, C : Any> private co
         element: E,
     ): C?
 
+    /**
+     * Use [PsiUpdateModCommandAction] if you don't need an elementContext.
+     * See more in plugins/kotlin/docs/fir-ide/architecture/code-insights.md.
+     */
     abstract class ElementBased<E : PsiElement, C : Any>(
         element: E,
         @FileModifier.SafeFieldForPreview private val elementContext: C,

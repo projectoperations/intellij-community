@@ -13,12 +13,11 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Computable
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.Key
-import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.use
-import com.intellij.openapi.vfs.impl.wsl.WslConstants
 import com.intellij.platform.eel.*
 import com.intellij.platform.eel.EelExecApi.ExecuteProcessError
-import com.intellij.platform.eel.provider.EelProcessResultImpl
+import com.intellij.platform.eel.impl.fs.EelProcessResultImpl
+import com.intellij.platform.eel.path.EelPath
 import com.intellij.platform.ijent.IjentExecApi
 import com.intellij.platform.ijent.IjentPosixApi
 import com.intellij.platform.ijent.IjentProcessInfo
@@ -38,6 +37,7 @@ import io.kotest.matchers.collections.beEmpty
 import io.kotest.matchers.collections.haveSize
 import io.kotest.matchers.nulls.beNull
 import io.kotest.matchers.should
+import io.kotest.matchers.shouldNot
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DelicateCoroutinesApi
@@ -48,7 +48,6 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestTemplate
 import org.junit.jupiter.api.extension.*
 import java.io.File
-import java.lang.reflect.Field
 import java.nio.file.FileSystems
 import java.util.stream.Stream
 import kotlin.reflect.full.memberProperties
@@ -504,6 +503,10 @@ class WSLDistributionTest {
         sourceCommandLine.isProcessCreatorSet should be(true)
       }
 
+      withClue("Eel should not be set for a patched command line") {
+        sourceCommandLine.tryGetEel() should beNull()
+      }
+
       withClue("Checking that the mock works") {
         val err = shouldThrow<ProcessNotCreatedException> {
           sourceCommandLine.createProcess()
@@ -517,6 +520,16 @@ class WSLDistributionTest {
 enum class WslTestStrategy { Legacy, Ijent }
 
 private class MockIjentApi(private val adapter: GeneralCommandLine, val rootUser: Boolean) : IjentPosixApi {
+  override val descriptor: EelDescriptor
+    get() = object : EelDescriptor {
+      override val operatingSystem: EelPath.OS
+        get() = EelPath.OS.UNIX
+
+      override suspend fun upgrade(): EelApi {
+        throw UnsupportedOperationException()
+      }
+    }
+
   override val platform: EelPlatform.Posix get() = throw UnsupportedOperationException()
 
   override val archive: EelArchiveApi get() = throw UnsupportedOperationException()
@@ -540,6 +553,7 @@ private class MockIjentApi(private val adapter: GeneralCommandLine, val rootUser
 
 private class MockIjentExecApi(private val adapter: GeneralCommandLine, private val rootUser: Boolean) : IjentExecApi {
 
+  override val descriptor: EelDescriptor get() = throw UnsupportedOperationException()
 
   override suspend fun execute(builder: EelExecApi.ExecuteProcessOptions): EelResult<EelProcess, ExecuteProcessError> = executeResultMock.also {
     adapter.exePath = builder.exe
@@ -547,7 +561,7 @@ private class MockIjentExecApi(private val adapter: GeneralCommandLine, private 
       adapter.putUserData(TEST_ROOT_USER_SET, true)
     }
     adapter.addParameters(builder.args)
-    adapter.setWorkDirectory(builder.workingDirectory)
+    adapter.setWorkDirectory(builder.workingDirectory?.toString())
     adapter.environment.putAll(builder.env)
   }
 

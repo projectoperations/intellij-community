@@ -55,6 +55,7 @@ import com.intellij.xdebugger.impl.breakpoints.XExpressionImpl;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
 
 import javax.swing.*;
 import java.awt.*;
@@ -69,11 +70,11 @@ import java.util.List;
 public abstract class XDebuggerEditorBase implements Expandable {
   private final Project myProject;
   private final XDebuggerEditorsProvider myDebuggerEditorsProvider;
-  @NotNull private final EvaluationMode myMode;
-  @Nullable private final String myHistoryId;
-  @Nullable private XSourcePosition mySourcePosition;
+  private final @NotNull EvaluationMode myMode;
+  private final @Nullable String myHistoryId;
+  private @Nullable XSourcePosition mySourcePosition;
   private int myHistoryIndex = -1;
-  @Nullable private PsiElement myContext;
+  private @Nullable PsiElement myContext;
 
   private final LanguageChooser myLanguageChooser = new LanguageChooser();
   private final JLabel myExpandButton = new JLabel(AllIcons.General.ExpandComponent);
@@ -127,8 +128,7 @@ public abstract class XDebuggerEditorBase implements Expandable {
     });
   }
 
-  @NotNull
-  private Collection<Language> getSupportedLanguages() {
+  private @NotNull @Unmodifiable Collection<Language> getSupportedLanguages() {
     XDebuggerEditorsProvider editorsProvider = getEditorsProvider();
     if (myContext != null && editorsProvider instanceof XDebuggerEditorsProviderBase) {
       return ((XDebuggerEditorsProviderBase)editorsProvider).getSupportedLanguages(myContext);
@@ -210,13 +210,11 @@ public abstract class XDebuggerEditorBase implements Expandable {
     }
   }
 
-  @NotNull
-  public EvaluationMode getMode() {
+  public @NotNull EvaluationMode getMode() {
     return myMode;
   }
 
-  @Nullable
-  public abstract Editor getEditor();
+  public abstract @Nullable Editor getEditor();
 
   public abstract JComponent getComponent();
 
@@ -255,8 +253,7 @@ public abstract class XDebuggerEditorBase implements Expandable {
 
   public abstract XExpression getExpression();
 
-  @Nullable
-  public abstract JComponent getPreferredFocusedComponent();
+  public abstract @Nullable JComponent getPreferredFocusedComponent();
 
   public void requestFocusInEditor() {
     JComponent preferredFocusedComponent = getPreferredFocusedComponent();
@@ -291,8 +288,7 @@ public abstract class XDebuggerEditorBase implements Expandable {
     }
   }
 
-  @NotNull
-  protected FileType getFileType(@NotNull XExpression expression) {
+  protected @NotNull FileType getFileType(@NotNull XExpression expression) {
     FileType fileType = LanguageUtil.getLanguageFileType(expression.getLanguage());
     if (fileType != null) {
       return fileType;
@@ -352,9 +348,24 @@ public abstract class XDebuggerEditorBase implements Expandable {
     CharSequence text = editor.getDocument().getCharsSequence();
     foldingModel.runBatchFoldingOperation(() -> {
       foldingModel.clearFoldRegions();
-      for (int i = 0; i < text.length(); i++) {
+
+      // Fold the whitespaces at the beginning of a string
+      int start = 0;
+      while (start < text.length() && Character.isWhitespace(text.charAt(start))) {
+        start++;
+      }
+      if (start > 0) {
+        foldingModel.createFoldRegion(0, start, "", null, true);
+      }
+
+      for (int i = start; i < text.length(); i++) {
         if (text.charAt(i) == '\n') {
-          foldingModel.createFoldRegion(i, i + 1, "\u23ce", null, true);
+          // Fold the whitespaces after a newline character
+          int j = i + 1;
+          while (j < text.length() && Character.isWhitespace(text.charAt(j))) {
+            j++;
+          }
+          foldingModel.createFoldRegion(i, j, "\u23ce", null, true);
         }
       }
     });
@@ -497,8 +508,7 @@ public abstract class XDebuggerEditorBase implements Expandable {
     }});
   }
 
-  @NotNull
-  private static @NlsContexts.Label String getAdText() {
+  private static @NotNull @NlsContexts.Label String getAdText() {
     return XDebuggerBundle.message("xdebugger.evaluate.history.navigate.ad",
                                    NlsMessages.formatAndList(Arrays.asList(
                                      KeymapUtil.getKeystrokeText(KeymapUtil.getKeyStroke(CommonShortcuts.MOVE_DOWN)),

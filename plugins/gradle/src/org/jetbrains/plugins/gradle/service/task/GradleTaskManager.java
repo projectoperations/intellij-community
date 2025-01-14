@@ -8,8 +8,6 @@ import com.intellij.execution.executors.DefaultRunExecutor;
 import com.intellij.execution.target.TargetProgressIndicator;
 import com.intellij.execution.target.local.LocalTargetEnvironment;
 import com.intellij.execution.target.local.LocalTargetEnvironmentRequest;
-import com.intellij.gradle.toolingExtension.GradleToolingExtensionClass;
-import com.intellij.gradle.toolingExtension.impl.GradleToolingExtensionImplClass;
 import com.intellij.gradle.toolingExtension.util.GradleVersionUtil;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
@@ -32,7 +30,6 @@ import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.UserDataHolderBase;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.platform.externalSystem.rt.ExternalSystemRtClass;
 import com.intellij.task.RunConfigurationTaskState;
 import com.intellij.util.containers.ContainerUtil;
 import org.gradle.api.Task;
@@ -71,7 +68,6 @@ public class GradleTaskManager implements ExternalSystemTaskManager<GradleExecut
   public static final Key<String> INIT_SCRIPT_PREFIX_KEY = Key.create("INIT_SCRIPT_PREFIX_KEY");
   public static final Key<Collection<VersionSpecificInitScript>> VERSION_SPECIFIC_SCRIPTS_KEY = Key.create("VERSION_SPECIFIC_SCRIPTS_KEY");
   private static final Logger LOG = Logger.getInstance(GradleTaskManager.class);
-  private final GradleExecutionHelper myHelper = new GradleExecutionHelper();
 
   private final Map<ExternalSystemTaskId, CancellationTokenSource> myCancellationMap = new ConcurrentHashMap<>();
 
@@ -118,7 +114,7 @@ public class GradleTaskManager implements ExternalSystemTaskManager<GradleExecut
         String rootProjectPath = determineRootProject(projectPath);
         GradleWrapperHelper.ensureInstalledWrapper(id, rootProjectPath, settings, listener, cancellationToken);
       }
-      myHelper.execute(projectPath, settings, id, listener, cancellationToken, connection -> {
+      GradleExecutionHelper.execute(projectPath, settings, id, listener, cancellationToken, connection -> {
         executeTasks(projectPath, id, settings, listener, connection, cancellationToken);
         return null;
       });
@@ -161,7 +157,7 @@ public class GradleTaskManager implements ExternalSystemTaskManager<GradleExecut
       var operation = isApplicableTestLauncher(id, projectPath, settings, gradleVersion)
                       ? connection.newTestLauncher()
                       : connection.newBuild();
-      GradleExecutionHelper.prepareForExecution(connection, operation, cancellationToken, id, settings, listener);
+      GradleExecutionHelper.prepareForExecution(operation, cancellationToken, id, settings, listener, buildEnvironment);
       if (operation instanceof BuildLauncher) {
         ((BuildLauncher)operation).run();
       }
@@ -376,7 +372,8 @@ public class GradleTaskManager implements ExternalSystemTaskManager<GradleExecut
     }
 
     if (settings.getArguments().contains(GradleConstants.INIT_SCRIPT_CMD_OPTION)) {
-      GradleInitScriptUtil.attachTargetPathMapperInitScript(settings);
+      var targetPathMapperInitScript = GradleInitScriptUtil.createTargetPathMapperInitScript();
+      settings.prependArguments(GradleConstants.INIT_SCRIPT_CMD_OPTION, targetPathMapperInitScript.toString());
     }
   }
 
@@ -455,9 +452,6 @@ public class GradleTaskManager implements ExternalSystemTaskManager<GradleExecut
     Set<Class<?>> tools = new HashSet<>(toolingExtensionClasses);
     tools.add(taskClass);
     tools.add(GsonBuilder.class);
-    tools.add(ExternalSystemRtClass.class);
-    tools.add(GradleToolingExtensionClass.class);
-    tools.add(GradleToolingExtensionImplClass.class);
     String initScript = GradleInitScriptUtil.loadTaskInitScript(gradlePath, taskName, taskType, tools, taskConfiguration);
     runCustomTaskScript(project, executionName, projectPath, gradlePath, progressExecutionMode, callback, initScript, taskName);
   }

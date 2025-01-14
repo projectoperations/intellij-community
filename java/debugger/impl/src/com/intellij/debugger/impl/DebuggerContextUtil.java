@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.debugger.impl;
 
 import com.intellij.codeInsight.daemon.impl.IdentifierHighlighterPass;
@@ -28,6 +28,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
+import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -38,7 +39,7 @@ public final class DebuggerContextUtil {
 
     final DebuggerSession session = context.getDebuggerSession();
     if (session != null) {
-      session.getProcess().getManagerThread().schedule(new DebuggerCommandImpl(PrioritizedTask.Priority.HIGH) {
+      Objects.requireNonNull(context.getManagerThread()).schedule(new DebuggerCommandImpl(PrioritizedTask.Priority.HIGH) {
         @Override
         protected void action() {
           SuspendContextImpl threadSuspendContext =
@@ -69,8 +70,7 @@ public final class DebuggerContextUtil {
                             DebuggerSession.Event.CONTEXT, null);
   }
 
-  @NotNull
-  public static DebuggerContextImpl createDebuggerContext(@NotNull DebuggerSession session, SuspendContextImpl suspendContext) {
+  public static @NotNull DebuggerContextImpl createDebuggerContext(@NotNull DebuggerSession session, SuspendContextImpl suspendContext) {
     return DebuggerContextImpl.createDebuggerContext(
       session, suspendContext, suspendContext != null ? suspendContext.getThread() : null, null);
   }
@@ -86,7 +86,7 @@ public final class DebuggerContextUtil {
       action.accept(defaultDebuggerContext);
     }
     else {
-      debugProcess.getManagerThread().schedule(new SuspendContextCommandImpl(pausedContext) {
+      pausedContext.getManagerThread().schedule(new SuspendContextCommandImpl(pausedContext) {
         @Override
         public void contextAction(@NotNull SuspendContextImpl suspendContext) {
           DebuggerContextImpl debuggerContext = DebuggerContextImpl.createDebuggerContext(

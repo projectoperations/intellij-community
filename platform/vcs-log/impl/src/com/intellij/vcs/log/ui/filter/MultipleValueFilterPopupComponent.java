@@ -45,7 +45,7 @@ abstract class MultipleValueFilterPopupComponent<Filter, Model extends FilterMod
     myUiProperties.addRecentlyFilteredGroup(myName, parseLocalizedValues(values));
   }
 
-  protected abstract @NotNull List<String> getAllValues();
+  protected abstract @Unmodifiable @NotNull List<String> getAllValues();
 
   protected abstract @Nullable Filter createFilter(@NotNull List<String> values);
 

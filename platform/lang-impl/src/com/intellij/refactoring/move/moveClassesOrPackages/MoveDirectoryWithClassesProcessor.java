@@ -184,7 +184,7 @@ public class MoveDirectoryWithClassesProcessor extends BaseRefactoringProcessor 
       myNonCodeUsages = ContainerUtil.filterIsInstance(usages, NonCodeUsageInfo.class).toArray(NonCodeUsageInfo[]::new);
       List<UsageInfo> usagesToRetarget = new SmartList<>(usages);
       for (MoveDirectoryWithClassesHelper helper : MoveDirectoryWithClassesHelper.findAll()) {
-        helper.retargetUsages(usagesToRetarget, oldToNewElementsMapping);
+        usagesToRetarget = helper.retargetUsages(usagesToRetarget, oldToNewElementsMapping);
       }
       List<UsageInfo> postProcessUsages = new SmartList<>(usages);
       myNestedDirsToMove.entrySet().stream().filter(entry -> entry.getValue().getTargetDirectory() != null)
@@ -268,7 +268,7 @@ public class MoveDirectoryWithClassesProcessor extends BaseRefactoringProcessor 
     final PsiElement[] children = directory.getChildren();
     final String relativePath = VfsUtilCore.getRelativePath(directory.getVirtualFile(), rootDirectory.getVirtualFile(), '/');
 
-    final TargetDirectoryWrapper newTargetDirectory = relativePath.length() == 0
+    final TargetDirectoryWrapper newTargetDirectory = relativePath.isEmpty()
                                                       ? targetDirectory
                                                       : targetDirectory.findOrCreateChild(relativePath);
     nestedDirsToMove.put(directory, newTargetDirectory);

@@ -19,7 +19,6 @@ import com.intellij.openapi.vfs.newvfs.persistent.namecache.MRUFileNameCache;
 import com.intellij.openapi.vfs.newvfs.persistent.namecache.SLRUFileNameCache;
 import com.intellij.openapi.vfs.newvfs.persistent.recovery.VFSInitializationResult;
 import com.intellij.serviceContainer.AlreadyDisposedException;
-import com.intellij.serviceContainer.ContainerUtilKt;
 import com.intellij.util.ExceptionUtil;
 import com.intellij.util.Processor;
 import com.intellij.util.SlowOperations;
@@ -117,11 +116,6 @@ public final class FSRecordsImpl implements Closeable {
    */
   public static final boolean REUSE_DELETED_FILE_IDS = getBooleanProperty("vfs.reuse-deleted-file-ids", false);
 
-  /**
-   * Wrap {@link AlreadyDisposedException} in {@link ProcessCanceledException} if under progress indicator or Job.
-   * See containerUtil.isUnderIndicatorOrJob()
-   */
-  private static final boolean WRAP_ADE_IN_PCE = getBooleanProperty("vfs.wrap-ade-in-pce", true);
   //@formatter:on
 
   private static final FileAttribute SYMLINK_TARGET_ATTRIBUTE = new FileAttribute("FsRecords.SYMLINK_TARGET");
@@ -460,11 +454,7 @@ public final class FSRecordsImpl implements Closeable {
       alreadyDisposed.addSuppressed(closedStackTrace);
     }
 
-    if (!WRAP_ADE_IN_PCE) {
-      return alreadyDisposed;
-    }
-
-    return ContainerUtilKt.wrapAlreadyDisposedError(alreadyDisposed);
+    return alreadyDisposed;
   }
 
 
@@ -754,8 +744,7 @@ public final class FSRecordsImpl implements Closeable {
   }
 
 
-  @Unmodifiable
-  public @NotNull List<CharSequence> listNames(int parentId) {
+  public @Unmodifiable @NotNull List<CharSequence> listNames(int parentId) {
     return ContainerUtil.map(list(parentId).children, ChildInfo::getName);
   }
 
@@ -763,7 +752,7 @@ public final class FSRecordsImpl implements Closeable {
   @NotNull
   ListResult update(@NotNull VirtualFile parent,
                     int parentId,
-                    @NotNull Function<? super ListResult, ListResult> childrenConvertor) {
+                    @NotNull Function<? super ListResult, ? extends ListResult> childrenConvertor) {
     SlowOperations.assertSlowOperationsAreAllowed();
     PersistentFSConnection.ensureIdIsValid(parentId);
 
@@ -1446,13 +1435,18 @@ public final class FSRecordsImpl implements Closeable {
         }
 
         @Override
-        public void close() {
+        public void close() throws IOException {
           long lockStamp = lock.writeLock();
           try {
             super.close();
           }
+          catch (FileTooBigException e) {
+            LOG.warn("Error storing " + attribute + " of file(" + fileId + ")", e);
+            //don't mark VFS as corrupted, error is due to data supplied from outside
+            throw e;
+          }
           catch (Throwable t) {
-            LOG.warn("Error storing " + attribute + " of file(" + fileId + ")");
+            LOG.warn("Error storing " + attribute + " of file(" + fileId + ")", t);
             throw handleError(t);
           }
           finally {

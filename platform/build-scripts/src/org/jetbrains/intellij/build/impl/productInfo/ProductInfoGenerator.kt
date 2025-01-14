@@ -1,13 +1,15 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build.impl.productInfo
 
+import com.intellij.platform.buildData.productInfo.*
+import com.jetbrains.plugin.structure.base.utils.isDirectory
 import kotlinx.serialization.ExperimentalSerializationApi
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.jetbrains.intellij.build.*
+import org.jetbrains.intellij.build.impl.Git
 import org.jetbrains.intellij.build.impl.client.ADDITIONAL_EMBEDDED_CLIENT_VM_OPTIONS
-import org.jetbrains.intellij.build.impl.client.createJetBrainsClientContextForLaunchers
+import org.jetbrains.intellij.build.impl.client.createFrontendContextForLaunchers
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.FileTime
@@ -43,7 +45,7 @@ internal fun generateProductInfoJson(
   }
   val productProperties = context.productProperties
   val productFlavors = productProperties.getProductFlavors(context).map { ProductFlavorData(it) }
-  val json = ProductInfoData(
+  val json = ProductInfoData.create(
     name = appInfo.fullProductName,
     version = appInfo.fullVersion,
     versionSuffix = appInfo.versionSuffix,
@@ -54,7 +56,7 @@ internal fun generateProductInfoJson(
     svgIconPath = if (appInfo.svgRelativePath == null) null else "${relativePathToBin}/${productProperties.baseFileName}.svg",
     productVendor = appInfo.shortCompanyName,
     launch = launch,
-    customProperties = productProperties.generateCustomPropertiesForProductInfo(),
+    customProperties = listOfNotNull(generateGitRevisionProperty(context)) + productProperties.generateCustomPropertiesForProductInfo(),
     bundledPlugins = builtinModules?.plugins ?: emptyList(),
     fileExtensions = builtinModules?.fileExtensions ?: emptyList(),
 
@@ -66,19 +68,37 @@ internal fun generateProductInfoJson(
   return jsonEncoder.encodeToString<ProductInfoData>(json)
 }
 
+private fun generateGitRevisionProperty(context: BuildContext): CustomProperty? {
+  val gitRoot = context.paths.projectHome
+  if (!gitRoot.resolve(".git").isDirectory) {
+    if (!context.options.isInDevelopmentMode) {
+      context.messages.error("Cannot find Git repository root in '$gitRoot'")
+    }
+    return null
+  }
+  try {
+    val revision = Git(gitRoot).currentCommitShortHash()
+    return CustomProperty(CustomPropertyNames.GIT_REVISION, revision)
+  }
+  catch (e: Exception) {
+    context.messages.error("Cannot determine Git revision to store in product-info.json: ${e.message}", e)
+    return null
+  }
+}
+
 internal fun writeProductInfoJson(targetFile: Path, json: String, context: BuildContext) {
   Files.createDirectories(targetFile.parent)
   Files.writeString(targetFile, json)
   Files.setLastModifiedTime(targetFile, FileTime.from(context.options.buildDateInSeconds, TimeUnit.SECONDS))
 }
 
-internal suspend fun generateJetBrainsClientLaunchData(
+internal suspend fun generateEmbeddedFrontendLaunchData(
   arch: JvmArchitecture,
   os: OsFamily,
   ideContext: BuildContext,
   vmOptionsFilePath: (BuildContext) -> String
 ): CustomCommandLaunchData? {
-  return createJetBrainsClientContextForLaunchers(ideContext)?.let { clientContext ->
+  return createFrontendContextForLaunchers(ideContext)?.let { clientContext ->
     CustomCommandLaunchData(
       commands = listOf("thinClient", "thinClient-headless", "installFrontendPlugins"),
       vmOptionsFilePath = vmOptionsFilePath(clientContext),
@@ -91,63 +111,3 @@ internal suspend fun generateJetBrainsClientLaunchData(
   }
 }
 
-/**
- * Describes the format of a JSON file containing meta-information about a product installation.
- * Must be consistent with the `product-info.schema.json` file.
- */
-@Serializable
-data class ProductInfoData(
-  val name: String,
-  val version: String,
-  val versionSuffix: String?,
-  val buildNumber: String,
-  val productCode: String,
-  val envVarBaseName: String,
-  val dataDirectoryName: String,
-  val svgIconPath: String?,
-  val productVendor: String,
-  val launch: List<ProductInfoLaunchData>,
-  val customProperties: List<CustomProperty> = emptyList(),
-  val bundledPlugins: List<String>,
-  // it is not modules, but plugin aliases
-  val modules: List<String>,
-  val fileExtensions: List<String>,
-  val flavors: List<ProductFlavorData> = emptyList(),
-
-  // not used by launcher, specify in the end
-  val layout: List<ProductInfoLayoutItem>,
-)
-
-@Serializable
-data class ProductFlavorData(@JvmField val id: String)
-
-@Serializable
-data class ProductInfoLaunchData(
-  val os: String,
-  val arch: String,
-  val launcherPath: String,
-  val javaExecutablePath: String?,
-  val vmOptionsFilePath: String,
-  val startupWmClass: String? = null,
-  val bootClassPathJarNames: List<String>,
-  val additionalJvmArguments: List<String>,
-  val mainClass: String,
-  val customCommands: List<CustomCommandLaunchData> = emptyList(),
-)
-
-@Serializable
-data class CustomCommandLaunchData(
-  val commands: List<String>,
-  val vmOptionsFilePath: String? = null,
-  val bootClassPathJarNames: List<String> = emptyList(),
-  val additionalJvmArguments: List<String> = emptyList(),
-  val mainClass: String? = null,
-  val envVarBaseName: String? = null,
-  val dataDirectoryName: String? = null,
-)
-
-@Serializable
-data class CustomProperty(
-  val key: String,
-  val value: String,
-)

@@ -17,8 +17,8 @@ import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.eel.fs.EelFileSystemApi
 import com.intellij.platform.eel.getOrThrow
-import com.intellij.platform.eel.provider.getEelApi
-import com.intellij.platform.eel.toNioPath
+import com.intellij.platform.eel.impl.utils.getEelApi
+import com.intellij.platform.eel.provider.asNioPath
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
@@ -176,13 +176,13 @@ open class MavenModuleBuilderHelper(
     val eel = project.getEelApi()
 
     val workingDir: Path = try {
-      val tmpOptions = EelFileSystemApi.CreateTemporaryDirectoryOptions.Builder().apply {
+      val tmpOptions = EelFileSystemApi.CreateTemporaryEntryOptions.Builder().apply {
         suffix("tmp")
         prefix("archetype")
         deleteOnExit(true)
       }
 
-      eel.fs.createTemporaryDirectory(tmpOptions.build()).getOrThrow { throw IOException(it.message) }.toNioPath(eel)
+      eel.fs.createTemporaryDirectory(tmpOptions.build()).getOrThrow { throw IOException(it.message) }.asNioPath()
     }
     catch (e: IOException) {
       showError(project, e)

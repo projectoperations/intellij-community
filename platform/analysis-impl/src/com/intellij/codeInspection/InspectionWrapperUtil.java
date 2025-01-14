@@ -8,9 +8,8 @@ import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 @ApiStatus.Internal
-public class InspectionWrapperUtil {
-  @NotNull
-  public static InspectionToolWrapper<?,?> wrapTool(@NotNull InspectionProfileEntry profileEntry) {
+public final class InspectionWrapperUtil {
+  public static @NotNull InspectionToolWrapper<?,?> wrapTool(@NotNull InspectionProfileEntry profileEntry) {
     if (profileEntry instanceof LocalInspectionTool local) {
       LocalInspectionToolWrapper wrapper = new LocalInspectionToolWrapper(local);
       if (local.myNameProvider == null) {

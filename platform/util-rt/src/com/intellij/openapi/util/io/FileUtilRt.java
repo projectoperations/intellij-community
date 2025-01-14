@@ -30,6 +30,9 @@ public final class FileUtilRt {
   public static final int MEGABYTE = KILOBYTE * KILOBYTE;
 
   /**
+   * File size that is 'big enough' to load.
+   * Used to either skip the file content loading completely, if larger -- or at least to switch from simple
+   * one-chunk loading to more memory-efficient incremental loading
    * @deprecated Prefer using @link {@link com.intellij.openapi.vfs.limits.FileSizeLimit#getContentLoadLimit}
    */
   @SuppressWarnings("DeprecatedIsStillUsed")
@@ -1079,7 +1082,8 @@ public final class FileUtilRt {
    * Energy-efficient variant of {@link File#toURI()}. Unlike the latter, doesn't check whether a given file is a directory,
    * so URIs never have a trailing slash (but are nevertheless compatible with {@link File#File(URI)}).
    */
-  public static @NotNull URI fileToUri(@NotNull File file) {
+  @NotNull
+  public static URI fileToUri(@NotNull File file) {
     String path = file.getAbsolutePath();
     if (File.separatorChar != '/') path = path.replace(File.separatorChar, '/');
     if (!path.startsWith("/")) path = '/' + path;

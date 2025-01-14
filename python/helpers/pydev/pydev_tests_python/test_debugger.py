@@ -17,7 +17,15 @@ from pydev_tests_python.debugger_unittest import (CMD_SET_PROPERTY_TRACE, REASON
                                                   IS_APPVEYOR, wait_for_condition, CMD_GET_FRAME, CMD_GET_BREAKPOINT_EXCEPTION,
                                                   CMD_THREAD_SUSPEND, CMD_STEP_OVER, REASON_STEP_OVER, CMD_THREAD_SUSPEND_SINGLE_NOTIFICATION,
                                                   CMD_THREAD_RESUME_SINGLE_NOTIFICATION, IS_PY37_OR_GREATER, IS_PY38_OR_GREATER)
-from _pydevd_bundle.pydevd_constants import IS_WINDOWS, IS_PY38, GET_FRAME_RETURN_GROUP
+from _pydevd_bundle.pydevd_constants import IS_WINDOWS
+from _pydevd_bundle.pydevd_constants import GET_FRAME_RETURN_GROUP
+from _pydevd_bundle.pydevd_constants import IS_PY38
+from _pydevd_bundle.pydevd_constants import IS_PY39_OR_GREATER
+from _pydevd_bundle.pydevd_constants import IS_PY310_OR_GREATER
+from _pydevd_bundle.pydevd_constants import IS_PY312_OR_GREATER
+from _pydevd_bundle.pydevd_constants import IS_PY312_OR_LESSER
+from _pydevd_bundle.pydevd_constants import IS_PY313
+
 
 try:
     from urllib import unquote
@@ -129,12 +137,12 @@ def test_case_2(case_setup):
 @pytest.mark.parametrize(
     'skip_suspend_on_breakpoint_exception, skip_print_breakpoint_exception',
     (
-        [['NameError'], []],
-        [['NameError'], ['NameError']],
-        [[], []],  # Empty means it'll suspend/print in any exception
-        [[], ['NameError']],
-        [['ValueError'], ['Exception']],
-        [['Exception'], ['ValueError']],  # ValueError will also suspend/print since we're dealing with a NameError
+        pytest.param(['NameError'], [], marks=pytest.mark.xfail(reason="PCQA-698")),
+        (['NameError'], ['NameError']),
+        pytest.param([], [], marks=pytest.mark.xfail(reason="PCQA-699")),  # Empty means it'll suspend/print in any exception
+        ([], ['NameError']),
+        (['ValueError'], ['Exception']),
+        pytest.param(['Exception'], ['ValueError'], marks=pytest.mark.xfail(reason="PCQA-700")),  # ValueError will also suspend/print since we're dealing with a NameError
     )
  )
 def test_case_breakpoint_condition_exc(case_setup, skip_suspend_on_breakpoint_exception, skip_print_breakpoint_exception):
@@ -277,6 +285,7 @@ def test_case_suspend_thread(case_setup):
 # we're inside the tracing other threads don't run (so, we can have only one
 # thread paused in the debugger).
 @pytest.mark.skipif(IS_JYTHON, reason='Jython can only have one thread stopped at each time.')
+@pytest.mark.xfail(IS_PY313, reason='PCQA-888')
 def test_case_suspend_all_thread(case_setup):
     with case_setup.test_file('_debugger_case_suspend_all.py') as writer:
         writer.write_make_initial_run()
@@ -664,6 +673,7 @@ def test_case_15(case_setup):
         writer.finished_ok = True
 
 
+@pytest.mark.xfail(reason="PCQA-702")
 def test_case_16(case_setup):
     # numpy.ndarray resolver
     try:
@@ -1376,6 +1386,7 @@ def test_unhandled_exceptions_get_stack(case_setup_unhandled_exceptions):
 
 
 @pytest.mark.skipif(not IS_CPYTHON, reason='Only for Python.')
+@pytest.mark.xfail(IS_PY310_OR_GREATER, reason='PCQA-778')
 def test_case_get_next_statement_targets(case_setup):
     with case_setup.test_file('_debugger_case_get_next_statement_targets.py') as writer:
         breakpoint_id = writer.write_add_breakpoint(21, None)
@@ -1508,6 +1519,7 @@ def test_case_handled_exceptions0(case_setup):
 
 
 @pytest.mark.skipif(IS_JYTHON, reason='Not working on Jython (needs to be investigated).')
+@pytest.mark.xfail(IS_PY313, reason='PCQA-887')
 def test_case_handled_exceptions1(case_setup):
 
     # Stop multiple times for the same handled exception.
@@ -1954,6 +1966,7 @@ def test_case_dump_threads_to_stderr(case_setup):
         writer.finished_ok = True
 
 
+@pytest.mark.xfail(IS_PY39_OR_GREATER and IS_PY312_OR_LESSER, reason="PCQA-735")
 def test_stop_on_start_regular(case_setup):
 
     with case_setup.test_file('_debugger_case_simple_calls.py') as writer:
@@ -2009,7 +2022,7 @@ def test_generator_cases(case_setup, filename):
 
         writer.finished_ok = True
 
-
+@pytest.mark.xfail(IS_PY39_OR_GREATER and IS_PY312_OR_LESSER, reason="PCQA-736")
 def test_stop_on_start_m_switch(case_setup_m_switch):
 
     with case_setup_m_switch.test_file() as writer:
@@ -2023,6 +2036,7 @@ def test_stop_on_start_m_switch(case_setup_m_switch):
         writer.finished_ok = True
 
 
+@pytest.mark.xfail(IS_PY39_OR_GREATER and IS_PY312_OR_LESSER, reason="PCQA-737")
 def test_stop_on_start_entry_point(case_setup_m_switch_entry_point):
 
     with case_setup_m_switch_entry_point.test_file() as writer:
@@ -2089,6 +2103,7 @@ def test_debug_zip_files(case_setup, tmpdir):
 
 
 @pytest.mark.skipif(not IS_CPYTHON, reason='CPython only test.')
+@pytest.mark.xfail(IS_PY312_OR_GREATER, reason='PCQA-837')
 def test_multiprocessing(case_setup_multiprocessing):
     import threading
     from pydev_tests_python.debugger_unittest import AbstractWriterThread
@@ -2149,6 +2164,7 @@ def test_fork_no_attach(case_setup):
 
 
 @pytest.mark.skipif(not IS_CPYTHON, reason='CPython only test.')
+@pytest.mark.xfail(IS_PY312_OR_GREATER, reason='PCQA-838')
 def test_fork_with_attach_no_breakpoints(case_setup_multiproc):
     with case_setup_multiproc.test_file('_debugger_case_fork.py') as writer:
         wait_for_condition(lambda: len(writer.writers) == 1)
@@ -2190,6 +2206,7 @@ def test_fork_with_attach(case_setup_multiproc):
 
     
 @pytest.mark.skipif(not IS_CPYTHON, reason='CPython only test.')
+@pytest.mark.xfail(reason="PCQA-703")
 def test_remote_debugger_basic(case_setup_remote):
     with case_setup_remote.test_file('_debugger_case_remote.py') as writer:
         writer.log.append('making initial run')
@@ -2212,6 +2229,7 @@ def test_remote_debugger_basic(case_setup_remote):
         writer.finished_ok = True
 
 
+@pytest.mark.xfail(IS_PY3K, reason='PY-76342')
 @pytest.mark.skipif(not IS_CPYTHON or not IS_PY37_OR_GREATER, reason='CPython only test.')
 def test_py_37_breakpoint_remote(case_setup_remote):
     with case_setup_remote.test_file('_debugger_case_breakpoint_remote.py') as writer:
@@ -2235,6 +2253,7 @@ def test_py_37_breakpoint_remote(case_setup_remote):
 
 
 @pytest.mark.skipif(not IS_CPYTHON or not IS_PY37_OR_GREATER, reason='CPython only test.')
+@pytest.mark.xfail(reason="PCQA-591")
 def test_py_37_breakpoint_remote_no_import(case_setup_remote):
 
     def get_environ(writer):
@@ -2273,6 +2292,7 @@ def test_py_37_breakpoint_remote_no_import(case_setup_remote):
 
 
 @pytest.mark.skipif(not IS_CPYTHON, reason='CPython only test.')
+@pytest.mark.xfail(reason="PCQA-704")
 def test_remote_debugger_multi_proc(case_setup_remote):
 
     class _SecondaryMultiProcProcessWriterThread(debugger_unittest.AbstractWriterThread):
@@ -2350,6 +2370,7 @@ def test_remote_debugger_multi_proc(case_setup_remote):
 
 
 @pytest.mark.skipif(not IS_CPYTHON, reason='CPython only test.')
+@pytest.mark.xfail(reason="PCQA-705")
 def test_remote_unhandled_exceptions(case_setup_remote):
 
     def check_test_suceeded_msg(writer, stdout, stderr):
@@ -2457,7 +2478,13 @@ def test_return_value(case_setup):
 
 
 @pytest.mark.skipif(IS_JYTHON, reason='Jython can only have one thread stopped at each time.')
-@pytest.mark.parametrize('check_single_notification', [True, False])
+@pytest.mark.parametrize(
+    'check_single_notification',
+    (
+        pytest.param(True, marks=pytest.mark.xfail(IS_PY313, reason='PCQA-889')),
+        pytest.param(False, marks=pytest.mark.xfail(IS_PY313, reason='PCQA-890')),
+    ),
+)
 def test_run_pause_all_threads_single_notification(case_setup, check_single_notification):
     from pydev_tests_python.debugger_unittest import TimeoutError
     with case_setup.test_file('_debugger_case_multiple_threads.py') as writer:
@@ -2559,9 +2586,9 @@ def scenario_caught_and_uncaught(writer):
 @pytest.mark.parametrize(
     'check_scenario',
     [
-        scenario_uncaught,
-        scenario_caught,
-        scenario_caught_and_uncaught,
+        pytest.param(scenario_uncaught, marks=pytest.mark.xfail(reason="PCQA-706")),
+        pytest.param(scenario_caught, marks=pytest.mark.xfail(reason="PCQA-707")),
+        pytest.param(scenario_caught_and_uncaught, marks=pytest.mark.xfail(reason="PCQA-708")),
     ]
 )
 def test_top_level_exceptions_on_attach(case_setup_remote, check_scenario):

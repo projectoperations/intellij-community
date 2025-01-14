@@ -1,0 +1,17 @@
+### auto-generated section `build intellij.junit.groovy.tests` start
+load("@rules_java//java:defs.bzl", "java_library")
+load("@rules_jvm//:jvm.bzl", "jvm_test")
+
+jvm_test(
+  name = "groovy-tests_test",
+  srcs = glob(["test/**/*.kt", "test/**/*.java"], allow_empty = True),
+  deps = [
+    "//plugins/groovy",
+    "//plugins/groovy:groovy_test_lib",
+    "//java/testFramework",
+    "//platform/testFramework",
+    "//platform/testFramework:testFramework_test_lib",
+    "//plugins/junit/testFramework",
+  ]
+)
+### auto-generated section `build intellij.junit.groovy.tests` end

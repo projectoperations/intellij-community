@@ -151,9 +151,6 @@ f:com.intellij.codeWithMe.ClientId$Companion
 - f:getOwnerId():com.intellij.codeWithMe.ClientId
 - f:isCurrentlyUnderLocalId():Z
 - f:isLocal(com.intellij.codeWithMe.ClientId):Z
-f:com.intellij.codeWithMe.ClientIdExKt
-- sf:assertClientIdConsistency(com.intellij.codeWithMe.ClientId,java.lang.String):V
-- sf:isCurrent(com.intellij.codeWithMe.ClientId):Z
 f:com.intellij.codeWithMe.ClientIdKt
 - sf:asContextElement(com.intellij.codeWithMe.ClientId):kotlin.coroutines.CoroutineContext$Element
 - sf:isForeignClientOnServer():Z
@@ -281,6 +278,8 @@ com.intellij.ide.plugins.DynamicPluginListener
 - pluginLoaded(com.intellij.ide.plugins.IdeaPluginDescriptor):V
 - pluginUnloaded(com.intellij.ide.plugins.IdeaPluginDescriptor,Z):V
 f:com.intellij.ide.plugins.DynamicPluginListener$Companion
+com.intellij.ide.plugins.DynamicPluginVetoer
+- a:vetoPluginUnload(com.intellij.ide.plugins.IdeaPluginDescriptor):java.lang.String
 @:com.intellij.ide.plugins.DynamicallyLoaded
 - java.lang.annotation.Annotation
 com.intellij.ide.plugins.IdeaPluginDependency
@@ -665,6 +664,7 @@ com.intellij.lang.WhitespaceSkippedCallback
 - a:onSkip(com.intellij.psi.tree.IElementType,I,I):V
 com.intellij.lang.WhitespacesAndCommentsBinder
 - a:getEdgePosition(java.util.List,Z,com.intellij.lang.WhitespacesAndCommentsBinder$TokenTextGetter):I
+- isRecursive():Z
 com.intellij.lang.WhitespacesAndCommentsBinder$RecursiveBinder
 - com.intellij.lang.WhitespacesAndCommentsBinder
 com.intellij.lang.WhitespacesAndCommentsBinder$TokenTextGetter
@@ -823,19 +823,6 @@ f:com.intellij.lang.tree.util.AstUtilKt
 - sf:children(com.intellij.lang.ASTNode):kotlin.sequences.Sequence
 - sf:parents(com.intellij.lang.ASTNode,Z):kotlin.sequences.Sequence
 - sf:siblings(com.intellij.lang.ASTNode,Z,Z):kotlin.sequences.Sequence
-c:com.intellij.lexer.DelegateLexer
-- com.intellij.lexer.LexerBase
-- pf:myDelegate:com.intellij.lexer.Lexer
-- <init>(com.intellij.lexer.Lexer):V
-- advance():V
-- getBufferEnd():I
-- f:getBufferSequence():java.lang.CharSequence
-- f:getDelegate():com.intellij.lexer.Lexer
-- getState():I
-- getTokenEnd():I
-- getTokenStart():I
-- getTokenType():com.intellij.psi.tree.IElementType
-- start(java.lang.CharSequence,I,I,I):V
 com.intellij.lexer.DocCommentTokenTypes
 - a:badCharacter():com.intellij.psi.tree.IElementType
 - a:commentData():com.intellij.psi.tree.IElementType
@@ -872,59 +859,6 @@ c:com.intellij.lexer.DummyLexer
 c:com.intellij.lexer.EmptyLexer
 - com.intellij.lexer.DummyLexer
 - <init>():V
-c:com.intellij.lexer.FilterLexer
-- com.intellij.lexer.DelegateLexer
-- <init>(com.intellij.lexer.Lexer,com.intellij.lexer.FilterLexer$Filter):V
-- <init>(com.intellij.lexer.Lexer,com.intellij.lexer.FilterLexer$Filter,Z[]):V
-- advance():V
-- getCurrentPosition():com.intellij.lexer.LexerPosition
-- getOriginal():com.intellij.lexer.Lexer
-- getPrevTokenEnd():I
-- f:locateToken():V
-- restore(com.intellij.lexer.LexerPosition):V
-- start(java.lang.CharSequence,I,I,I):V
-com.intellij.lexer.FilterLexer$Filter
-- a:reject(com.intellij.psi.tree.IElementType):Z
-f:com.intellij.lexer.FilterLexer$SetFilter
-- com.intellij.lexer.FilterLexer$Filter
-- <init>(com.intellij.psi.tree.TokenSet):V
-- reject(com.intellij.psi.tree.IElementType):Z
-c:com.intellij.lexer.FlexAdapter
-- com.intellij.lexer.LexerBase
-- <init>(com.intellij.lexer.FlexLexer):V
-- advance():V
-- getBufferEnd():I
-- getBufferSequence():java.lang.CharSequence
-- getFlex():com.intellij.lexer.FlexLexer
-- getState():I
-- getTokenEnd():I
-- getTokenStart():I
-- getTokenType():com.intellij.psi.tree.IElementType
-- p:locateToken():V
-- start(java.lang.CharSequence,I,I,I):V
-com.intellij.lexer.FlexLexer
-- a:advance():com.intellij.psi.tree.IElementType
-- a:getTokenEnd():I
-- a:getTokenStart():I
-- a:reset(java.lang.CharSequence,I,I,I):V
-- a:yybegin(I):V
-- a:yystate():I
-c:com.intellij.lexer.LayeredLexer
-- com.intellij.lexer.DelegateLexer
-- sf:ourDisableLayersFlag:java.lang.ThreadLocal
-- <init>(com.intellij.lexer.Lexer):V
-- advance():V
-- p:findLayerLexer(com.intellij.psi.tree.IElementType):com.intellij.lexer.Lexer
-- getCurrentPosition():com.intellij.lexer.LexerPosition
-- getState():I
-- getTokenEnd():I
-- getTokenStart():I
-- getTokenType():com.intellij.psi.tree.IElementType
-- p:isLayerActive():Z
-- registerLayer(com.intellij.lexer.Lexer,com.intellij.psi.tree.IElementType[]):V
-- registerSelfStoppingLayer(com.intellij.lexer.Lexer,com.intellij.psi.tree.IElementType[],com.intellij.psi.tree.IElementType[]):V
-- restore(com.intellij.lexer.LexerPosition):V
-- start(java.lang.CharSequence,I,I,I):V
 a:com.intellij.lexer.Lexer
 - <init>():V
 - a:advance():V
@@ -949,86 +883,10 @@ a:com.intellij.lexer.LexerBase
 com.intellij.lexer.LexerPosition
 - a:getOffset():I
 - a:getState():I
-a:com.intellij.lexer.LookAheadLexer
-- com.intellij.lexer.LexerBase
-- <init>(com.intellij.lexer.Lexer):V
-- <init>(com.intellij.lexer.Lexer,I):V
-- p:addToken(I,com.intellij.psi.tree.IElementType):V
-- p:addToken(com.intellij.psi.tree.IElementType):V
-- advance():V
-- pf:advanceAs(com.intellij.lexer.Lexer,com.intellij.psi.tree.IElementType):V
-- pf:advanceLexer(com.intellij.lexer.Lexer):V
-- getBufferEnd():I
-- getBufferSequence():java.lang.CharSequence
-- p:getCacheSize():I
-- pf:getCachedOffset(I):I
-- pf:getCachedType(I):com.intellij.psi.tree.IElementType
-- getCurrentPosition():com.intellij.lexer.LookAheadLexer$LookAheadLexerPosition
-- getState():I
-- getTokenEnd():I
-- getTokenStart():I
-- getTokenType():com.intellij.psi.tree.IElementType
-- p:lookAhead(com.intellij.lexer.Lexer):V
-- replaceCachedType(I,com.intellij.psi.tree.IElementType):com.intellij.psi.tree.IElementType
-- p:resetCacheSize(I):V
-- f:restore(com.intellij.lexer.LexerPosition):V
-- p:restore(com.intellij.lexer.LookAheadLexer$LookAheadLexerPosition):V
-- start(java.lang.CharSequence,I,I,I):V
-pc:com.intellij.lexer.LookAheadLexer$LookAheadLexerPosition
-- com.intellij.lexer.LexerPosition
-- <init>(com.intellij.lexer.LookAheadLexer,com.intellij.util.containers.ImmutableUserMap):V
-- getCustomMap():com.intellij.util.containers.ImmutableUserMap
-- getOffset():I
-- getState():I
 com.intellij.lexer.MergeFunction
 - a:merge(com.intellij.psi.tree.IElementType,com.intellij.lexer.Lexer):com.intellij.psi.tree.IElementType
-c:com.intellij.lexer.MergingLexerAdapter
-- com.intellij.lexer.MergingLexerAdapterBase
-- <init>(com.intellij.lexer.Lexer,com.intellij.psi.tree.TokenSet):V
-- getMergeFunction():com.intellij.lexer.MergeFunction
-a:com.intellij.lexer.MergingLexerAdapterBase
-- com.intellij.lexer.DelegateLexer
-- <init>(com.intellij.lexer.Lexer):V
-- advance():V
-- getCurrentPosition():com.intellij.lexer.LexerPosition
-- a:getMergeFunction():com.intellij.lexer.MergeFunction
-- getOriginal():com.intellij.lexer.Lexer
-- getState():I
-- getTokenEnd():I
-- getTokenStart():I
-- getTokenType():com.intellij.psi.tree.IElementType
-- restore(com.intellij.lexer.LexerPosition):V
-- start(java.lang.CharSequence,I,I,I):V
 com.intellij.lexer.RestartableLexer
 - a:getStartState():I
-c:com.intellij.lexer.StringLiteralLexer
-- com.intellij.lexer.LexerBase
-- sf:NO_QUOTE_CHAR:C
-- p:myBuffer:java.lang.CharSequence
-- p:myBufferEnd:I
-- p:myEnd:I
-- pf:myOriginalLiteralToken:com.intellij.psi.tree.IElementType
-- pf:myQuoteChar:C
-- p:myStart:I
-- <init>(C,com.intellij.psi.tree.IElementType):V
-- <init>(C,com.intellij.psi.tree.IElementType,Z,java.lang.String):V
-- <init>(C,com.intellij.psi.tree.IElementType,Z,java.lang.String,Z,Z):V
-- advance():V
-- getBufferEnd():I
-- getBufferSequence():java.lang.CharSequence
-- p:getHexCodedEscapeSeq():com.intellij.psi.tree.IElementType
-- p:getStandardLimitedHexCodedEscapeSeq(I):com.intellij.psi.tree.IElementType
-- getState():I
-- getTokenEnd():I
-- getTokenStart():I
-- getTokenType():com.intellij.psi.tree.IElementType
-- p:getUnicodeEscapeSequenceType():com.intellij.psi.tree.IElementType
-- p:handleSingleSlashEscapeSequence():com.intellij.psi.tree.IElementType
-- p:locateAdditionalEscapeSequence(I,I):I
-- p:locateHexEscapeSequence(I,I):I
-- p:locateUnicodeEscapeSequence(I,I):I
-- p:shouldAllowSlashZero():Z
-- start(java.lang.CharSequence,I,I,I):V
 com.intellij.model.search.SearchRequest
 - getInjectionSearchScope():com.intellij.psi.search.SearchScope
 - getSearchScope():com.intellij.psi.search.SearchScope
@@ -1103,6 +961,7 @@ com.intellij.openapi.application.Application
 - a:getModalityStateForComponent(java.awt.Component):com.intellij.openapi.application.ModalityState
 - a:getStartTime():J
 - a:hasWriteAction(java.lang.Class):Z
+- a:holdsReadLock():Z
 - a:invokeAndWait(java.lang.Runnable):V
 - a:invokeAndWait(java.lang.Runnable,com.intellij.openapi.application.ModalityState):V
 - a:invokeLater(java.lang.Runnable):V
@@ -1168,6 +1027,7 @@ com.intellij.openapi.application.ApplicationListener
 - applicationExiting():V
 - beforeWriteActionStart(java.lang.Object):V
 - canExitApplication():Z
+- canRestartApplication():Z
 - writeActionFinished(java.lang.Object):V
 - writeActionStarted(java.lang.Object):V
 c:com.intellij.openapi.application.ApplicationManager
@@ -1326,28 +1186,6 @@ f:com.intellij.openapi.application.RunResult
 - run():com.intellij.openapi.application.RunResult
 - setThrowable(java.lang.Exception):V
 - throwException():com.intellij.openapi.application.RunResult
-com.intellij.openapi.application.ThreadingSupport
-- a:acquireReadActionLock():com.intellij.openapi.application.AccessToken
-- a:acquireWriteActionLock(java.lang.Class):com.intellij.openapi.application.AccessToken
-- a:executeOnPooledThread(java.lang.Runnable,java.util.function.BooleanSupplier):java.util.concurrent.Future
-- a:executeOnPooledThread(java.util.concurrent.Callable,java.util.function.BooleanSupplier):java.util.concurrent.Future
-- a:executeSuspendingWriteAction(com.intellij.openapi.project.Project,java.lang.String,java.lang.Runnable):V
-- a:hasWriteAction(java.lang.Class):Z
-- a:isReadAccessAllowed():Z
-- a:isReadLockedByThisThread():Z
-- a:isWriteAccessAllowed():Z
-- a:isWriteActionInProgress():Z
-- a:isWriteActionPending():Z
-- a:prohibitWriteActionsInside():com.intellij.openapi.application.AccessToken
-- a:runReadAction(com.intellij.openapi.util.Computable):java.lang.Object
-- a:runReadAction(com.intellij.openapi.util.ThrowableComputable):java.lang.Object
-- a:runReadAction(java.lang.Runnable):V
-- a:runWriteAction(com.intellij.openapi.util.Computable):java.lang.Object
-- a:runWriteAction(com.intellij.openapi.util.ThrowableComputable):java.lang.Object
-- a:runWriteAction(java.lang.Runnable):V
-- a:runWriteIntentReadAction(com.intellij.openapi.util.ThrowableComputable):java.lang.Object
-- a:setWriteActionListener(com.intellij.openapi.application.WriteActionListener):V
-- a:tryRunReadAction(java.lang.Runnable):Z
 a:com.intellij.openapi.application.TransactionGuard
 - <init>():V
 - a:assertWriteSafeContext(com.intellij.openapi.application.ModalityState):V
@@ -1825,6 +1663,7 @@ f:com.intellij.openapi.editor.markup.TextAttributesEffectsBuilder$EffectDescript
 - f:effectType:com.intellij.openapi.editor.markup.EffectType
 e:com.intellij.openapi.editor.markup.TextAttributesEffectsBuilder$EffectSlot
 - java.lang.Enum
+- sf:FOREGROUND_SLOT:com.intellij.openapi.editor.markup.TextAttributesEffectsBuilder$EffectSlot
 - sf:FRAME_SLOT:com.intellij.openapi.editor.markup.TextAttributesEffectsBuilder$EffectSlot
 - sf:STRIKE_SLOT:com.intellij.openapi.editor.markup.TextAttributesEffectsBuilder$EffectSlot
 - sf:UNDERLINE_SLOT:com.intellij.openapi.editor.markup.TextAttributesEffectsBuilder$EffectSlot
@@ -1908,11 +1747,11 @@ f:com.intellij.openapi.fileTypes.CharsetUtil
 com.intellij.openapi.fileTypes.DirectoryFileType
 - com.intellij.openapi.fileTypes.FileType
 com.intellij.openapi.fileTypes.FileType
-- com.intellij.openapi.options.Scheme
 - sf:EMPTY_ARRAY:com.intellij.openapi.fileTypes.FileType[]
 - getCharset(com.intellij.openapi.vfs.VirtualFile,B[]):java.lang.String
 - a:getDefaultExtension():java.lang.String
 - a:getDescription():java.lang.String
+- getDisplayName():java.lang.String
 - a:getIcon():javax.swing.Icon
 - a:getName():java.lang.String
 - a:isBinary():Z
@@ -2045,12 +1884,9 @@ com.intellij.openapi.options.SchemeElement
 com.intellij.openapi.options.SchemeMetaInfo
 - a:getMetaProperties():java.util.Properties
 com.intellij.openapi.progress.CoroutineSuspender
-- kotlin.coroutines.CoroutineContext
 - a:isPaused():Z
 - a:pause():V
 - a:resume():V
-Ff:com.intellij.openapi.progress.CoroutineSuspender$DefaultImpls
-- s:plus(com.intellij.openapi.progress.CoroutineSuspender,kotlin.coroutines.CoroutineContext):kotlin.coroutines.CoroutineContext
 c:com.intellij.openapi.progress.DumbProgressIndicator
 - com.intellij.openapi.progress.StandardProgressIndicator
 - sf:INSTANCE:com.intellij.openapi.progress.DumbProgressIndicator
@@ -2416,9 +2252,10 @@ com.intellij.openapi.project.Project
 - a:save():V
 - scheduleSave():V
 f:com.intellij.openapi.project.ProjectCoreUtil
-- <init>():V
-- s:isProjectOrWorkspaceFile(com.intellij.openapi.vfs.VirtualFile):Z
-- s:isProjectOrWorkspaceFile(com.intellij.openapi.vfs.VirtualFile,com.intellij.openapi.fileTypes.FileType):Z
+- sf:INSTANCE:com.intellij.openapi.project.ProjectCoreUtil
+- sf:isProjectOrWorkspaceFile(com.intellij.openapi.vfs.VirtualFile):Z
+- sf:isProjectOrWorkspaceFile(com.intellij.openapi.vfs.VirtualFile,com.intellij.openapi.fileTypes.FileType):Z
+- sf:isProjectOrWorkspaceFile(com.intellij.openapi.vfs.VirtualFile,java.lang.CharSequence):Z
 Fa:com.intellij.openapi.project.ProjectLocator
 - sf:Companion:com.intellij.openapi.project.ProjectLocator$Companion
 - <init>():V
@@ -2662,7 +2499,6 @@ c:com.intellij.openapi.vfs.InvalidVirtualFileAccessException
 com.intellij.openapi.vfs.LocalFileProvider
 com.intellij.openapi.vfs.NonPhysicalFileSystem
 f:com.intellij.openapi.vfs.PersistentFSConstants
-- sf:FILE_LENGTH_TO_CACHE_THRESHOLD:J
 - s:getMaxIntellisenseFileSize():I
 - s:setMaxIntellisenseFileSize(I):V
 a:com.intellij.openapi.vfs.ReadonlyStatusHandler
@@ -3109,11 +2945,11 @@ a:com.intellij.openapi.vfs.impl.ArchiveHandler
 - p:getEntryInfo(java.lang.String):com.intellij.openapi.vfs.impl.ArchiveHandler$EntryInfo
 - getFile():java.io.File
 - getInputStream(java.lang.String):java.io.InputStream
+- getPath():java.nio.file.Path
 - list(java.lang.String):java.lang.String[]
 - p:normalizeName(java.lang.String):java.lang.String
 - pf:processEntry(java.util.Map,com.intellij.openapi.diagnostic.Logger,java.lang.String,java.util.function.BiFunction):V
 - pf:processEntry(java.util.Map,java.lang.String,java.util.function.BiFunction):V
-- p:setFile(java.io.File):V
 pc:com.intellij.openapi.vfs.impl.ArchiveHandler$EntryInfo
 - f:isDirectory:Z
 - f:length:J
@@ -3133,7 +2969,7 @@ a:com.intellij.openapi.vfs.impl.TempCopyArchiveHandler
 - com.intellij.openapi.vfs.impl.ArchiveHandler
 - p:<init>(java.lang.String):V
 - clearCaches():V
-- p:getTempCopy(com.intellij.util.ThrowableConsumer):java.io.File
+- p:getTempCopy(com.intellij.openapi.util.ThrowableComputable):java.nio.file.Path
 - pa:getTempDir():java.lang.String
 com.intellij.openapi.vfs.newvfs.BulkFileListener
 - after(java.util.List):V
@@ -5025,8 +4861,6 @@ c:com.intellij.psi.tree.IElementType
 - getLanguage():com.intellij.lang.Language
 - hashCode():I
 - isLeftBound():Z
-- s:unregisterElementTypes(com.intellij.lang.Language,com.intellij.openapi.extensions.PluginDescriptor):V
-- s:unregisterElementTypes(java.lang.ClassLoader,com.intellij.openapi.extensions.PluginDescriptor):V
 com.intellij.psi.tree.IElementType$Predicate
 - a:matches(com.intellij.psi.tree.IElementType):Z
 c:com.intellij.psi.tree.IFileElementType
@@ -5423,7 +5257,7 @@ c:com.intellij.psi.util.UnsupportedNodeElementTypeException
 - com.intellij.util.IncorrectOperationException
 - <init>(com.intellij.lang.ASTNode):V
 f:com.intellij.serviceContainer.AlreadyDisposedException
-- java.util.concurrent.CancellationException
+- com.intellij.openapi.progress.ProcessCanceledException
 - <init>(java.lang.String):V
 a:com.intellij.serviceContainer.BaseKeyedLazyInstance
 - com.intellij.serviceContainer.LazyExtensionInstance
@@ -5855,6 +5689,7 @@ f:com.intellij.util.UniqueResultsQuery
 f:com.intellij.util.concurrency.ThreadingAssertions
 - s:assertBackgroundThread():V
 - s:assertEventDispatchThread():V
+- s:assertNoOwnReadAccess():V
 - s:assertNoReadAccess():V
 - s:assertReadAccess():V
 - s:assertWriteAccess():V

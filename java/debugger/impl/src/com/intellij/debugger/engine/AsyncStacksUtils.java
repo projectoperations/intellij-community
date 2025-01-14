@@ -6,7 +6,6 @@ import com.intellij.debugger.engine.evaluation.EvaluationContextImpl;
 import com.intellij.debugger.engine.requests.RequestManagerImpl;
 import com.intellij.debugger.impl.DebuggerUtilsEx;
 import com.intellij.debugger.impl.DebuggerUtilsImpl;
-import com.intellij.debugger.jdi.ClassesByNameProvider;
 import com.intellij.debugger.jdi.StackFrameProxyImpl;
 import com.intellij.debugger.jdi.VirtualMachineProxyImpl;
 import com.intellij.debugger.memory.utils.StackFrameItem;
@@ -41,8 +40,7 @@ public final class AsyncStacksUtils {
     return DebuggerSettings.getInstance().INSTRUMENTING_AGENT;
   }
 
-  @Nullable
-  public static List<StackFrameItem> getAgentRelatedStack(@NotNull StackFrameProxyImpl frame, @NotNull SuspendContextImpl suspendContext) {
+  public static @Nullable List<StackFrameItem> getAgentRelatedStack(@NotNull StackFrameProxyImpl frame, @NotNull SuspendContextImpl suspendContext) {
     if (!isAgentEnabled() || !frame.threadProxy().equals(suspendContext.getThread())) { // only for the current thread for now
       return null;
     }
@@ -179,7 +177,7 @@ public final class AsyncStacksUtils {
       public void processClassPrepare(DebugProcess debuggerProcess, ReferenceType referenceType) {
         try {
           requestsManager.deleteRequest(this);
-          ((ClassType)referenceType).setValue(DebuggerUtils.findField(referenceType, "DEBUG"), process.getVirtualMachineProxy().mirrorOf(true));
+          ((ClassType)referenceType).setValue(DebuggerUtils.findField(referenceType, "DEBUG"), referenceType.virtualMachine().mirrorOf(true));
         }
         catch (Exception e) {
           LOG.warn("Error setting agent debug mode", e);

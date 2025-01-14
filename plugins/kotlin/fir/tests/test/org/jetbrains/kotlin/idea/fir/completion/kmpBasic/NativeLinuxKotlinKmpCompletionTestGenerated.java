@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.kotlin.idea.fir.completion.kmpBasic;
 
@@ -741,6 +741,26 @@ public abstract class NativeLinuxKotlinKmpCompletionTestGenerated extends Abstra
         @TestMetadata("EnumEntryEmptyCompletion.kt")
         public void testEnumEntryEmptyCompletion() throws Exception {
             runTest("../../completion/testData/basic/common/enums/EnumEntryEmptyCompletion.kt");
+        }
+
+        @TestMetadata("ExpectedEnumEntryCompletion.kt")
+        public void testExpectedEnumEntryCompletion() throws Exception {
+            runTest("../../completion/testData/basic/common/enums/ExpectedEnumEntryCompletion.kt");
+        }
+
+        @TestMetadata("InvisibleEnumEntryCompletion.kt")
+        public void testInvisibleEnumEntryCompletion() throws Exception {
+            runTest("../../completion/testData/basic/common/enums/InvisibleEnumEntryCompletion.kt");
+        }
+
+        @TestMetadata("NoExpectedEnumEntryCompletion.kt")
+        public void testNoExpectedEnumEntryCompletion() throws Exception {
+            runTest("../../completion/testData/basic/common/enums/NoExpectedEnumEntryCompletion.kt");
+        }
+
+        @TestMetadata("NoInvisibleEnumEntryCompletion.kt")
+        public void testNoInvisibleEnumEntryCompletion() throws Exception {
+            runTest("../../completion/testData/basic/common/enums/NoInvisibleEnumEntryCompletion.kt");
         }
     }
 
@@ -1664,6 +1684,11 @@ public abstract class NativeLinuxKotlinKmpCompletionTestGenerated extends Abstra
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
 
+        @TestMetadata("KTIJ-32210.kt")
+        public void testKTIJ_32210() throws Exception {
+            runTest("../../completion/testData/basic/common/lambdaSignature/KTIJ-32210.kt");
+        }
+
         @TestMetadata("ParameterName1.kt")
         public void testParameterName1() throws Exception {
             runTest("../../completion/testData/basic/common/lambdaSignature/ParameterName1.kt");
@@ -2335,6 +2360,11 @@ public abstract class NativeLinuxKotlinKmpCompletionTestGenerated extends Abstra
         @TestMetadata("KTIJ-26747.kt")
         public void testKTIJ_26747() throws Exception {
             runTest("../../completion/testData/basic/common/primaryConstructor/KTIJ-26747.kt");
+        }
+
+        @TestMetadata("KTIJ-30490.kt")
+        public void testKTIJ_30490() throws Exception {
+            runTest("../../completion/testData/basic/common/primaryConstructor/KTIJ-30490.kt");
         }
 
         @TestMetadata("parameterDefaultValue.kt")
@@ -3576,6 +3606,16 @@ public abstract class NativeLinuxKotlinKmpCompletionTestGenerated extends Abstra
         @TestMetadata("KTIJ-26747.kt")
         public void testKTIJ_26747() throws Exception {
             runTest("../../completion/testData/basic/common/KTIJ-26747.kt");
+        }
+
+        @TestMetadata("KTIJ-28919.kt")
+        public void testKTIJ_28919() throws Exception {
+            runTest("../../completion/testData/basic/common/KTIJ-28919.kt");
+        }
+
+        @TestMetadata("KTIJ-30306.kt")
+        public void testKTIJ_30306() throws Exception {
+            runTest("../../completion/testData/basic/common/KTIJ-30306.kt");
         }
 
         @TestMetadata("KeywordsAreLowInParameterTypeCompletion1.kt")

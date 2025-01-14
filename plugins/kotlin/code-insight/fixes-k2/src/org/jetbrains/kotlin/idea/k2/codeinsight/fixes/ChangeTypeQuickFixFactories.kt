@@ -11,12 +11,15 @@ import org.jetbrains.kotlin.analysis.api.components.KaDiagnosticCheckerFilter
 import org.jetbrains.kotlin.analysis.api.diagnostics.KaDiagnosticWithPsi
 import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
 import org.jetbrains.kotlin.analysis.api.renderer.types.impl.KaTypeRendererForSource
+import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.symbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaPropertySymbol
 import org.jetbrains.kotlin.analysis.api.symbols.markers.KaDeclarationContainerSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.psiSafe
 import org.jetbrains.kotlin.analysis.api.types.KaClassType
+import org.jetbrains.kotlin.analysis.api.types.KaErrorType
 import org.jetbrains.kotlin.analysis.api.types.KaFunctionType
 import org.jetbrains.kotlin.analysis.api.types.KaType
 import org.jetbrains.kotlin.analysis.api.types.KaTypeNullability
@@ -52,6 +55,7 @@ object ChangeTypeQuickFixFactories {
         override fun getFamilyName(): String = KotlinBundle.message("fix.change.return.type.family")
         override fun getPresentation(context: ActionContext, element: E): Presentation =
             Presentation.of(getActionName(element, targetType, typeInfo))
+
         override fun invoke(context: ActionContext, element: E, updater: ModPsiUpdater) =
             updateType(element, typeInfo, context.project)
     }
@@ -117,6 +121,7 @@ object ChangeTypeQuickFixFactories {
         val returnTypes = buildList {
             addAll(returnedExpressions.mapNotNull { returnExpr ->
                 (property?.getPropertyInitializerType() ?: returnExpr.expressionType)?.let { getActualType(it) }
+                    ?.takeUnless { it is KaErrorType }
             })
             if (!candidateType.isUnitType) {
                 add(candidateType)
@@ -165,7 +170,13 @@ object ChangeTypeQuickFixFactories {
                 ?: return@ModCommandBased emptyList()
 
             val withNullability = diagnostic.expectedType.withNullability(KaTypeNullability.NULLABLE)
-            listOf(UpdateTypeQuickFix(declaration, TargetType.ENCLOSING_DECLARATION, createTypeInfo(declaration.returnType(withNullability))))
+            listOf(
+                UpdateTypeQuickFix(
+                    declaration,
+                    TargetType.ENCLOSING_DECLARATION,
+                    createTypeInfo(declaration.returnType(withNullability))
+                )
+            )
         }
 
     val initializerTypeMismatch =
@@ -173,7 +184,7 @@ object ChangeTypeQuickFixFactories {
             val declaration = diagnostic.psi as? KtProperty
                 ?: return@ModCommandBased emptyList()
 
-            registerVariableTypeFixes(declaration, getActualType(diagnostic.actualType))
+            registerVariableTypeFixes(declaration, getActualType(diagnostic.actualType), diagnostic.expectedType)
         }
 
     val assignmentTypeMismatch =
@@ -206,15 +217,24 @@ object ChangeTypeQuickFixFactories {
                 ?: return@ModCommandBased emptyList()
 
             val actualType = property.getPropertyInitializerType() ?: diagnostic.actualType
-            registerVariableTypeFixes(property, getActualType(actualType))
+            registerVariableTypeFixes(property, getActualType(actualType), diagnostic.expectedType)
         }
 
-    private fun KaSession.registerVariableTypeFixes(declaration: KtProperty, actualType: KaType): List<ModCommandAction> {
-        val expectedType = declaration.returnType
+    private fun KaSession.registerVariableTypeFixes(
+        declaration: KtProperty,
+        actualType: KaType,
+        expectedTypeFromDiagnostics: KaType
+    ): List<ModCommandAction> {
+        val expectedTypeFromDeclaration = declaration.returnType
         val expression = declaration.initializer ?: return emptyList()
         return buildList {
-            add(UpdateTypeQuickFix(declaration, TargetType.VARIABLE, createTypeInfo(declaration.returnType(actualType))))
-            addAll(registerExpressionTypeFixes(expression, expectedType, actualType))
+            val typeToCreateTypeInfoFrom = if (!expectedTypeFromDeclaration.semanticallyEquals(actualType)) {
+                declaration.returnType(actualType)
+            } else {
+                expectedTypeFromDiagnostics
+            }
+            add(UpdateTypeQuickFix(declaration, TargetType.VARIABLE, createTypeInfo(typeToCreateTypeInfoFrom)))
+            addAll(registerExpressionTypeFixes(expression, expectedTypeFromDeclaration, actualType))
         }
     }
 
@@ -224,19 +244,11 @@ object ChangeTypeQuickFixFactories {
             val actualType = getActualType(diagnostic.actualType)
             val expectedType = diagnostic.expectedType
 
-            val declaration = if (expression is KtReferenceExpression) {
-                expression.mainReference.resolve() as? KtCallableDeclaration
+            val property = (expression as? KtReferenceExpression)?.mainReference?.resolve() as? KtProperty
+            if (property != null) {
+                registerVariableTypeFixes(property, actualType, expectedType)
             } else {
-                null
-            }
-
-            buildList {
-                declaration?.let {
-                    add(UpdateTypeQuickFix(declaration, TargetType.VARIABLE, createTypeInfo(expectedType)))
-                }
-                addAll(
-                    registerExpressionTypeFixes(expression, expectedType, actualType)
-                )
+                registerExpressionTypeFixes(expression, expectedType, actualType)
             }
         }
 
@@ -252,6 +264,7 @@ object ChangeTypeQuickFixFactories {
                 wrongPrimitiveLiteralFix = WrongPrimitiveLiteralFix.createIfAvailable(expression, expectedType, useSiteSession)
                 addIfNotNull(wrongPrimitiveLiteralFix)
             }
+
             if (expectedType.isNumberOrCharType() && actualType.isNumberOrCharType()) {
                 if (wrongPrimitiveLiteralFix == null) {
                     val elementContext = prepareNumberConversionElementContext(actualType, expectedType)
@@ -264,6 +277,16 @@ object ChangeTypeQuickFixFactories {
                         add(RoundNumberFix(expression, renderedExpectedType))
                     }
                 }
+            }
+            // Fixing overloaded operators
+            if (expression is KtOperationExpression) {
+                val callable = expression.resolveToCall()?.successfulFunctionCallOrNull()?.symbol ?: return@buildList
+                // Do not create the fix if descriptor has more than one overridden declaration
+                if (callable.allOverriddenSymbols.toSet().size > 1) return@buildList
+
+                val singleMatchingOverriddenFunctionPsi = callable.psiSafe<KtCallableDeclaration>() ?:return@buildList
+                if (!singleMatchingOverriddenFunctionPsi.isWritable) return@buildList
+                add(UpdateTypeQuickFix(singleMatchingOverriddenFunctionPsi, TargetType.CALLED_FUNCTION, createTypeInfo(expectedType)))
             }
         }
     }
@@ -279,7 +302,8 @@ object ChangeTypeQuickFixFactories {
             buildList {
                 add(UpdateTypeQuickFix(entryWithWrongType, TargetType.VARIABLE, createTypeInfo(diagnostic.destructingType)))
 
-                val classSymbol = (diagnostic.psi.expressionType as? KaClassType)?.symbol as? KaDeclarationContainerSymbol ?: return@buildList
+                val classSymbol =
+                    (diagnostic.psi.expressionType as? KaClassType)?.symbol as? KaDeclarationContainerSymbol ?: return@buildList
                 val componentFunction = classSymbol.memberScope
                     .callables(diagnostic.componentFunctionName)
                     .firstOrNull()?.psi as? KtCallableDeclaration
@@ -353,10 +377,12 @@ object ChangeTypeQuickFixFactories {
                 "fix.change.return.type.presentation.base",
                 declaration.presentationForQuickfix ?: return null
             )
+
             TargetType.ENCLOSING_DECLARATION -> KotlinBundle.message(
                 "fix.change.return.type.presentation.enclosing",
                 declaration.presentationForQuickfix ?: return KotlinBundle.message("fix.change.return.type.presentation.enclosing.function")
             )
+
             TargetType.CALLED_FUNCTION -> {
                 val presentation =
                     declaration.presentationForQuickfix
@@ -366,6 +392,7 @@ object ChangeTypeQuickFixFactories {
                     else -> KotlinBundle.message("fix.change.return.type.presentation.called", presentation)
                 }
             }
+
             TargetType.VARIABLE -> {
                 val containerName = declaration.parentOfType<KtClassOrObject>()?.nameAsName?.takeUnless { it.isSpecial }?.asString()
                 return "'${containerName?.let { "$containerName." } ?: ""}${declaration.name}'"

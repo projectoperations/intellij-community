@@ -1,0 +1,50 @@
+{
+  "com.google.protobuf:protobuf-java:4.29.2": [
+    "7441a6394dca477b3f8b7c86f17bef035f705a8aaa11f53065d380300158177c",
+    "68f0f47297335e2c3fb5a904ade91aadef884b3aa8f558a4efac16ba803b8b27"
+  ],
+  "dev.drewhamilton.poko:poko-compiler-plugin:0.18.2": [
+    "08edf341dfa4dd0a9e15b83a2a74850baad3a4a3ca2f93aed05ca6a481b1f394",
+    "02f7ac954f3a9574b37a54d7bdc79190325b9ee38a3244256a84d6d760eb6f1f"
+  ],
+  "org.jetbrains.kotlin:kotlin-build-tools-api:2.1.20-Beta1": [
+    "09ddebb845f30310395d91c084f65d2133484080dfac1977502776b77345f3d7",
+    "236ff9971b05fdbef35fafd390f39546c6b61467d4991474111a4823d359324b"
+  ],
+  "org.jetbrains.kotlin:kotlin-build-tools-impl:2.1.20-Beta1": [
+    "7e1e4d96ca0d29fc5890b9eadca97f64917e1d67f8385b91cc28cee9215b70b3",
+    "8f7fe21cd6773f9b4d842cc8eb282e72004b300b6f23b6a32d27346de7336533"
+  ],
+  "org.jetbrains.kotlin:kotlin-compiler:2.1.20-Beta1": [
+    "7bc01138d15bc1b7657480ce9fabbbb704626f92287edc05745341b11d8795b4",
+    "8a670f50a7e506cb859a4b4122a7c6d5dfd0fb180a5efd3448ab551dbfc85589"
+  ],
+  "org.jetbrains.kotlin:kotlin-compose-compiler-plugin:2.1.20-Beta1": [
+    "a8b056165e5f0f294b52b61721bfbf776d17e6a270a33f8e6e5d8bf405ece4a4",
+    "320128e59ff599f6016addcc6aabea8bd2715609586502430647b4820fbe9836"
+  ],
+  "org.jetbrains.kotlin:kotlin-jps-plugin:2.1.20-Beta1": [
+    "0f60c6f49e74ee938605890553df1ba1ce219ebd8a8ff8d93dab82a202293ae8",
+    "5a337df793923ff69a55e52d386e17205570686bab85a4967fb58bbb6aee340a"
+  ],
+  "org.jetbrains.kotlin:kotlin-metadata-jvm:2.1.20-Beta1": [
+    "243ac56352ce7e1ca7f294a53b1a1b3040ca12b95725449f0c04bbee6d43d84c",
+    "3f5468b5c409702c7cac30067208b7218ab9e3f7209e686966c6c2de2134dd18"
+  ],
+  "org.jetbrains.kotlin:kotlin-serialization-compiler-plugin:2.1.20-Beta1": [
+    "6c84d19e34509173b9e9f7ea7cbd96e1a1c8314b603f691a328012dd1e0b8f9e",
+    "09037197de2c7b4a022c1bb9be4ed3d13d38dd63ca7c08465765e98501378306"
+  ],
+  "org.jetbrains.kotlin:kotlin-util-klib-metadata:2.1.20-Beta1": [
+    "1b59ec74876c8d13242d04aeefc22e10444ed082f38ad52fc95bc64a6896c7fd",
+    "7d4d0fcd74aa62a12add77e9738a29562086dd23fd095e40f8e5308e8335b5bf"
+  ],
+  "org.jetbrains.kotlin:kotlin-util-klib:2.1.20-Beta1": [
+    "f48b6323092cb30f860cb5c880d6107982d82941166073871a36349dfd3f7909",
+    "4aa4da6df01507c0fe9b48ff4f3d2a5eb5edf5f894850169c90efc89330a9d8b"
+  ],
+  "org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.10.1": [
+    "069c5988633230e074ec0d39321ec3cdaa4547c49e90ba936c63d8fc91c8c00d",
+    "3faa298de8000d68744a179f7d413ab1672acf1d77cb8d6be57a78544657edd2"
+  ]
+}

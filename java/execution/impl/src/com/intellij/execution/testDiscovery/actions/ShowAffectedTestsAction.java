@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.execution.testDiscovery.actions;
 
 import com.intellij.CommonBundle;
@@ -83,8 +83,7 @@ import java.util.stream.Stream;
 import static com.intellij.openapi.actionSystem.CommonDataKeys.*;
 import static com.intellij.openapi.util.Pair.pair;
 
-public class ShowAffectedTestsAction extends AnAction {
-
+public final class ShowAffectedTestsAction extends AnAction {
   @Override
   public @NotNull ActionUpdateThread getActionUpdateThread() {
     return ActionUpdateThread.BGT;
@@ -148,8 +147,7 @@ public class ShowAffectedTestsAction extends AnAction {
     });
   }
 
-  @NotNull
-  private static String createTitle(@NotNull List<? extends VirtualFile> files) {
+  private static @NotNull String createTitle(@NotNull List<? extends VirtualFile> files) {
     if (files.isEmpty()) return "Empty Selection";
     String firstName = files.get(0).getName();
     if (files.size() == 1) return firstName;
@@ -183,8 +181,7 @@ public class ShowAffectedTestsAction extends AnAction {
     processMethodsAsync(project, new PsiMethod[]{method}, Collections.emptyList(), createTreeProcessor(tree), () -> tree.setPaintBusy(false));
   }
 
-  @NotNull
-  private static TestDiscoveryProducer.PsiTestProcessor createTreeProcessor(@NotNull DiscoveredTestsTree tree) {
+  private static @NotNull TestDiscoveryProducer.PsiTestProcessor createTreeProcessor(@NotNull DiscoveredTestsTree tree) {
     return (clazz, method, parameter) -> {
       tree.addTest(clazz, method, parameter);
       return true;
@@ -231,10 +228,9 @@ public class ShowAffectedTestsAction extends AnAction {
     });
   }
 
-  @NotNull
-  private static Stream<PsiElement> findChangedMethods(@NotNull Project project,
-                                                       @NotNull UastMetaLanguage jvmLanguage,
-                                                       Change @NotNull [] changes) {
+  private static @NotNull Stream<PsiElement> findChangedMethods(@NotNull Project project,
+                                                                @NotNull UastMetaLanguage jvmLanguage,
+                                                                Change @NotNull [] changes) {
     return Arrays.stream(changes).flatMap(change -> {
       return VcsFacadeImpl.getVcsInstance().getLocalChangedElements(project, change, file -> {
           return getMethodsFromFile(project, jvmLanguage, file);
@@ -243,10 +239,9 @@ public class ShowAffectedTestsAction extends AnAction {
     });
   }
 
-  @Nullable
-  private static List<PsiElement> getMethodsFromFile(@NotNull Project project,
-                                                     @NotNull UastMetaLanguage jvmLanguage,
-                                                     @NotNull VirtualFile file) {
+  private static @Nullable List<PsiElement> getMethodsFromFile(@NotNull Project project,
+                                                               @NotNull UastMetaLanguage jvmLanguage,
+                                                               @NotNull VirtualFile file) {
     if (DumbService.isDumb(project) || project.isDisposed() || !file.isValid()) return null;
     ProjectFileIndex index = ProjectFileIndex.getInstance(project);
     if (!index.isInSource(file)) return null;
@@ -274,8 +269,7 @@ public class ShowAffectedTestsAction extends AnAction {
            (Registry.is(TestDiscoveryExtension.TEST_DISCOVERY_REGISTRY_KEY) || ApplicationManager.getApplication().isInternal());
   }
 
-  @NotNull
-  private static List<VirtualFile> findFilesInContext(@NotNull AnActionEvent event) {
+  private static @NotNull List<VirtualFile> findFilesInContext(@NotNull AnActionEvent event) {
     VirtualFile[] virtualFiles = event.getData(VIRTUAL_FILE_ARRAY);
     if (virtualFiles == null || virtualFiles.length == 0) {
       PsiFile file = event.getData(PSI_FILE);
@@ -288,20 +282,17 @@ public class ShowAffectedTestsAction extends AnAction {
            : ContainerUtil.filter(virtualFiles, v -> v.isInLocalFileSystem());
   }
 
-  @Nullable
-  private static PsiMethod findMethodAtCaret(@NotNull AnActionEvent e) {
+  private static @Nullable PsiMethod findMethodAtCaret(@NotNull AnActionEvent e) {
     UMethod uMethod = UastUtils.findContaining(findElementAtCaret(e), UMethod.class);
     return uMethod == null ? null : uMethod.getJavaPsi();
   }
 
-  @Nullable
-  private static PsiClass findClassAtCaret(@NotNull AnActionEvent e) {
+  private static @Nullable PsiClass findClassAtCaret(@NotNull AnActionEvent e) {
     UClass uClass = UastUtils.findContaining(findElementAtCaret(e), UClass.class);
     return uClass == null ? null : uClass.getJavaPsi();
   }
 
-  @Nullable
-  private static PsiElement findElementAtCaret(@NotNull AnActionEvent e) {
+  private static @Nullable PsiElement findElementAtCaret(@NotNull AnActionEvent e) {
     Editor editor = e.getData(EDITOR);
     PsiFile file = e.getData(PSI_FILE);
     if (editor == null || file == null) return null;
@@ -314,11 +305,10 @@ public class ShowAffectedTestsAction extends AnAction {
     return at;
   }
 
-  @NotNull
-  private static DiscoveredTestsTree showTree(@NotNull Project project,
-                                              @NotNull DataContext dataContext,
-                                              @NotNull String title,
-                                              @Nullable String place) {
+  private static @NotNull DiscoveredTestsTree showTree(@NotNull Project project,
+                                                       @NotNull DataContext dataContext,
+                                                       @NotNull String title,
+                                                       @Nullable String place) {
     DiscoveredTestsTree tree = new DiscoveredTestsTree(title);
     String initTitle = JavaCompilerBundle.message("test.discovery.tests.tab.title", title);
 
@@ -438,15 +428,13 @@ public class ShowAffectedTestsAction extends AnAction {
     }
   }
 
-  @NotNull
-  private static ActiveComponent createButton(@NotNull @NlsActions.ActionText String text,
-                                              @NotNull Icon icon,
-                                              @NotNull Runnable listener,
-                                              @NotNull DiscoveredTestsTree tree) {
+  private static @NotNull ActiveComponent createButton(@NotNull @NlsActions.ActionText String text,
+                                                       @NotNull Icon icon,
+                                                       @NotNull Runnable listener,
+                                                       @NotNull DiscoveredTestsTree tree) {
     return new ActiveComponent.Adapter() {
-      @NotNull
       @Override
-      public JComponent getComponent() {
+      public @NotNull JComponent getComponent() {
         Presentation presentation = new Presentation();
         presentation.setText(text);
         presentation.setDescription(text);
@@ -507,29 +495,25 @@ public class ShowAffectedTestsAction extends AnAction {
       });
   }
 
-  @Nullable
-  public static Couple<String> getMethodKey(@NotNull PsiMethod method) {
+  public static @Nullable Couple<String> getMethodKey(@NotNull PsiMethod method) {
     if (DumbService.isDumb(method.getProject())) return null;
     PsiClass c = method.isValid() ? method.getContainingClass() : null;
     String fqn = c != null ? DiscoveredTestsTreeModel.getClassName(c) : null;
     return fqn == null ? null : Couple.of(fqn, methodSignature(method));
   }
 
-  @NotNull
-  private static String methodSignature(@NotNull PsiMethod method) {
+  private static @NotNull String methodSignature(@NotNull PsiMethod method) {
     String tail = TestDiscoveryInstrumentationUtils.SEPARATOR + ClassUtil.getAsmMethodSignature(method);
     return (method.isConstructor() ? "<init>" : method.getName()) + tail;
   }
 
-  @Nullable
-  private static KeyStroke findUsagesKeyStroke() {
+  private static @Nullable KeyStroke findUsagesKeyStroke() {
     AnAction action = ActionManager.getInstance().getAction(IdeActions.ACTION_FIND_USAGES);
     ShortcutSet shortcutSet = action == null ? null : action.getShortcutSet();
     return shortcutSet == null ? null : KeymapUtil.getKeyStroke(shortcutSet);
   }
 
-  @NotNull
-  private static List<TestDiscoveryConfigurationProducer> getRunConfigurationProducers(@NotNull Project project) {
+  private static @NotNull List<TestDiscoveryConfigurationProducer> getRunConfigurationProducers(@NotNull Project project) {
     return RunConfigurationProducer.getProducers(project)
       .stream()
       .filter(producer -> producer instanceof TestDiscoveryConfigurationProducer)
@@ -537,8 +521,7 @@ public class ShowAffectedTestsAction extends AnAction {
       .collect(Collectors.toList());
   }
 
-  @NotNull
-  public static List<String> getRelativeAffectedPaths(@NotNull Project project, @NotNull Collection<? extends Change> changes) {
+  public static @NotNull List<String> getRelativeAffectedPaths(@NotNull Project project, @NotNull Collection<? extends Change> changes) {
     VirtualFile baseDir = getBasePathAsVirtualFile(project);
     return baseDir == null ?
            Collections.emptyList() :
@@ -549,14 +532,12 @@ public class ShowAffectedTestsAction extends AnAction {
              .collect(Collectors.toList());
   }
 
-  @Nullable
-  static VirtualFile getBasePathAsVirtualFile(@NotNull Project project) {
+  static @Nullable VirtualFile getBasePathAsVirtualFile(@NotNull Project project) {
     String basePath = project.getBasePath();
     return basePath == null ? null : LocalFileSystem.getInstance().findFileByPath(basePath);
   }
 
-  @Nullable
-  private static String relativePath(@NotNull VirtualFile baseDir, @NotNull Change change) {
+  private static @Nullable String relativePath(@NotNull VirtualFile baseDir, @NotNull Change change) {
     VirtualFile file = change.getVirtualFile();
 
     if (file == null) {

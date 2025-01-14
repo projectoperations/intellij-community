@@ -5,21 +5,22 @@ import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
-import com.intellij.openapi.util.registry.Registry
 import com.intellij.pycharm.community.ide.impl.miscProject.MiscFileType
 
 internal class PyMiscFileActionGroup : ActionGroup() {
-  private val enabled: Boolean get() = Registry.`is`("pycharm.miscProject")
 
   override fun update(e: AnActionEvent) {
-    e.presentation.isEnabledAndVisible = enabled
+    e.presentation.isEnabledAndVisible = miscProjectEnabled.value
   }
 
   override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
 
-  override fun getChildren(e: AnActionEvent?): Array<out AnAction> =
-    if (enabled)
+  private val actions = lazy {
+    if (miscProjectEnabled.value)
       (MiscFileType.EP.extensionList + listOf(MiscScriptFileType)).map { PyMiscFileAction(it) }.toTypedArray()
     else
       emptyArray()
+  }
+
+  override fun getChildren(e: AnActionEvent?): Array<out AnAction> = actions.value
 }

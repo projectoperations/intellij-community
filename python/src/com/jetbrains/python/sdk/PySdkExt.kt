@@ -46,8 +46,8 @@ import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.util.PathUtil
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.webcore.packaging.PackagesNotificationPanel
-import com.jetbrains.extensions.failure
 import com.jetbrains.python.PyBundle
+import com.jetbrains.python.failure
 import com.jetbrains.python.packaging.ui.PyPackageManagementService
 import com.jetbrains.python.psi.LanguageLevel
 import com.jetbrains.python.remote.PyRemoteSdkAdditionalData
@@ -112,7 +112,7 @@ fun configurePythonSdk(project: Project, module: Module, sdk: Sdk) {
   module.pythonSdk = sdk
   module.excludeInnerVirtualEnv(sdk)
 }
-
+// TODO: PythonInterpreterService: get system pythons
 /**
  * @param context used to get [BASE_DIR] in [com.jetbrains.python.sdk.flavors.VirtualEnvSdkFlavor.suggestLocalHomePaths]
  */
@@ -141,7 +141,7 @@ private fun PythonSdkFlavor<*>.detectSdks(
     .map { createDetectedSdk(it, targetModuleSitsOn?.asTargetConfig, this) }
 
 
-internal fun PythonSdkFlavor<*>.detectSdkPaths(
+private fun PythonSdkFlavor<*>.detectSdkPaths(
   module: Module?,
   context: UserDataHolder,
   targetModuleSitsOn: TargetConfigurationWithLocalFsAccess?,
@@ -372,6 +372,7 @@ var Module.pythonSdk: Sdk?
     runInEdt {
       DaemonCodeAnalyzer.getInstance(project).restart()
     }
+    ApplicationManager.getApplication().messageBus.syncPublisher(PySdkListener.TOPIC).moduleSdkUpdated(this, value)
   }
 
 var Project.pythonSdk: Sdk?
