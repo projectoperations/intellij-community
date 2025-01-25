@@ -17,7 +17,7 @@ import com.jetbrains.python.util.ErrorSink
 import kotlinx.coroutines.flow.Flow
 import java.nio.file.Path
 
-class PythonAddCustomInterpreter(val model: PythonMutableTargetAddInterpreterModel, val moduleOrProject: ModuleOrProject? = null, projectPathFlow: Flow<Path>? = null, errorSink: ErrorSink) {
+class PythonAddCustomInterpreter(val model: PythonMutableTargetAddInterpreterModel, val moduleOrProject: ModuleOrProject? = null, projectPathFlow: Flow<Path>? = null, private val errorSink: ErrorSink) {
 
   private val propertyGraph = model.propertyGraph
   private val selectionMethod = propertyGraph.property(PythonInterpreterSelectionMethod.CREATE_NEW)
@@ -28,16 +28,17 @@ class PythonAddCustomInterpreter(val model: PythonMutableTargetAddInterpreterMod
 
   private val newInterpreterCreators = mapOf(
     VIRTUALENV to EnvironmentCreatorVenv(model),
-    CONDA to CondaNewEnvironmentCreator(model, errorSink),
+    CONDA to CondaNewEnvironmentCreator(model),
     PIPENV to EnvironmentCreatorPip(model),
     POETRY to EnvironmentCreatorPoetry(model, moduleOrProject),
-    UV to EnvironmentCreatorUv(model, moduleOrProject),
+    UV to EnvironmentCreatorUv(model),
   )
 
   private val existingInterpreterSelectors = buildMap {
     put(PYTHON, PythonExistingEnvironmentSelector(model))
     put(CONDA, CondaExistingEnvironmentSelector(model, errorSink))
     if (moduleOrProject != null) put(POETRY, PoetryExistingEnvironmentSelector(model, moduleOrProject))
+    if (moduleOrProject != null) put(UV, UvExistingEnvironmentSelector(model, moduleOrProject))
   }
 
   val currentSdkManager: PythonAddEnvironment
@@ -85,19 +86,25 @@ class PythonAddCustomInterpreter(val model: PythonMutableTargetAddInterpreterMod
 
       newInterpreterCreators.forEach { (type, creator) ->
         rowsRange {
-          creator.buildOptions(this,
-                               validationRequestor
-                                 and WHEN_PROPERTY_CHANGED(selectionMethod)
-                                 and WHEN_PROPERTY_CHANGED(newInterpreterManager))
+          creator.buildOptions(
+            this,
+            validationRequestor
+              and WHEN_PROPERTY_CHANGED(selectionMethod)
+              and WHEN_PROPERTY_CHANGED(newInterpreterManager),
+            errorSink = errorSink
+          )
         }.visibleIf(_createNew and newInterpreterManager.equalsTo(type))
       }
 
       existingInterpreterSelectors.forEach { (type, selector) ->
         rowsRange {
-          selector.buildOptions(this,
-                                validationRequestor
-                                  and WHEN_PROPERTY_CHANGED(selectionMethod)
-                                  and WHEN_PROPERTY_CHANGED(existingInterpreterManager))
+          selector.buildOptions(
+            this,
+            validationRequestor
+              and WHEN_PROPERTY_CHANGED(selectionMethod)
+              and WHEN_PROPERTY_CHANGED(existingInterpreterManager),
+            errorSink
+          )
         }.visibleIf(_selectExisting and existingInterpreterManager.equalsTo(type))
       }
 

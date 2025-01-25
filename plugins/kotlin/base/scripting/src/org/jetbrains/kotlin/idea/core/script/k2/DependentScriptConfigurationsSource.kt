@@ -10,7 +10,6 @@ import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.ProjectJdkTable
-import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.backend.workspace.WorkspaceModel
@@ -20,10 +19,12 @@ import com.intellij.platform.backend.workspace.workspaceModel
 import com.intellij.platform.workspace.jps.entities.*
 import com.intellij.platform.workspace.storage.MutableEntityStorage
 import com.intellij.platform.workspace.storage.url.VirtualFileUrl
+import com.intellij.platform.workspace.storage.url.VirtualFileUrlManager
 import com.intellij.util.containers.addIfNotNull
 import kotlinx.coroutines.CoroutineScope
 import org.jetbrains.kotlin.idea.core.script.*
 import org.jetbrains.kotlin.idea.core.script.ScriptConfigurationManager.Companion.toVfsRoots
+import org.jetbrains.kotlin.idea.core.script.ucache.relativeName
 import org.jetbrains.kotlin.idea.core.util.toPsiFile
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.scripting.definitions.ScriptDefinition
@@ -34,7 +35,6 @@ import org.jetbrains.kotlin.scripting.resolve.ScriptReportSink
 import org.jetbrains.kotlin.scripting.resolve.VirtualFileScriptSource
 import org.jetbrains.kotlin.scripting.resolve.refineScriptCompilationConfiguration
 import java.io.File
-import java.nio.file.Path
 import kotlin.script.experimental.api.ResultWithDiagnostics
 import kotlin.script.experimental.api.valueOrNull
 import kotlin.script.experimental.api.with
@@ -48,16 +48,17 @@ class DependentScriptConfigurationsSource(override val project: Project, val cor
     private val loadPersistedConfigurations by lazy {
         val scriptUrls = ScriptsWithLoadedDependenciesStorage.getInstance(project).state.scripts
         val manager = WorkspaceModel.getInstance(project).getVirtualFileUrlManager()
-        val scripts = scriptUrls.mapNotNull { manager.findByUrl(it)?.virtualFile }.toSet()
+        val scripts = scriptUrls.mapNotNull { manager.getOrCreateFromUrl(it).virtualFile }.toSet()
 
+        if (scripts.isEmpty()) return@lazy
         DependencyResolutionService.getInstance(project).resolveInBackground {
             updateDependenciesAndCreateModules(scripts.map { BaseScriptModel(it) })
         }
     }
 
-    override fun getConfiguration(virtualFile: VirtualFile): ResultWithDiagnostics<ScriptCompilationConfigurationWrapper>? {
+    override fun getConfigurationWithSdk(virtualFile: VirtualFile): ScriptConfigurationWithSdk? {
         loadPersistedConfigurations
-        val current = data.get().configurations[virtualFile]
+        val current = data.get()[virtualFile]
 
         if (current != null) return current
 
@@ -66,7 +67,7 @@ class DependentScriptConfigurationsSource(override val project: Project, val cor
                 handleNoDependencies(virtualFile)
             }
 
-            return data.get().configurations[virtualFile]
+            return data.get()[virtualFile]
         }
 
         return null
@@ -75,12 +76,16 @@ class DependentScriptConfigurationsSource(override val project: Project, val cor
     private suspend fun handleNoDependencies(script: VirtualFile) {
         val sourceCode = VirtualFileScriptSource(script)
         val definition = findScriptDefinition(project, sourceCode)
-        val result = ResultWithDiagnostics.Success(ScriptCompilationConfigurationWrapper.FromCompilationConfiguration(sourceCode, definition.compilationConfiguration))
+        val result = ResultWithDiagnostics.Success(
+            ScriptCompilationConfigurationWrapper.FromCompilationConfiguration(
+                sourceCode, definition.compilationConfiguration
+            )
+        )
 
         val projectSdk = ProjectJdkTable.getInstance().allJdks.firstOrNull()
 
-        val scriptConfigurations = ScriptConfigurations(mapOf(script to result), sdks = projectSdk?.homePath?.let { mapOf(Path.of(it) to projectSdk) } ?: emptyMap())
-        data.getAndAccumulate(scriptConfigurations) { left, right -> left + right }
+        val entry = mapOf(script to ScriptConfigurationWithSdk(result, projectSdk))
+        data.getAndAccumulate(entry) { left, right -> left + right }
 
         ScriptConfigurationsProviderImpl.getInstance(project).notifySourceUpdated()
 
@@ -107,56 +112,50 @@ class DependentScriptConfigurationsSource(override val project: Project, val cor
         project.scriptDefinitionsSourceOfType<MainKtsScriptDefinitionSource>()
 
     override suspend fun updateConfigurations(scripts: Iterable<BaseScriptModel>) {
-        val projectSdk = ProjectJdkTable.getInstance().allJdks.firstOrNull()
+        val sdk = ProjectJdkTable.getInstance().allJdks.firstOrNull()
 
         val configurations = scripts.associate {
             val scriptSource = VirtualFileScriptSource(it.virtualFile)
             val definition = findScriptDefinition(project, scriptSource)
 
-            val javaHome = projectSdk?.homePath
-
-            val providedConfiguration = javaHome?.let {
+            val providedConfiguration = sdk?.homePath?.let { jdkHome ->
                 definition.compilationConfiguration.with {
-                    jvm.jdkHome(File(it))
+                    jvm.jdkHome(File(jdkHome))
                 }
             }
 
-            it.virtualFile to smartReadAction(project) {
+            val result = smartReadAction(project) {
                 refineScriptCompilationConfiguration(scriptSource, definition, project, providedConfiguration)
             }
+
+            project.service<ScriptReportSink>().attachReports(it.virtualFile, result.reports)
+
+            it.virtualFile to ScriptConfigurationWithSdk(result, sdk)
         }
 
-        configurations.forEach { (script, result) ->
-            project.service<ScriptReportSink>().attachReports(script, result.reports)
-        }
-
-        val scriptConfigurations =
-            ScriptConfigurations(configurations, sdks = projectSdk?.homePath?.let { mapOf(Path.of(it) to projectSdk) } ?: emptyMap())
-
-        data.getAndAccumulate(scriptConfigurations) { left, right -> left + right }
-        updatePersistentState()
+        data.getAndAccumulate(configurations) { left, right -> left + right }
     }
 
-    private fun updatePersistentState() {
-        val loadedScripts = data.get().configurations.filter {
-            it.value is ResultWithDiagnostics.Success
+    private fun updatePersistentState(configurations: Map<VirtualFile, ScriptConfigurationWithSdk>) {
+        val safeToLoadScripts = configurations.filterValues {
+            it.scriptConfiguration is ResultWithDiagnostics.Success
         }.map {
             it.key.url
         }
 
-        ScriptsWithLoadedDependenciesStorage.getInstance(project).loadState(ScriptsWithLoadedDependenciesState(loadedScripts))
+        ScriptsWithLoadedDependenciesStorage.getInstance(project).loadState(ScriptsWithLoadedDependenciesState(safeToLoadScripts))
     }
 
     override suspend fun updateModules(storage: MutableEntityStorage?) {
-        val updatedStorage = getUpdatedStorage(
-            project, data.get()
-        ) { KotlinDependentScriptModuleEntitySource(it) }
+        val updatedStorage = getUpdatedStorage(project, data.get())
 
         project.workspaceModel.update("updating .main.kts modules") { targetStorage ->
             targetStorage.replaceBySource(
                 { it is KotlinDependentScriptModuleEntitySource }, updatedStorage
             )
         }
+
+        updatePersistentState(data.get())
     }
 
     private fun VirtualFile.hasNoDependencies(): Boolean {
@@ -164,81 +163,82 @@ class DependentScriptConfigurationsSource(override val project: Project, val cor
         return ktFile.annotationEntries.none { it.text.contains("DependsOn") } //TODO use analyze for this
     }
 
-    private fun getUpdatedStorage(
+    private suspend fun getUpdatedStorage(
         project: Project,
-        configurationsData: ScriptConfigurations,
-        entitySourceSupplier: (virtualFileUrl: VirtualFileUrl) -> KotlinScriptEntitySource,
+        configurationsData: Map<VirtualFile, ScriptConfigurationWithSdk>,
     ): MutableEntityStorage {
+        val virtualFileManager = project.serviceAsync<WorkspaceModel>().getVirtualFileUrlManager()
+
+        val libraryFactory = LibraryDependencyFactory(virtualFileManager) {
+            KotlinDependentScriptModuleEntitySource(it)
+        }
+
         val updatedStorage = MutableEntityStorage.create()
-        val projectPath = project.basePath?.let { Path.of(it) } ?: return updatedStorage
 
-        for ((scriptFile, configurationWrapper) in configurationsData.configurations) {
-            val configuration = configurationWrapper.valueOrNull() ?: continue
-
-            val basePath = projectPath.toFile()
-            val file = Path.of(scriptFile.path).toFile()
-            val relativeLocation = FileUtil.getRelativePath(basePath, file) ?: continue
+        for ((scriptFile, configurationWithSdk) in configurationsData) {
+            val configuration = configurationWithSdk.scriptConfiguration.valueOrNull() ?: continue
 
             val definition = findScriptDefinition(project, VirtualFileScriptSource(scriptFile))
 
             val definitionScriptModuleName = "$KOTLIN_SCRIPTS_MODULE_NAME.${definition.name}"
-            val locationName = relativeLocation.replace(VfsUtilCore.VFS_SEPARATOR_CHAR, ':')
-            val moduleName = "$definitionScriptModuleName.$locationName"
+            val locationName = scriptFile.relativeName(project).replace(VfsUtilCore.VFS_SEPARATOR_CHAR, ':')
 
-            val sdkDependency = configurationsData.sdks.values.firstOrNull()
-                ?.let { SdkDependency(SdkId(it.name, it.sdkType.name)) }
-
-            val virtualFileManager = WorkspaceModel.getInstance(project).getVirtualFileUrlManager()
-            val source = entitySourceSupplier(scriptFile.toVirtualFileUrl(virtualFileManager))
+            val source = KotlinDependentScriptModuleEntitySource(scriptFile.toVirtualFileUrl(virtualFileManager))
             val libraryDependencies =
-                getLibraryDependencies(configuration, updatedStorage, source, definition, locationName)
+                updatedStorage.addLibraryDependencies(configuration, source, definition, locationName, libraryFactory)
 
+            val sdkDependency = configurationWithSdk.sdk?.let { SdkDependency(SdkId(it.name, it.sdkType.name)) }
             val allDependencies = listOfNotNull(sdkDependency) + libraryDependencies
 
-            updatedStorage.addEntity(ModuleEntity(moduleName, allDependencies, source))
+            updatedStorage.addEntity(ModuleEntity("$definitionScriptModuleName.$locationName", allDependencies, source))
         }
 
         return updatedStorage
     }
 
-    private fun getLibraryDependencies(
-        configuration: ScriptCompilationConfigurationWrapper,
-        storage: MutableEntityStorage,
+    private suspend fun MutableEntityStorage.addLibraryDependencies(
+        configurationWrapper: ScriptCompilationConfigurationWrapper,
         source: KotlinScriptEntitySource,
         definition: ScriptDefinition,
-        locationName: String
+        locationName: String,
+        libraryFactory: LibraryDependencyFactory
     ): List<LibraryDependency> {
-        val fileUrlManager = WorkspaceModel.getInstance(project).getVirtualFileUrlManager()
-
-        val updatedFactory = LibraryDependencyFactory(fileUrlManager, storage)
-        val definitionLibraryEntity = storage.getDefinitionLibraryEntity(definition, project, KotlinDependentScriptModuleEntitySource(null))
+        val definitionLibraryEntity = getDefinitionLibraryEntity(definition, project, source)
         val rootsToSkip = definitionLibraryEntity?.roots?.map { it.url }?.toSet() ?: emptySet()
 
-        val classes = toVfsRoots(configuration.dependenciesClassPath).filterNot { it.toVirtualFileUrl(fileUrlManager) in rootsToSkip }.sortedBy { it.name }
+        val urlManager = project.serviceAsync<WorkspaceModel>().getVirtualFileUrlManager()
+        val storage = this
+
+        val classes =
+            toVfsRoots(configurationWrapper.dependenciesClassPath).filterNot { it.toVirtualFileUrl(urlManager) in rootsToSkip }
+                .sortedBy { it.name }.distinct()
 
         return buildList {
             addIfNotNull(definitionLibraryEntity?.let { LibraryDependency(it.symbolicId, false, DependencyScope.COMPILE) })
 
-            if (configuration.isUberDependencyAllowed()) {
-                val sources = toVfsRoots(configuration.dependenciesSources).filterNot { it.toVirtualFileUrl(fileUrlManager) in rootsToSkip }.sortedBy { it.name }
+            if (configurationWrapper.isUberDependencyAllowed()) {
+                val sources =
+                    toVfsRoots(configurationWrapper.dependenciesSources).filterNot { it.toVirtualFileUrl(urlManager) in rootsToSkip }
+                        .sortedBy { it.name }
                 addIfNotNull(storage.createUberDependency(locationName, classes, sources, source))
 
             } else {
-                addAll(classes.map { updatedFactory.get(it, source) })
+                addAll(classes.map {
+                    LibraryDependency(libraryFactory.get(it, storage).symbolicId, false, DependencyScope.COMPILE)
+                })
             }
         }
     }
 
-    private fun MutableEntityStorage.createUberDependency(
+    private suspend fun MutableEntityStorage.createUberDependency(
         locationName: String,
         classes: List<VirtualFile>,
         sources: List<VirtualFile>,
         source: KotlinScriptEntitySource,
     ): LibraryDependency? {
-        if (classes.isEmpty() && sources.isEmpty()) {
-            return null
-        }
-        val fileUrlManager = WorkspaceModel.getInstance(project).getVirtualFileUrlManager()
+        if (classes.isEmpty() && sources.isEmpty()) return null
+
+        val fileUrlManager = project.serviceAsync<WorkspaceModel>().getVirtualFileUrlManager()
 
         val classRoots = classes.map {
             LibraryRoot(it.toVirtualFileUrl(fileUrlManager), LibraryRootTypeId.COMPILED)
@@ -276,5 +276,26 @@ internal class ScriptsWithLoadedDependenciesState() : BaseState() {
     }
 }
 
-class KotlinDependentScriptModuleEntitySource(override val virtualFileUrl: VirtualFileUrl?) :
-    KotlinScriptEntitySource(virtualFileUrl)
+class KotlinDependentScriptModuleEntitySource(override val virtualFileUrl: VirtualFileUrl?) : KotlinScriptEntitySource(virtualFileUrl)
+
+private class LibraryDependencyFactory(
+    private val fileUrlManager: VirtualFileUrlManager,
+    private val entitySourceSupplier: (virtualFileUrl: VirtualFileUrl) -> KotlinScriptEntitySource,
+) {
+    private val cache = HashMap<VirtualFile, LibraryEntity>()
+
+    fun get(file: VirtualFile, storage: MutableEntityStorage): LibraryEntity {
+        return cache.computeIfAbsent(file) {
+            storage.createLibrary(file)
+        }
+    }
+
+    fun MutableEntityStorage.createLibrary(file: VirtualFile): LibraryEntity {
+        val fileUrl = file.toVirtualFileUrl(fileUrlManager)
+        val libraryRoot = LibraryRoot(fileUrl, LibraryRootTypeId.COMPILED)
+
+        val libraryEntity =
+            LibraryEntity(file.name, LibraryTableId.ProjectLibraryTableId, listOf(libraryRoot), entitySourceSupplier(fileUrl))
+        return addEntity(libraryEntity)
+    }
+}

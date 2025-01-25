@@ -19,9 +19,9 @@ import com.intellij.openapi.util.ThrowableComputable
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.io.FileUtilRt
 import com.intellij.openapi.util.text.StringUtil
-import com.intellij.settingsSync.*
-import com.intellij.settingsSync.communicator.RemoteCommunicatorHolder
-import com.intellij.settingsSync.communicator.SettingsSyncUserData
+import com.intellij.settingsSync.core.*
+import com.intellij.settingsSync.core.communicator.RemoteCommunicatorHolder
+import com.intellij.settingsSync.core.communicator.SettingsSyncUserData
 import com.intellij.settingsSync.jba.auth.JBAAuthService
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
@@ -58,7 +58,12 @@ internal class SettingsSyncTroubleshootingAction : DumbAwareAction() {
   }
 
   override fun actionPerformed(e: AnActionEvent) {
-    val remoteCommunicator = RemoteCommunicatorHolder.getRemoteCommunicator()
+    val remoteCommunicator = RemoteCommunicatorHolder.getRemoteCommunicator() ?: run {
+      Messages.showErrorDialog(e.project,
+                               "No remote communicator available",
+                               SettingsSyncBundle.message("troubleshooting.dialog.title"))
+      return
+    }
     if (remoteCommunicator !is CloudConfigServerCommunicator) {
       Messages.showErrorDialog(e.project,
                                SettingsSyncBundle.message("troubleshooting.dialog.error.wrong.configuration", remoteCommunicator::class),
@@ -139,9 +144,10 @@ internal class SettingsSyncTroubleshootingAction : DumbAwareAction() {
 
   private class TroubleshootingDialog(val project: Project?,
                                       val remoteCommunicator: CloudConfigServerCommunicator,
-                                      val rootNode: TreeNode.Branch) : DialogWrapper(project, true) {
+                                      val rootNode: TreeNode.Branch
+  ) : DialogWrapper(project, true) {
 
-    val userData = RemoteCommunicatorHolder.getAuthService().getUserData()
+    val userData = RemoteCommunicatorHolder.getCurrentUserData()
 
     init {
       title = SettingsSyncBundle.message("troubleshooting.dialog.title")
@@ -267,7 +273,7 @@ internal class SettingsSyncTroubleshootingAction : DumbAwareAction() {
       if (showHistoryButton) {
         actionButton(object : DumbAwareAction(AllIcons.Vcs.History) {
           override fun actionPerformed(e: AnActionEvent) {
-            showHistoryDialog(project, remoteCommunicator, version.filePath, userData.name!!)
+            showHistoryDialog(project, remoteCommunicator, version.filePath, userData?.name ?: "Unknown")
           }
         })
       }

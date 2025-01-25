@@ -11511,6 +11511,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
             runTest("../../../idea/tests/testData/inspectionsLocal/unusedReceiverParameter/contextReceiverSubtype.kt");
         }
 
+        @TestMetadata("delegateReceiverExplicitGetter.kt")
+        public void testDelegateReceiverExplicitGetter() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/unusedReceiverParameter/delegateReceiverExplicitGetter.kt");
+        }
+
         @TestMetadata("functionInSameClass.kt")
         public void testFunctionInSameClass() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/unusedReceiverParameter/functionInSameClass.kt");
@@ -11618,6 +11623,230 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
     }
 
     @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty")
+    public static class FilterIsInstanceAlwaysEmpty extends AbstractK2LocalInspectionTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("emptyResultFilteringArray1.kt")
+        public void testEmptyResultFilteringArray1() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/emptyResultFilteringArray1.kt");
+        }
+
+        @TestMetadata("emptyResultFilteringArray2.kt")
+        public void testEmptyResultFilteringArray2() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/emptyResultFilteringArray2.kt");
+        }
+
+        @TestMetadata("emptyResultFilteringArrayTo1.kt")
+        public void testEmptyResultFilteringArrayTo1() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/emptyResultFilteringArrayTo1.kt");
+        }
+
+        @TestMetadata("emptyResultFilteringArrayTo2.kt")
+        public void testEmptyResultFilteringArrayTo2() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/emptyResultFilteringArrayTo2.kt");
+        }
+
+        @TestMetadata("emptyResultFilteringChain.kt")
+        public void testEmptyResultFilteringChain() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/emptyResultFilteringChain.kt");
+        }
+
+        @TestMetadata("emptyResultFilteringList1.kt")
+        public void testEmptyResultFilteringList1() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/emptyResultFilteringList1.kt");
+        }
+
+        @TestMetadata("emptyResultFilteringList2.kt")
+        public void testEmptyResultFilteringList2() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/emptyResultFilteringList2.kt");
+        }
+
+        @TestMetadata("emptyResultFilteringListTo1.kt")
+        public void testEmptyResultFilteringListTo1() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/emptyResultFilteringListTo1.kt");
+        }
+
+        @TestMetadata("emptyResultFilteringListTo2.kt")
+        public void testEmptyResultFilteringListTo2() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/emptyResultFilteringListTo2.kt");
+        }
+
+        @TestMetadata("emptyResultFilteringSequence1.kt")
+        public void testEmptyResultFilteringSequence1() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/emptyResultFilteringSequence1.kt");
+        }
+
+        @TestMetadata("emptyResultFilteringSequence2.kt")
+        public void testEmptyResultFilteringSequence2() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/emptyResultFilteringSequence2.kt");
+        }
+
+        @TestMetadata("emptyResultFilteringSequenceTo1.kt")
+        public void testEmptyResultFilteringSequenceTo1() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/emptyResultFilteringSequenceTo1.kt");
+        }
+
+        @TestMetadata("emptyResultFilteringSequenceTo2.kt")
+        public void testEmptyResultFilteringSequenceTo2() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/emptyResultFilteringSequenceTo2.kt");
+        }
+
+        @TestMetadata("emptyResultFilteringWith2GenericsBoundedByClasses.kt")
+        public void testEmptyResultFilteringWith2GenericsBoundedByClasses() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/emptyResultFilteringWith2GenericsBoundedByClasses.kt");
+        }
+
+        @TestMetadata("emptyResultFilteringWithGenericBoundedByClass.kt")
+        public void testEmptyResultFilteringWithGenericBoundedByClass() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/emptyResultFilteringWithGenericBoundedByClass.kt");
+        }
+
+        @TestMetadata("emptyResultFilteringWithGenericBoundedByClassAndInterface.kt")
+        public void testEmptyResultFilteringWithGenericBoundedByClassAndInterface() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/emptyResultFilteringWithGenericBoundedByClassAndInterface.kt");
+        }
+
+        @TestMetadata("emptyResultFilteringWithGenericBoundedByInterface.kt")
+        public void testEmptyResultFilteringWithGenericBoundedByInterface() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/emptyResultFilteringWithGenericBoundedByInterface.kt");
+        }
+
+        @TestMetadata("validFilteringArray1.kt")
+        public void testValidFilteringArray1() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/validFilteringArray1.kt");
+        }
+
+        @TestMetadata("validFilteringArray2.kt")
+        public void testValidFilteringArray2() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/validFilteringArray2.kt");
+        }
+
+        @TestMetadata("validFilteringArrayParentType.kt")
+        public void testValidFilteringArrayParentType() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/validFilteringArrayParentType.kt");
+        }
+
+        @TestMetadata("validFilteringArrayTo1.kt")
+        public void testValidFilteringArrayTo1() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/validFilteringArrayTo1.kt");
+        }
+
+        @TestMetadata("validFilteringArrayTo2.kt")
+        public void testValidFilteringArrayTo2() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/validFilteringArrayTo2.kt");
+        }
+
+        @TestMetadata("validFilteringArrayToParentType.kt")
+        public void testValidFilteringArrayToParentType() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/validFilteringArrayToParentType.kt");
+        }
+
+        @TestMetadata("validFilteringList1.kt")
+        public void testValidFilteringList1() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/validFilteringList1.kt");
+        }
+
+        @TestMetadata("validFilteringList2.kt")
+        public void testValidFilteringList2() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/validFilteringList2.kt");
+        }
+
+        @TestMetadata("validFilteringListParentType.kt")
+        public void testValidFilteringListParentType() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/validFilteringListParentType.kt");
+        }
+
+        @TestMetadata("validFilteringListTo1.kt")
+        public void testValidFilteringListTo1() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/validFilteringListTo1.kt");
+        }
+
+        @TestMetadata("validFilteringListTo2.kt")
+        public void testValidFilteringListTo2() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/validFilteringListTo2.kt");
+        }
+
+        @TestMetadata("validFilteringListToParentType.kt")
+        public void testValidFilteringListToParentType() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/validFilteringListToParentType.kt");
+        }
+
+        @TestMetadata("validFilteringSequence1.kt")
+        public void testValidFilteringSequence1() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/validFilteringSequence1.kt");
+        }
+
+        @TestMetadata("validFilteringSequence2.kt")
+        public void testValidFilteringSequence2() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/validFilteringSequence2.kt");
+        }
+
+        @TestMetadata("validFilteringSequenceParentType.kt")
+        public void testValidFilteringSequenceParentType() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/validFilteringSequenceParentType.kt");
+        }
+
+        @TestMetadata("validFilteringSequenceTo1.kt")
+        public void testValidFilteringSequenceTo1() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/validFilteringSequenceTo1.kt");
+        }
+
+        @TestMetadata("validFilteringSequenceTo2.kt")
+        public void testValidFilteringSequenceTo2() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/validFilteringSequenceTo2.kt");
+        }
+
+        @TestMetadata("validFilteringSequenceToParentType.kt")
+        public void testValidFilteringSequenceToParentType() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/validFilteringSequenceToParentType.kt");
+        }
+
+        @TestMetadata("validFilteringWithGenericBoundedByClass.kt")
+        public void testValidFilteringWithGenericBoundedByClass() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/validFilteringWithGenericBoundedByClass.kt");
+        }
+
+        @TestMetadata("validFilteringWithGenericBoundedByClassAndInterface.kt")
+        public void testValidFilteringWithGenericBoundedByClassAndInterface() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/validFilteringWithGenericBoundedByClassAndInterface.kt");
+        }
+
+        @TestMetadata("validFilteringWithGenericBoundedByInterface.kt")
+        public void testValidFilteringWithGenericBoundedByInterface() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/validFilteringWithGenericBoundedByInterface.kt");
+        }
+
+        @TestMetadata("validFilteringWithGenericBoundedByTwoInterfaces.kt")
+        public void testValidFilteringWithGenericBoundedByTwoInterfaces() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/validFilteringWithGenericBoundedByTwoInterfaces.kt");
+        }
+
+        @TestMetadata("validFilteringWithOneGenericBoundedByAnother.kt")
+        public void testValidFilteringWithOneGenericBoundedByAnother() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/validFilteringWithOneGenericBoundedByAnother.kt");
+        }
+
+        @TestMetadata("validFilteringWithTwoParentTypesAsSourceAndTarget.kt")
+        public void testValidFilteringWithTwoParentTypesAsSourceAndTarget() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/validFilteringWithTwoParentTypesAsSourceAndTarget.kt");
+        }
+
+        @TestMetadata("validFilteringWithUnboundedGenerics.kt")
+        public void testValidFilteringWithUnboundedGenerics() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/filterIsInstanceAlwaysEmpty/validFilteringWithUnboundedGenerics.kt");
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners.class)
     @TestMetadata("../../../idea/tests/testData/inspectionsLocal/selfReferenceConstructorParameter")
     public static class SelfReferenceConstructorParameter extends AbstractK2LocalInspectionTest {
         @java.lang.Override
@@ -11711,6 +11940,139 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
         @TestMetadata("toplevel.kt")
         public void testToplevel() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/addOperatorModifier/toplevel.kt");
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../../../idea/tests/testData/inspectionsLocal/kotlinUnreachableCode")
+    public static class KotlinUnreachableCode extends AbstractK2LocalInspectionTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("simple.kt")
+        public void testSimple() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/kotlinUnreachableCode/simple.kt");
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../../../idea/tests/testData/inspectionsLocal/removeRedundantLabel")
+    public static class RemoveRedundantLabel extends AbstractK2LocalInspectionTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("annotatedLambdaLabel.kt")
+        public void testAnnotatedLambdaLabel() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/removeRedundantLabel/annotatedLambdaLabel.kt");
+        }
+
+        @TestMetadata("anonymousFunctionLabel.kt")
+        public void testAnonymousFunctionLabel() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/removeRedundantLabel/anonymousFunctionLabel.kt");
+        }
+
+        @TestMetadata("anonymousObjectLiteral.kt")
+        public void testAnonymousObjectLiteral() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/removeRedundantLabel/anonymousObjectLiteral.kt");
+        }
+
+        @TestMetadata("commentsInDeadCode.kt")
+        public void testCommentsInDeadCode() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/removeRedundantLabel/commentsInDeadCode.kt");
+        }
+
+        @TestMetadata("contract.kt")
+        public void testContract() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/removeRedundantLabel/contract.kt");
+        }
+
+        @TestMetadata("doWhileLoopLabel.kt")
+        public void testDoWhileLoopLabel() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/removeRedundantLabel/doWhileLoopLabel.kt");
+        }
+
+        @TestMetadata("forLoopLabel.kt")
+        public void testForLoopLabel() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/removeRedundantLabel/forLoopLabel.kt");
+        }
+
+        @TestMetadata("highOrderFunctionCallLabel.kt")
+        public void testHighOrderFunctionCallLabel() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/removeRedundantLabel/highOrderFunctionCallLabel.kt");
+        }
+
+        @TestMetadata("labelBoundToInvokeOperatorExpression.kt")
+        public void testLabelBoundToInvokeOperatorExpression() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/removeRedundantLabel/labelBoundToInvokeOperatorExpression.kt");
+        }
+
+        @TestMetadata("labelBoundToLambda.kt")
+        public void testLabelBoundToLambda() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/removeRedundantLabel/labelBoundToLambda.kt");
+        }
+
+        @TestMetadata("labeledDelegatedExpression.kt")
+        public void testLabeledDelegatedExpression() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/removeRedundantLabel/labeledDelegatedExpression.kt");
+        }
+
+        @TestMetadata("labeledSafeCall.kt")
+        public void testLabeledSafeCall() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/removeRedundantLabel/labeledSafeCall.kt");
+        }
+
+        @TestMetadata("lambdaLabel.kt")
+        public void testLambdaLabel() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/removeRedundantLabel/lambdaLabel.kt");
+        }
+
+        @TestMetadata("notAFunctionLabel.kt")
+        public void testNotAFunctionLabel() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/removeRedundantLabel/notAFunctionLabel.kt");
+        }
+
+        @TestMetadata("notAFunctionLabel2.kt")
+        public void testNotAFunctionLabel2() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/removeRedundantLabel/notAFunctionLabel2.kt");
+        }
+
+        @TestMetadata("parenthesizedLambdaLabel.kt")
+        public void testParenthesizedLambdaLabel() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/removeRedundantLabel/parenthesizedLambdaLabel.kt");
+        }
+
+        @TestMetadata("valLabel.kt")
+        public void testValLabel() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/removeRedundantLabel/valLabel.kt");
+        }
+
+        @TestMetadata("valLabelNoProblemOutsideApplicableRange.kt")
+        public void testValLabelNoProblemOutsideApplicableRange() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/removeRedundantLabel/valLabelNoProblemOutsideApplicableRange.kt");
+        }
+
+        @TestMetadata("whileBodyLabel.kt")
+        public void testWhileBodyLabel() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/removeRedundantLabel/whileBodyLabel.kt");
+        }
+
+        @TestMetadata("whileLoopLabel.kt")
+        public void testWhileLoopLabel() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/removeRedundantLabel/whileLoopLabel.kt");
         }
     }
 }

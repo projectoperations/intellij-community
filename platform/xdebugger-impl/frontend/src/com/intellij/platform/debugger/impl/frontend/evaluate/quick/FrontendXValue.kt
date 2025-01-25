@@ -7,7 +7,6 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsSafe
-import com.intellij.openapi.util.registry.Registry
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.ui.SimpleTextAttributes
 import com.intellij.util.ConcurrencyUtil
@@ -20,6 +19,7 @@ import com.intellij.xdebugger.frame.XValueNode
 import com.intellij.xdebugger.frame.XValuePlace
 import com.intellij.xdebugger.frame.presentation.XValuePresentation
 import com.intellij.xdebugger.impl.evaluate.quick.HintXValue
+import com.intellij.xdebugger.impl.rhizome.XValueMarkerDto
 import com.intellij.xdebugger.impl.rpc.XDebuggerEvaluatorApi
 import com.intellij.xdebugger.impl.rpc.XValueAdvancedPresentationPart
 import com.intellij.xdebugger.impl.rpc.XValueComputeChildrenEvent
@@ -27,19 +27,52 @@ import com.intellij.xdebugger.impl.rpc.XValueDto
 import com.intellij.xdebugger.impl.rpc.XValuePresentationEvent
 import com.intellij.xdebugger.impl.ui.tree.nodes.XValueNodeEx
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.collectLatest
 
-internal class FrontendXValue(private val project: Project, private val xValueDto: XValueDto) : XValue(), HintXValue {
-  // TODO[IJPL-160146]: For evaluation in toolwindow this CoroutineScope won't be cancelled
-  private val cs = project.service<FrontendXValueDisposer>().cs.childScope("FrontendXValue")
+internal class FrontendXValue(
+  private val project: Project,
+  evaluatorCoroutineScope: CoroutineScope,
+  val xValueDto: XValueDto,
+  val parentXValue: FrontendXValue?,
+) : XValue() {
+  // TODO[IJPL-160146]: Is it ok to dispose only when evaluator is changed?
+  //   So, XValues will live more than popups where they appeared
+  //   But it is needed for Mark object functionality at least.
+  //   Since we cannot dispose XValue when evaluation popup is closed
+  //   because it getting closed when Mark Object dialog is shown,
+  //   so we cannot refer to the backend's xValue
+  private val cs = evaluatorCoroutineScope.childScope("FrontendXValue")
 
   @Volatile
   private var modifier: XValueModifier? = null
 
+  var markerDto: XValueMarkerDto? = null
+
   init {
     cs.launch {
       val canBeModified = xValueDto.canBeModified.await()
-      if (canBeModified && Registry.`is`("debugger.frontendValuesModification")) {
+      if (canBeModified) {
         modifier = FrontendXValueModifier(project, xValueDto)
+      }
+    }
+
+    cs.launch {
+      xValueDto.valueMark.toFlow().collectLatest {
+        markerDto = it
+      }
+    }
+
+    // request to dispose root XValue, children will be disposed automatically
+    if (parentXValue == null) {
+      cs.launch {
+        try {
+          awaitCancellation()
+        }
+        finally {
+          withContext(NonCancellable) {
+            project.service<FrontendXValueDisposer>().dispose(xValueDto)
+          }
+        }
       }
     }
   }
@@ -74,7 +107,7 @@ internal class FrontendXValue(private val project: Project, private val xValueDt
           is XValueComputeChildrenEvent.AddChildren -> {
             val childrenList = XValueChildrenList()
             for (i in computeChildrenEvent.children.indices) {
-              childrenList.add(computeChildrenEvent.names[i], FrontendXValue(project, computeChildrenEvent.children[i]))
+              childrenList.add(computeChildrenEvent.names[i], FrontendXValue(project, cs, computeChildrenEvent.children[i], parentXValue = this@FrontendXValue))
             }
             node.addChildren(childrenList, computeChildrenEvent.isLast)
           }
@@ -111,11 +144,6 @@ internal class FrontendXValue(private val project: Project, private val xValueDt
   @OptIn(ExperimentalCoroutinesApi::class)
   override fun getModifier(): XValueModifier? {
     return modifier
-  }
-
-  override fun dispose() {
-    project.service<FrontendXValueDisposer>().dispose(xValueDto)
-    cs.cancel()
   }
 
   private class FrontendXValuePresentation(private val advancedPresentation: XValuePresentationEvent.SetAdvancedPresentation) : XValuePresentation() {

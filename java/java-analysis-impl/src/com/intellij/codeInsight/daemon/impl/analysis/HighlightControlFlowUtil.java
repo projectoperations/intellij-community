@@ -172,7 +172,7 @@ public final class HighlightControlFlowUtil {
       for (PsiMethod constructor : constructors) {
         PsiCodeBlock ctrBody = constructor.getBody();
         if (ctrBody == null) return false;
-        for (PsiMethod redirectedConstructor : JavaHighlightUtil.getChainedConstructors(constructor)) {
+        for (PsiMethod redirectedConstructor : JavaPsiConstructorUtil.getChainedConstructors(constructor)) {
           PsiCodeBlock body = redirectedConstructor.getBody();
           if (body != null && variableDefinitelyAssignedIn(field, body, true)) continue nextConstructor;
         }
@@ -207,18 +207,27 @@ public final class HighlightControlFlowUtil {
     return false;
   }
 
-  static boolean isRecursivelyCalledConstructor(@NotNull PsiMethod constructor) {
-    JavaHighlightUtil.ConstructorVisitorInfo info = new JavaHighlightUtil.ConstructorVisitorInfo();
-    JavaHighlightUtil.visitConstructorChain(constructor, info);
-    if (info.recursivelyCalledConstructor == null) return false;
-    // our constructor is reached from some other constructor by constructor chain
-    return info.visitedConstructors.indexOf(info.recursivelyCalledConstructor) <= info.visitedConstructors.indexOf(constructor);
-  }
-
   public static boolean isAssigned(@NotNull PsiParameter parameter) {
     ParamWriteProcessor processor = new ParamWriteProcessor();
     ReferencesSearch.search(parameter, new LocalSearchScope(parameter.getDeclarationScope()), true).forEach(processor);
     return processor.isWriteRefFound();
+  }
+
+  /**
+   * @return field that has initializer with this element as subexpression or null if not found
+   */
+  static PsiField findEnclosingFieldInitializer(@NotNull PsiElement entry) {
+    PsiElement element = entry;
+    while (element != null) {
+      PsiElement parent = element.getParent();
+      if (parent instanceof PsiField field) {
+        if (element == field.getInitializer()) return field;
+        if (field instanceof PsiEnumConstant enumConstant && element == enumConstant.getArgumentList()) return field;
+      }
+      if (element instanceof PsiClass || element instanceof PsiMethod) return null;
+      element = parent;
+    }
+    return null;
   }
 
   private static class ParamWriteProcessor implements Processor<PsiReference> {
@@ -339,7 +348,7 @@ public final class HighlightControlFlowUtil {
         // a final field may be initialized in ctor or class initializer only
         // if we're inside non-ctr method, skip it
         if (PsiUtil.findEnclosingConstructorOrInitializer(expression) == null
-            && HighlightUtil.findEnclosingFieldInitializer(expression) == null) {
+            && findEnclosingFieldInitializer(expression) == null) {
           return null;
         }
         if (topBlock == null) return null;
@@ -353,7 +362,7 @@ public final class HighlightControlFlowUtil {
           // static variables already initialized in class initializers
           if (variable.hasModifierProperty(PsiModifier.STATIC)) return null;
           // as a last chance, field may be initialized in this() call
-          for (PsiMethod redirectedConstructor : JavaHighlightUtil.getChainedConstructors(constructor)) {
+          for (PsiMethod redirectedConstructor : JavaPsiConstructorUtil.getChainedConstructors(constructor)) {
             // variable must be initialized before its usage
             //???
             //if (startOffset < redirectedConstructor.getTextRange().getStartOffset()) continue;
@@ -412,7 +421,7 @@ public final class HighlightControlFlowUtil {
               return null;
             }
             // as a last chance, field may be initialized in this() call
-            for (PsiMethod redirectedConstructor : JavaHighlightUtil.getChainedConstructors(constructor)) {
+            for (PsiMethod redirectedConstructor : JavaPsiConstructorUtil.getChainedConstructors(constructor)) {
               // variable must be initialized before its usage
               if (offset < redirectedConstructor.getTextRange().getStartOffset()) continue;
               PsiCodeBlock redirectedBody = redirectedConstructor.getBody();
@@ -685,7 +694,7 @@ public final class HighlightControlFlowUtil {
     PsiElement scope = getElementVariableReferencedFrom(variable, expression);
     if (variable instanceof PsiField field) {
       // if inside some field initializer
-      if (HighlightUtil.findEnclosingFieldInitializer(expression) != null) return true;
+      if (findEnclosingFieldInitializer(expression) != null) return true;
       PsiClass containingClass = field.getContainingClass();
       if (containingClass == null) return true;
       // assignment from within inner class is illegal always

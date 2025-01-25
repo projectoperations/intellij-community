@@ -1,12 +1,9 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.debugger;
 
 import com.intellij.JavaTestUtil;
 import com.intellij.compiler.CompilerManagerImpl;
-import com.intellij.debugger.engine.DebugProcessImpl;
-import com.intellij.debugger.engine.JavaDebugProcess;
-import com.intellij.debugger.engine.RemoteStateState;
-import com.intellij.debugger.engine.SuspendContextImpl;
+import com.intellij.debugger.engine.*;
 import com.intellij.debugger.engine.evaluation.CodeFragmentKind;
 import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.engine.evaluation.EvaluationContextImpl;
@@ -27,7 +24,6 @@ import com.intellij.execution.executors.DefaultDebugExecutor;
 import com.intellij.execution.process.ProcessAdapter;
 import com.intellij.execution.process.ProcessEvent;
 import com.intellij.execution.process.ProcessHandler;
-import com.intellij.execution.process.ProcessOutputTypes;
 import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.execution.runners.ExecutionEnvironmentBuilder;
 import com.intellij.execution.target.TargetEnvironmentRequest;
@@ -60,7 +56,6 @@ import com.intellij.xdebugger.*;
 import com.intellij.xdebugger.frame.XStackFrame;
 import com.intellij.xdebugger.impl.frame.XDebuggerFramesList;
 import com.intellij.xdebugger.impl.frame.XFramesView;
-import com.sun.jdi.Location;
 import com.sun.jdi.Value;
 import com.sun.jdi.VirtualMachine;
 import org.jetbrains.annotations.NotNull;
@@ -280,8 +275,10 @@ public abstract class DebuggerTestCase extends ExecutionWithDebuggerToolsTestCas
                                   debuggerRunnerSettings.getDebugPort())
         .project(myProject)
         .checkValidity(true)
-        .asyncAgent(true)
+        .asyncAgent(false) // add manually to allow early tmp folder deletion
         .create(javaParameters);
+
+    AsyncStacksUtils.addDebuggerAgent(javaParameters, myProject, true, getTestRootDisposable());
 
     myExecutionEnvironment.putUserData(DefaultDebugEnvironment.DEBUGGER_TRACE_MODE, getTraceMode());
     DebuggerSession debuggerSession = attachVirtualMachine(myRunnableState, myExecutionEnvironment, debugParameters, false);
@@ -463,17 +460,6 @@ public abstract class DebuggerTestCase extends ExecutionWithDebuggerToolsTestCas
 
   protected static StackFrameProxyImpl getFrameProxy(@NotNull SuspendContextImpl suspendContext) {
     return suspendContext.getFrameProxy();
-  }
-
-  protected void printLocation(SuspendContextImpl suspendContext) {
-    try {
-      Location location = suspendContext.getFrameProxy().location();
-      String message = "paused at " + location.sourceName() + ":" + location.lineNumber();
-      println(message, ProcessOutputTypes.SYSTEM);
-    }
-    catch (Throwable e) {
-      addException(e);
-    }
   }
 
   protected void createBreakpointInHelloWorld() {

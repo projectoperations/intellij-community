@@ -27,8 +27,12 @@ public final class OneToManyPathsMapping extends AbstractStateStorage<String, Co
   }
 
   @Override
-  public void setOutputs(@NotNull String keyPath, @NotNull List<String> boundPaths) throws IOException {
-    super.update(normalizePath(keyPath), normalizePaths(boundPaths));
+  public void setOutputs(@NotNull Path keyFile, @NotNull List<? extends @NotNull Path> boundPaths) throws IOException {
+    String[] normalized = new String[boundPaths.size()];
+    for (int i = 0; i < normalized.length; i++) {
+      normalized[i] = relativizer.toRelative(boundPaths.get(i));
+    }
+    super.update(normalizePath(relativizer.toRelative(keyFile)), Arrays.asList(normalized));
   }
 
   void setOutput(@NotNull String keyPath, @NotNull String boundPath) throws IOException {
@@ -107,8 +111,8 @@ public final class OneToManyPathsMapping extends AbstractStateStorage<String, Co
   }
 
   @Override
-  public void remove(@NotNull String keyPath) throws IOException {
-    super.remove(relativizer.toRelative(keyPath));
+  public void remove(@NotNull Path key) throws IOException {
+    super.remove(relativizer.toRelative(key));
   }
 
   @Override

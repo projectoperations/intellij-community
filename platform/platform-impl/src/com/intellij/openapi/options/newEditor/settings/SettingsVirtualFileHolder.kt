@@ -73,6 +73,8 @@ internal class SettingsVirtualFileHolder private constructor(private val project
     }
 
     override fun isIncludedInEditorHistory(project: Project): Boolean = false
+
+    override fun shouldSkipEventSystem() = true
   }
 
   private class SettingFileType : FakeFileType() {
@@ -92,8 +94,8 @@ private class CloseSettingsAction : DumbAwareAction() {
   override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
 
   override fun update(e: AnActionEvent) {
-    val project = e.project
-    if (project == null) {
+    val project = e.project ?: run {
+      e.presentation.isEnabled = false
       return
     }
     e.presentation.isEnabled = SettingsVirtualFileHolder.getInstance(project).virtualFileExists()

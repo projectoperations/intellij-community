@@ -590,6 +590,31 @@ public class Py3TypeTest extends PyTestCase {
              """);
   }
 
+  public void testLiteralTypeNarrowing() {
+    doTest("Literal[\"abba\"]",
+           """
+             from typing import Literal
+             def foo(v: str):
+                 if (v == "abba"):
+                     expr = v
+             """);
+    doTest("Literal[\"ab\"]",
+           """
+             from typing import Literal
+             def foo(v: Literal["abba", "ab"]):
+                 if (v != "abba"):
+                     expr = v
+             """);
+    doTest("Literal[\"abc\"]",
+           """
+             from typing import Literal
+             abc: Literal["abc"] = "abc"
+             def foo(v: str):
+                 if (v == abc):
+                     expr = v
+             """);
+  }
+
   // PY-21083
   public void testFloatFromhex() {
     doTest("float",
@@ -3278,8 +3303,7 @@ public class Py3TypeTest extends PyTestCase {
   }
 
   // PY-78125
-  // Special case: `TypedDict` type is inferred for a dict literal with string-only keys
-  public void _testDictOfLiteralsWithStringOnlyKeys() {
+  public void testDictOfLiteralsWithStringOnlyKeys() {
     doTest("dict[str, int | str]", """
       from typing import Literal
 

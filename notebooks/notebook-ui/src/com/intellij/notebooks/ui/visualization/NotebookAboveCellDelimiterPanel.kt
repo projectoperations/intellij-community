@@ -15,6 +15,7 @@ import java.awt.Color
 import java.awt.Dimension
 import java.awt.Graphics
 import java.awt.Graphics2D
+import javax.swing.BorderFactory
 import javax.swing.JPanel
 
 class NotebookAboveCellDelimiterPanel(
@@ -24,7 +25,6 @@ class NotebookAboveCellDelimiterPanel(
 ) : JPanel(BorderLayout()) {
   private var delimiterPanel: JPanel? = null
   private var roofPanel: JPanel? = null
-  private val frameColor = editor.notebookAppearance.codeCellBackgroundColor.get()
 
   var backgroundColor: Color = editor.colorsScheme.defaultBackground
     set(value) {
@@ -56,21 +56,21 @@ class NotebookAboveCellDelimiterPanel(
     }
   }
 
-  fun addHighlight() {
+  fun addDropHighlight() {
     isHighlighted = true
     delimiterPanel?.repaint()
   }
 
-  fun removeHighlight() {
+  fun removeDropHighlight() {
     isHighlighted = false
     delimiterPanel?.repaint()
   }
 
-  fun setFrameVisible(isVisible: Boolean) {
+  fun setFrameVisible(isVisible: Boolean, frameColor: JBColor) {
     roofPanel?.let {
       it.border = when (isVisible) {
         true -> IdeBorderFactory.createBorder(frameColor, SideBorder.TOP or SideBorder.RIGHT)
-        else -> null
+        else -> BorderFactory.createEmptyBorder(1, 0, 0, 1)
       }
 
       it.repaint()
@@ -95,6 +95,7 @@ class NotebookAboveCellDelimiterPanel(
 
     roofPanel = JPanel().also {
       it.background = cellRoofColor
+      it.border = BorderFactory.createEmptyBorder(1, 0, 0, 1)
       it.preferredSize = Dimension(JBUIScale.scale(1), standardDelimiterHeight)
     }
   }

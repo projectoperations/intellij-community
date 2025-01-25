@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.daemon.impl;
 
 import com.intellij.codeInsight.daemon.impl.analysis.HighlightingLevelManager;
@@ -93,7 +93,8 @@ public final class HighlightingSessionImpl implements HighlightingSession {
    */
   private static final Key<Map<PsiFile, List<HighlightingSession>>> HIGHLIGHTING_SESSION = Key.create("HIGHLIGHTING_SESSION");
 
-  boolean canChangeFileSilently() {
+  @ApiStatus.Internal
+  public boolean canChangeFileSilently() {
     return myCanChangeFileSilently.canIReally(myInContent, extensionsAllowToChangeFileSilently);
   }
 
@@ -105,7 +106,8 @@ public final class HighlightingSessionImpl implements HighlightingSession {
     return myMinimumSeverity;
   }
 
-  static @NotNull HighlightingSession getFromCurrentIndicator(@NotNull PsiFile file) {
+  @ApiStatus.Internal
+  public static @NotNull HighlightingSession getFromCurrentIndicator(@NotNull PsiFile file) {
     DaemonProgressIndicator indicator = GlobalInspectionContextBase.assertUnderDaemonProgress();
     Map<PsiFile, List<HighlightingSession>> map = indicator.getUserData(HIGHLIGHTING_SESSION);
     if (map == null) {
@@ -242,13 +244,6 @@ public final class HighlightingSessionImpl implements HighlightingSession {
   @Override
   public EditorColorsScheme getColorsScheme() {
     return myEditorColorsScheme;
-  }
-
-  // return true if added
-  @Deprecated
-  void addInfoIncrementally(@NotNull HighlightInfo info, @NotNull TextRange restrictedRange, int groupId) {
-    BackgroundUpdateHighlightersUtil.addHighlighterToEditorIncrementally(this, getPsiFile(), getDocument(), restrictedRange,
-                                                                         info, getColorsScheme(), groupId, myRange2markerCache);
   }
 
   void applyFileLevelHighlightsRequests() {

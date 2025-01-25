@@ -55,6 +55,35 @@ public class PluginXmlDomInspectionActionHighlightingTest extends PluginXmlDomIn
                            public boolean canBePerformed(@NotNull com.intellij.openapi.actionSystem.DataContext context) { return true; }
                          }""");
 
+    // fake Executor
+    myFixture.addClass("""
+    package com.intellij.execution;
+      public abstract class Executor {
+        public abstract String getId();
+        public abstract String getContextActionId();
+      }
+    """);
+    myFixture.addClass("""
+    public class MyExecutor extends com.intellij.execution.Executor {
+      @Override
+      @org.jetbrains.annotations.NotNull
+      public@NotNull String getId() {
+        return "MyExecutorId";
+      }
+      @Override
+      public String getContextActionId() {
+        return "MyExecutorContextActionId";
+      }
+    }
+    """);
+    // toolwindow ID
+    myFixture.addClass("""
+    package com.intellij.openapi.wm;
+    interface ToolWindowId {
+      String FAVORITES = "ToolWindowIdFromConstants";
+    }
+    """);
+
     myFixture.addFileToProject("keymaps/MyKeymap.xml", "<keymap/>");
     myFixture.testHighlighting("ActionComplexHighlighting.xml");
   }

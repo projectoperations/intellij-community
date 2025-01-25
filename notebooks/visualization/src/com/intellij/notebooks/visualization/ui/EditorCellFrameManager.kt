@@ -9,6 +9,7 @@ import com.intellij.openapi.editor.impl.EditorImpl
 import com.intellij.openapi.editor.markup.HighlighterLayer
 import com.intellij.openapi.editor.markup.HighlighterTargetArea
 import com.intellij.openapi.editor.markup.RangeHighlighter
+import com.intellij.ui.JBColor
 import java.awt.geom.Line2D
 
 class EditorCellFrameManager(
@@ -17,13 +18,13 @@ class EditorCellFrameManager(
 ) {  // PY-74106
   private var leftBorderHighlighter: RangeHighlighter? = null
   private var rightBorderLine: Line2D? = null
-  private val frameColor = editor.notebookAppearance.codeCellBackgroundColor.get()
+  private val frameColor = JBColor.LIGHT_GRAY
 
   fun updateMarkdownCellShow(selected: Boolean) {
     val layerController = editor.getLayerController()
 
     // draw or remove top and bottom lines with frame corners
-    view.updateFrameVisibility(selected)
+    view.updateFrameVisibility(selected, frameColor)
 
     if (selected) {
       // add left and right sides of the border
@@ -58,11 +59,20 @@ class EditorCellFrameManager(
     layerController ?: return
     removeRightBorder(layerController)
 
-    val bounds = view.input.calculateBounds()
-    val lineX = (bounds.x + bounds.width).toDouble()
-    val lineY1 = (bounds.y + editor.notebookAppearance.aboveFirstCellDelimiterHeight).toDouble()
-    val lineX2 = (bounds.y + bounds.height - 1).toDouble()
-    rightBorderLine = Line2D.Double(lineX, lineY1, lineX, lineX2).also {
+    val inlays = view.input.getBlockElementsInRange()
+    val upperInlayBounds = inlays.firstOrNull {
+      it.properties.priority == editor.notebookAppearance.JUPYTER_CELL_SPACERS_INLAY_PRIORITY &&
+      it.properties.isShownAbove == true }?.bounds ?: return
+
+    val lowerInlayBounds = inlays.lastOrNull {
+      it.properties.priority == editor.notebookAppearance.JUPYTER_CELL_SPACERS_INLAY_PRIORITY &&
+      it.properties.isShownAbove == false }?.bounds ?: return
+
+    val lineX = upperInlayBounds.x + upperInlayBounds.width - 0.5
+    val lineStartY = (upperInlayBounds.y + upperInlayBounds.height).toDouble()
+    val lineEndY = (lowerInlayBounds.y).toDouble()
+
+    rightBorderLine = Line2D.Double(lineX, lineStartY, lineX, lineEndY).also {
       layerController.addOverlayLine(it, frameColor)
     }
   }

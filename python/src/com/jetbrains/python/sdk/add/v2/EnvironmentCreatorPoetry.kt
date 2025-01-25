@@ -27,18 +27,20 @@ import com.jetbrains.python.sdk.poetry.poetryToml
 import com.jetbrains.python.sdk.poetry.pyProjectToml
 import com.jetbrains.python.sdk.poetry.setupPoetrySdkUnderProgress
 import com.jetbrains.python.statistics.InterpreterType
+import com.jetbrains.python.util.ErrorSink
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import java.nio.file.Path
 import kotlin.io.path.pathString
 
-class EnvironmentCreatorPoetry(model: PythonMutableTargetAddInterpreterModel, private val moduleOrProject: ModuleOrProject?) : CustomNewEnvironmentCreator("poetry", model) {
+internal class EnvironmentCreatorPoetry(model: PythonMutableTargetAddInterpreterModel, private val moduleOrProject: ModuleOrProject?) : CustomNewEnvironmentCreator("poetry", model) {
   override val interpreterType: InterpreterType = InterpreterType.POETRY
   override val executable: ObservableMutableProperty<String> = model.state.poetryExecutable
+  override val installationVersion: String = "1.8.0"
 
-  override fun buildOptions(panel: Panel, validationRequestor: DialogValidationRequestor) {
-    super.buildOptions(panel, validationRequestor)
+  override fun buildOptions(panel: Panel, validationRequestor: DialogValidationRequestor, errorSink: ErrorSink) {
+    super.buildOptions(panel, validationRequestor, errorSink)
     addInProjectCheckbox(panel)
   }
 

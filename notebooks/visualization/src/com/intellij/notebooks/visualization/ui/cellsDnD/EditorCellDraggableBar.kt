@@ -1,18 +1,20 @@
 package com.intellij.notebooks.visualization.ui.cellsDnD
 
+import com.intellij.icons.AllIcons
 import com.intellij.notebooks.ui.visualization.NotebookEditorAppearanceUtils.isOrdinaryNotebookEditor
+import com.intellij.notebooks.ui.visualization.NotebookUtil.notebookAppearance
 import com.intellij.notebooks.visualization.NotebookCellInlayManager
 import com.intellij.notebooks.visualization.getCell
 import com.intellij.notebooks.visualization.inlay.JupyterBoundsChangeHandler
 import com.intellij.notebooks.visualization.inlay.JupyterBoundsChangeListener
-import com.intellij.notebooks.visualization.ui.EditorCell
 import com.intellij.notebooks.visualization.ui.EditorCellInput
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.impl.EditorImpl
 import com.intellij.openapi.util.registry.Registry
-import com.intellij.util.ui.JBUI
 import java.awt.Cursor
+import java.awt.Graphics
+import java.awt.Graphics2D
 import java.awt.Point
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
@@ -23,7 +25,6 @@ import javax.swing.SwingUtilities
 class EditorCellDraggableBar(
   private val editor: EditorImpl,
   private val cellInput: EditorCellInput,
-  private val yAndHeightSupplier: () -> Pair<Int, Int>,
 ) : Disposable {
   private var panel: JComponent? = null
 
@@ -31,16 +32,31 @@ class EditorCellDraggableBar(
     override fun boundsChanged() = updateBounds()
   }
 
+  private val dragIcon = AllIcons.General.Drag
+
+  private val inlayManager = NotebookCellInlayManager.get(editor)
+
   init {
     if (Registry.`is`("jupyter.editor.dnd.cells")) createAndAddDraggableBar()
   }
 
   fun updateBounds() {
-    val panel = panel ?: return
-    val (y, height) = yAndHeightSupplier.invoke()
-    // TODO: fix overlap with the run icon
-    val x = editor.gutterComponentEx.iconAreaOffset
-    panel.setBounds(x, y, DRAGGABLE_BAR_WIDTH, height)
+    panel?.let {
+      val inlays = cellInput.getBlockElementsInRange()
+
+      val lowerInlayBounds = inlays.lastOrNull {
+        it.properties.isShownAbove == false &&
+        it.properties.priority == editor.notebookAppearance.JUPYTER_CELL_SPACERS_INLAY_PRIORITY
+      }?.bounds ?: return@let
+
+      val x = editor.gutterComponentEx.iconAreaOffset
+      val width = editor.gutterComponentEx.getIconsAreaWidth()
+
+      val y = lowerInlayBounds.y
+      val height = lowerInlayBounds.height
+
+      it.setBounds(x, y, width, height)
+    }
   }
 
   private fun createAndAddDraggableBar() {
@@ -68,10 +84,10 @@ class EditorCellDraggableBar(
     private var isDragging = false
     private var dragStartPoint: Point? = null
 
-    private var currentlyHighlightedCell: EditorCell? = null
+    private var currentlyHighlightedCell: CellDropTarget = CellDropTarget.NoCell
 
     init {
-      cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+      cursor = Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR)  // todo: need to find a better cursor
       isOpaque = false
 
       addMouseListener(object : MouseAdapter() {
@@ -111,6 +127,29 @@ class EditorCellDraggableBar(
       })
     }
 
+    fun getCellUnderCursor(editorPoint: Point): CellDropTarget {
+      val notebookCellManager = NotebookCellInlayManager.get(editor) ?: return CellDropTarget.NoCell
+
+      // Check if the point is below the bounds of the last cell
+      notebookCellManager.getCell(notebookCellManager.cells.lastIndex).view?.calculateBounds()?.let { lastCellBounds ->
+        if (editorPoint.y > lastCellBounds.maxY) return CellDropTarget.BelowLastCell
+      }
+
+      val line = editor.document.getLineNumber(editor.xyToLogicalPosition(editorPoint).let(editor::logicalPositionToOffset))
+      val realCell = notebookCellManager.getCell(editor.getCell(line).ordinal)
+      return CellDropTarget.TargetCell(realCell)
+    }
+
+    override fun paintComponent(g: Graphics?) {
+      super.paintComponent(g)
+      val g2d = g as Graphics2D
+
+      // todo: deal with empty lower panels - in such case, icon does not fit
+      val iconX = (width - dragIcon.iconWidth) / 2
+      val iconY = (height - dragIcon.iconHeight) / 2
+      dragIcon.paintIcon(this, g2d, iconX, iconY)
+    }
+
     private fun handleDrag(currentLocationOnScreen: Point) {
       val editorLocationOnScreen = editor.contentComponent.locationOnScreen
       val x = currentLocationOnScreen.x - editorLocationOnScreen.x
@@ -120,26 +159,27 @@ class EditorCellDraggableBar(
       updateDropIndicator(cellUnderCursor)
     }
 
-    private fun updateDropIndicator(targetCell: EditorCell?) {
+    private fun updateDropIndicator(targetCell: CellDropTarget) {
       deleteDropIndicator()
       currentlyHighlightedCell = targetCell
 
-      targetCell?.let {  it.view?.highlightAbovePanel() }
+      when (targetCell) {
+        is CellDropTarget.TargetCell -> targetCell.cell.view?.highlightAbovePanel()
+        CellDropTarget.BelowLastCell -> addHighlightAfterLastCell()
+        else -> { }
+      }
     }
 
-    private fun deleteDropIndicator() = currentlyHighlightedCell?.let {
-      it.view?.removeHighlightAbovePanel()
+    private fun deleteDropIndicator() = when(currentlyHighlightedCell) {
+      is CellDropTarget.TargetCell -> (currentlyHighlightedCell as CellDropTarget.TargetCell).cell.view?.removeHighlightAbovePanel()
+      CellDropTarget.BelowLastCell -> removeHighlightAfterLastCell()
+      else -> { }
     }
 
-    fun getCellUnderCursor(editorPoint: Point): EditorCell? {
-      val offset = editor.xyToLogicalPosition(editorPoint).let { editor.logicalPositionToOffset(it) }
-      val line = editor.document.getLineNumber(offset)
-      return NotebookCellInlayManager.get(editor)?.getCell(editor.getCell(line).ordinal)
-    }
+    private fun addHighlightAfterLastCell() = inlayManager?.belowLastCellPanel?.addDropHighlight()
+
+    private fun removeHighlightAfterLastCell() = inlayManager?.belowLastCellPanel?.removeDropHighlight()
 
   }
 
-  companion object {
-    private val DRAGGABLE_BAR_WIDTH = JBUI.scale(10)
-  }
 }

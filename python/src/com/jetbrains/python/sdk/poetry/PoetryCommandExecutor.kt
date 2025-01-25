@@ -187,15 +187,6 @@ suspend fun poetryInstallPackage(sdk: Sdk, pkg: String, extraArgs: List<String>)
 suspend fun poetryUninstallPackage(sdk: Sdk, pkg: String): Result<String> = runPoetryWithSdk(sdk, "remove", pkg)
 
 @Internal
-suspend fun poetryShowPackages(sdk: Sdk): Result<List<PythonPackage>> {
-  val output = runPoetryWithSdk(sdk, "show").getOrElse {
-    return Result.failure(it)
-  }
-
-  return parsePoetryShow(output).let { Result.success(it) }
-}
-
-@Internal
 fun parsePoetryShow(input: String): List<PythonPackage> {
   val result = mutableListOf<PythonPackage>()
   input.split("\n").forEach { line ->
@@ -221,7 +212,9 @@ suspend fun poetryShowOutdated(sdk: Sdk): Result<Map<String, PythonOutdatedPacka
 suspend fun poetryListPackages(sdk: Sdk): Result<Pair<List<PyPackage>, List<PyRequirement>>> {
   // Just in case there were any changes to pyproject.toml
   if (runPoetryWithSdk(sdk, "lock", "--check").isFailure) {
-    runPoetryWithSdk(sdk, "lock", "--no-update")
+    if (runPoetryWithSdk(sdk, "lock", "--no-update").isFailure) {
+      runPoetryWithSdk(sdk, "lock")
+    }
   }
 
   val output = runPoetryWithSdk(sdk, "install", "--dry-run", "--no-root").getOrElse {

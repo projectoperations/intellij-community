@@ -1927,6 +1927,7 @@ c:com.intellij.openapi.diagnostic.IdeaLoggingEvent
 - <init>(java.lang.String,java.lang.Throwable):V
 - <init>(java.lang.String,java.lang.Throwable,java.lang.Object):V
 - getData():java.lang.Object
+- getIncludedAttachments():java.util.List
 - getMessage():java.lang.String
 - getThrowable():java.lang.Throwable
 - getThrowableText():java.lang.String
@@ -5581,6 +5582,7 @@ c:com.intellij.ui.CheckboxTreeBase
 - setNodeState(com.intellij.ui.CheckedTreeNode,Z):V
 c:com.intellij.ui.CheckboxTreeBase$CheckPolicy
 - <init>(Z,Z,Z,Z):V
+- <init>(Z,Z,Z,Z,Z):V
 c:com.intellij.ui.CheckboxTreeBase$CheckboxTreeCellRendererBase
 - javax.swing.JPanel
 - javax.swing.tree.TreeCellRenderer
@@ -11140,9 +11142,9 @@ a:com.intellij.util.ui.StatusText
 - f:setShowAboveCenter(Z):com.intellij.util.ui.StatusText
 - setText(java.lang.String):com.intellij.util.ui.StatusText
 - setText(java.lang.String,com.intellij.ui.SimpleTextAttributes):com.intellij.util.ui.StatusText
+- withUnscaledGapAfter(I):com.intellij.util.ui.StatusText
 pf:com.intellij.util.ui.StatusText$Column
 pf:com.intellij.util.ui.StatusText$Fragment
-- <init>(com.intellij.util.ui.StatusText):V
 a:com.intellij.util.ui.TableViewModel
 - javax.swing.table.AbstractTableModel
 - com.intellij.util.ui.SortableColumnModel

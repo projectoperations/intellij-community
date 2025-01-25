@@ -1,31 +1,21 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.daemon.impl.analysis;
 
-import com.intellij.codeInsight.ExceptionUtil;
 import com.intellij.codeInsight.daemon.JavaErrorBundle;
 import com.intellij.codeInsight.daemon.impl.HighlightInfo;
 import com.intellij.codeInsight.daemon.impl.HighlightInfoType;
 import com.intellij.codeInsight.daemon.impl.quickfix.QuickFixAction;
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.codeInsight.intention.QuickFixFactory;
-import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.NlsContexts;
-import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
-import com.intellij.psi.impl.source.resolve.JavaResolveUtil;
 import com.intellij.psi.search.searches.DirectClassInheritorsSearch;
 import com.intellij.psi.util.*;
-import com.intellij.util.JavaPsiConstructorUtil;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
 import java.util.function.Consumer;
 
 /**
@@ -43,114 +33,14 @@ public final class HighlightClassUtil {
   }
 
   private static void registerMakeInnerClassStatic(@Nullable PsiClass aClass, @Nullable HighlightInfo.Builder result) {
-    if (aClass != null && aClass.getContainingClass() != null) {
-      IntentionAction action = QuickFixFactory.getInstance().createModifierListFix(aClass, PsiModifier.STATIC, true, false);
-      if (result != null) {
+    if (result == null || aClass == null) return;
+    if (aClass.getContainingClass() != null) {
+      PsiModifierList modifierList = aClass.getModifierList();
+      if (modifierList != null && JavaPsiModifierUtil.getIncompatibleModifier(PsiModifier.STATIC, modifierList) == null) {
+        IntentionAction action = QuickFixFactory.getInstance().createModifierListFix(aClass, PsiModifier.STATIC, true, false);
         result.registerFix(action, null, null, null, null);
       }
     }
-  }
-
-  private static @NlsContexts.DetailedDescription String checkDefaultConstructorThrowsException(@NotNull PsiMethod constructor, PsiClassType @NotNull [] handledExceptions) {
-    PsiClassType[] referencedTypes = constructor.getThrowsList().getReferencedTypes();
-    List<PsiClassType> exceptions = new ArrayList<>();
-    for (PsiClassType referencedType : referencedTypes) {
-      if (!ExceptionUtil.isUncheckedException(referencedType) && !ExceptionUtil.isHandledBy(referencedType, handledExceptions)) {
-        exceptions.add(referencedType);
-      }
-    }
-    if (!exceptions.isEmpty()) {
-      return HighlightUtil.getUnhandledExceptionsDescriptor(exceptions);
-    }
-    return null;
-  }
-
-  static HighlightInfo.Builder checkClassDoesNotCallSuperConstructorOrHandleExceptions(@NotNull PsiClass aClass,
-                                                                                       @NotNull PsiResolveHelper resolveHelper) {
-    if (aClass.isEnum()) return null;
-    // check only no-ctr classes. Problem with specific constructor will be highlighted inside it
-    if (aClass.getConstructors().length != 0) return null;
-    // find no-args base class ctr
-    TextRange textRange = HighlightNamesUtil.getClassDeclarationTextRange(aClass);
-    return checkBaseClassDefaultConstructorProblem(aClass, resolveHelper, textRange, PsiClassType.EMPTY_ARRAY);
-  }
-
-  static HighlightInfo.Builder checkBaseClassDefaultConstructorProblem(@NotNull PsiClass aClass,
-                                                                       @NotNull PsiResolveHelper resolveHelper,
-                                                                       @NotNull TextRange range,
-                                                                       PsiClassType @NotNull [] handledExceptions) {
-    if (aClass instanceof PsiAnonymousClass) return null;
-    PsiClass baseClass = aClass.getSuperClass();
-    if (baseClass == null) return null;
-    PsiMethod[] constructors = baseClass.getConstructors();
-    if (constructors.length == 0) return null;
-
-    PsiElement resolved = JavaResolveUtil.resolveImaginarySuperCallInThisPlace(aClass, aClass.getProject(), baseClass);
-    List<PsiMethod> constructorCandidates = (resolved != null ? Collections.singletonList((PsiMethod)resolved)
-                                                              : Arrays.asList(constructors))
-      .stream()
-      .filter(constructor -> {
-        PsiParameter[] parameters = constructor.getParameterList().getParameters();
-        return (parameters.length == 0 || parameters.length == 1 && parameters[0].isVarArgs()) &&
-               resolveHelper.isAccessible(constructor, aClass, null);
-      })
-      .limit(2).toList();
-
-    if (constructorCandidates.size() >= 2) {// two ambiguous var-args-only constructors
-      String m1 = PsiFormatUtil.formatMethod(constructorCandidates.get(0), PsiSubstitutor.EMPTY,
-                                             PsiFormatUtilBase.SHOW_CONTAINING_CLASS |
-                                             PsiFormatUtilBase.SHOW_NAME |
-                                             PsiFormatUtilBase.SHOW_PARAMETERS,
-                                             PsiFormatUtilBase.SHOW_TYPE);
-      String m2 = PsiFormatUtil.formatMethod(constructorCandidates.get(1), PsiSubstitutor.EMPTY,
-                                             PsiFormatUtilBase.SHOW_CONTAINING_CLASS |
-                                             PsiFormatUtilBase.SHOW_NAME |
-                                             PsiFormatUtilBase.SHOW_PARAMETERS,
-                                             PsiFormatUtilBase.SHOW_TYPE);
-      HighlightInfo.Builder info = HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR)
-        .range(range)
-        .descriptionAndTooltip(JavaErrorBundle.message("ambiguous.method.call", m1, m2));
-
-      IntentionAction action1 = QuickFixFactory.getInstance().createCreateConstructorMatchingSuperFix(aClass);
-      info.registerFix(action1, null, null, null, null);
-      IntentionAction action = QuickFixFactory.getInstance().createAddDefaultConstructorFix(baseClass);
-      info.registerFix(action, null, null, null, null);
-      return info;
-    }
-
-    if (!constructorCandidates.isEmpty()) {
-      PsiMethod constructor = constructorCandidates.get(0);
-      String description = checkDefaultConstructorThrowsException(constructor, handledExceptions);
-      if (description != null) {
-        HighlightInfo.Builder info =
-          HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(range).descriptionAndTooltip(description);
-        IntentionAction action = QuickFixFactory.getInstance().createCreateConstructorMatchingSuperFix(aClass);
-        info.registerFix(action, null, null, null, null);
-        return info;
-      }
-      return null;
-    }
-
-    // no need to distract with missing constructor error when there is already a "Cannot inherit from final class" error message
-    if (baseClass.hasModifierProperty(PsiModifier.FINAL)) return null;
-
-    String description = JavaErrorBundle.message("no.default.constructor.available", HighlightUtil.formatClass(baseClass));
-    HighlightInfo.Builder info = HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(range).descriptionAndTooltip(description);
-    IntentionAction action = QuickFixFactory.getInstance().createCreateConstructorMatchingSuperFix(aClass);
-    info.registerFix(action, null, null, null, null);
-
-    return info;
-  }
-
-  static HighlightInfo.Builder checkCreateInnerClassFromStaticContext(@NotNull PsiNewExpression expression, @NotNull PsiType type, @NotNull PsiClass aClass) {
-    if (type instanceof PsiArrayType || type instanceof PsiPrimitiveType) return null;
-    if (aClass instanceof PsiAnonymousClass anonymousClass) {
-      aClass = anonymousClass.getBaseClassType().resolve();
-      if (aClass == null) return null;
-    }
-
-    PsiExpression qualifier = expression.getQualifier();
-    return checkCreateInnerClassFromStaticContext(expression, qualifier, aClass);
   }
 
   public static HighlightInfo.Builder checkCreateInnerClassFromStaticContext(@NotNull PsiElement element,
@@ -184,39 +74,6 @@ public final class HighlightClassUtil {
     return checkIllegalEnclosingUsage(placeToSearchEnclosingFrom, aClass, outerClass, element);
   }
 
-  static HighlightInfo.Builder checkSuperQualifierType(@NotNull Project project, @NotNull PsiMethodCallExpression superCall) {
-    if (!JavaPsiConstructorUtil.isSuperConstructorCall(superCall)) return null;
-    PsiMethod ctr = PsiTreeUtil.getParentOfType(superCall, PsiMethod.class, true, PsiMember.class);
-    if (ctr == null) return null;
-    PsiClass aClass = ctr.getContainingClass();
-    if (aClass == null) return null;
-    PsiClass targetClass = aClass.getSuperClass();
-    if (targetClass == null) return null;
-    PsiExpression qualifier = superCall.getMethodExpression().getQualifierExpression();
-    if (qualifier != null) {
-      if (isRealInnerClass(targetClass)) {
-        PsiClass outerClass = targetClass.getContainingClass();
-        if (outerClass != null) {
-          PsiClassType outerType = JavaPsiFacade.getElementFactory(project).createType(outerClass);
-          return HighlightUtil.checkAssignability(outerType, null, qualifier, qualifier);
-        }
-      } else {
-        String description = JavaErrorBundle.message("not.inner.class", HighlightUtil.formatClass(targetClass));
-        return HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(qualifier).descriptionAndTooltip(description);
-      }
-    }
-    return null;
-  }
-
-  /** JLS 8.1.3. Inner Classes and Enclosing Instances */
-  private static boolean isRealInnerClass(PsiClass aClass) {
-    if (PsiUtil.isInnerClass(aClass)) return true;
-    if (!PsiUtil.isLocalOrAnonymousClass(aClass)) return false;
-    if (aClass.hasModifierProperty(PsiModifier.STATIC)) return false; // check for implicit staticness
-    PsiMember member = PsiTreeUtil.getParentOfType(aClass, PsiMember.class, true);
-    return member != null && !member.hasModifierProperty(PsiModifier.STATIC);
-  }
-
   static HighlightInfo.Builder checkIllegalEnclosingUsage(@NotNull PsiElement place,
                                                   @Nullable PsiClass aClass,
                                                   @NotNull PsiClass outerClass,
@@ -238,13 +95,7 @@ public final class HighlightClassUtil {
       // make context not static or referenced class static
       IntentionAction action1 = QuickFixFactory.getInstance().createModifierListFix(staticParent, PsiModifier.STATIC, false, false);
       builder.registerFix(action1, null, null, null, null);
-      PsiModifierList classModifierList;
-      if (aClass != null
-          && (classModifierList = aClass.getModifierList()) != null
-          && HighlightUtil.getIncompatibleModifier(PsiModifier.STATIC, classModifierList) == null) {
-        IntentionAction action = QuickFixFactory.getInstance().createModifierListFix(aClass, PsiModifier.STATIC, true, false);
-        builder.registerFix(action, null, null, null, null);
-      }
+      registerMakeInnerClassStatic(aClass, builder);
       return builder;
     }
     return null;

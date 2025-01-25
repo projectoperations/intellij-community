@@ -24,6 +24,7 @@ import com.jetbrains.python.sdk.pipenv.getPipEnvExecutable
 import com.jetbrains.python.sdk.poetry.getPoetryExecutable
 import com.jetbrains.python.sdk.uv.impl.getUvExecutable
 import com.jetbrains.python.util.ErrorSink
+import com.jetbrains.python.util.emit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
@@ -291,10 +292,10 @@ class MutableTargetState(propertyGraph: PropertyGraph) : AddInterpreterState(pro
 }
 
 
-val PythonAddInterpreterModel.existingSdks
+internal val PythonAddInterpreterModel.existingSdks
   get() = allInterpreters.value.filterIsInstance<ExistingSelectableInterpreter>().map { it.sdk }
 
-fun PythonAddInterpreterModel.findInterpreter(path: String): PythonSelectableInterpreter? {
+internal fun PythonAddInterpreterModel.findInterpreter(path: String): PythonSelectableInterpreter? {
   return allInterpreters.value.asSequence().find { it.homePath == path }
 }
 

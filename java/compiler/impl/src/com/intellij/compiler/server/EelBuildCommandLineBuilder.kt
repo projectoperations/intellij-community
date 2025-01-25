@@ -1,33 +1,25 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.compiler.server
 
-import com.intellij.codeInsight.navigation.LOG
 import com.intellij.compiler.YourKitProfilerService
 import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
-import com.intellij.platform.eel.EelApi
-import com.intellij.platform.eel.EelPlatform
-import com.intellij.platform.eel.EelTunnelsApi
-import com.intellij.platform.eel.LocalEelApi
-import com.intellij.platform.eel.pathSeparator
-import com.intellij.platform.eel.provider.asEelPath
-import com.intellij.platform.eel.provider.asNioPath
+import com.intellij.platform.eel.*
+import com.intellij.platform.eel.provider.*
 import com.intellij.platform.eel.provider.utils.EelPathUtils
 import com.intellij.platform.eel.provider.utils.forwardLocalServer
-import com.intellij.platform.eel.provider.getEelApiBlocking
-import com.intellij.platform.eel.provider.routingPrefix
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.future.asCompletableFuture
 import java.nio.charset.Charset
-import java.nio.file.Files
+import java.nio.file.FileSystems
 import java.nio.file.Path
 import kotlin.io.path.name
 
 class EelBuildCommandLineBuilder(val project: Project, exePath: Path) : BuildCommandLineBuilder {
-  private val eel: EelApi = exePath.getEelApiBlocking()
+  private val eel: EelApi = exePath.getEelDescriptor().upgradeBlocking()
   private val commandLine = GeneralCommandLine().withExePath(exePath.asEelPath().toString())
 
   private val workingDirectory: Path = run {
@@ -93,7 +85,7 @@ class EelBuildCommandLineBuilder(val project: Project, exePath: Path) : BuildCom
   }
 
   fun pathPrefix(): String {
-    return eel.descriptor.routingPrefix().toString()
+    return eel.descriptor.routingPrefix().toString().removeSuffix(FileSystems.getDefault().separator)
   }
 
   /**
@@ -112,7 +104,7 @@ class EelBuildCommandLineBuilder(val project: Project, exePath: Path) : BuildCom
     when (this) {
       is EelPlatform.Windows -> PathManager.OS.WINDOWS
       is EelPlatform.Darwin -> PathManager.OS.MACOS
-      is EelPlatform.Linux -> PathManager.OS.LINUX
+      is EelPlatform.Linux, is EelPlatform.FreeBSD -> PathManager.OS.LINUX
     }
 }
 

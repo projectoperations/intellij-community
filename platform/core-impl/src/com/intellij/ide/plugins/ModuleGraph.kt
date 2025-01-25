@@ -5,7 +5,6 @@ package com.intellij.ide.plugins
 
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.util.Java11Shim
-import com.intellij.util.graph.DFSTBuilder
 import com.intellij.util.graph.Graph
 import org.jetbrains.annotations.ApiStatus
 import java.util.*
@@ -17,7 +16,6 @@ import java.util.Collections.emptyList
  */
 @ApiStatus.Internal
 class ModuleGraph internal constructor(
-  @JvmField val topologicalComparator: Comparator<IdeaPluginDescriptorImpl>,
   private val modules: Collection<IdeaPluginDescriptorImpl>,
   private val directDependencies: Map<IdeaPluginDescriptorImpl, Collection<IdeaPluginDescriptorImpl>>,
   private val directDependents: Map<IdeaPluginDescriptorImpl, Collection<IdeaPluginDescriptorImpl>>,
@@ -28,16 +26,10 @@ class ModuleGraph internal constructor(
 
   override fun getIn(descriptor: IdeaPluginDescriptorImpl): Iterator<IdeaPluginDescriptorImpl> = getDependencies(descriptor).iterator()
 
-  fun getDependents(descriptor: IdeaPluginDescriptorImpl): Collection<IdeaPluginDescriptorImpl> = directDependents.getOrDefault(descriptor, emptyList())
+  override fun getOut(descriptor: IdeaPluginDescriptorImpl): Iterator<IdeaPluginDescriptorImpl> = directDependents.getOrDefault(descriptor, emptyList()).iterator()
 
-  override fun getOut(descriptor: IdeaPluginDescriptorImpl): Iterator<IdeaPluginDescriptorImpl> = getDependents(descriptor).iterator()
-
-  fun builder(): DFSTBuilder<IdeaPluginDescriptorImpl> = DFSTBuilder(this, null, true)
-
-  internal fun sorted(builder: DFSTBuilder<IdeaPluginDescriptorImpl> = builder()): ModuleGraph {
-    val topologicalComparator = toCoreAwareComparator(builder.comparator())
+  internal fun sorted(topologicalComparator: Comparator<IdeaPluginDescriptorImpl>): ModuleGraph {
     return ModuleGraph(
-      topologicalComparator = topologicalComparator,
       modules = modules.sortedWith(topologicalComparator),
       directDependencies = copySorted(directDependencies, topologicalComparator),
       directDependents = copySorted(directDependents, topologicalComparator)
@@ -48,6 +40,8 @@ class ModuleGraph internal constructor(
 private val VCS_ALIAS_ID = PluginId.getId("com.intellij.modules.vcs")
 private val RIDER_ALIAS_ID = PluginId.getId("com.intellij.modules.rider")
 private val COVERAGE_ALIAS_ID = PluginId.getId("com.intellij.modules.coverage")
+private val ML_INLINE_ALIAS_ID = PluginId.getId("com.intellij.ml.inline.completion")
+private val PROVISIONER_ALIAS_ID = PluginId.getId("com.intellij.platform.ide.provisioner")
 
 internal fun createModuleGraph(plugins: Collection<IdeaPluginDescriptorImpl>): ModuleGraph {
   val moduleMap = HashMap<String, IdeaPluginDescriptorImpl>(plugins.size * 2)
@@ -104,11 +98,25 @@ internal fun createModuleGraph(plugins: Collection<IdeaPluginDescriptorImpl>): M
         moduleMap.get("intellij.platform.collaborationTools")?.let { result.add(it) }
       }
 
+      /* Compatibility Layer */
+
       if (doesDependOnPluginAlias(module, RIDER_ALIAS_ID)) {
         moduleMap.get("intellij.rider")?.let { result.add(it) }
       }
       if (doesDependOnPluginAlias(module, COVERAGE_ALIAS_ID)) {
         moduleMap.get("intellij.platform.coverage")?.let { result.add(it) }
+      }
+      if (doesDependOnPluginAlias(module, ML_INLINE_ALIAS_ID)) {
+        moduleMap.get("intellij.ml.inline.completion")?.let { result.add(it) }
+      }
+      if (doesDependOnPluginAlias(module, PROVISIONER_ALIAS_ID)) {
+        moduleMap.get("intellij.platform.ide.provisioner")?.let { result.add(it) }
+      }
+      if (doesDependOnPluginAlias(module, PluginId.getId("org.jetbrains.completion.full.line"))) {
+        moduleMap.get("intellij.fullLine.core")?.let { result.add(it) }
+        moduleMap.get("intellij.fullLine.local")?.let { result.add(it) }
+        moduleMap.get("intellij.fullLine.core.impl")?.let { result.add(it) }
+        moduleMap.get("intellij.ml.inline.completion")?.let { result.add(it) }
       }
     }
 
@@ -139,7 +147,6 @@ internal fun createModuleGraph(plugins: Collection<IdeaPluginDescriptorImpl>): M
   }
 
   return ModuleGraph(
-    topologicalComparator = Comparator { _, _ -> 0 },
     modules = modules,
     directDependencies = directDependencies,
     directDependents = directDependents,
@@ -151,7 +158,7 @@ private fun doesDependOnPluginAlias(plugin: IdeaPluginDescriptorImpl, @Suppress(
   return plugin.pluginDependencies.any { it.pluginId == aliasId } || plugin.dependencies.plugins.any { it.id == aliasId }
 }
 
-private fun toCoreAwareComparator(comparator: Comparator<IdeaPluginDescriptorImpl>): Comparator<IdeaPluginDescriptorImpl> {
+internal fun toCoreAwareComparator(comparator: Comparator<IdeaPluginDescriptorImpl>): Comparator<IdeaPluginDescriptorImpl> {
   // there is circular reference between core and implementation-detail plugin, as not all such plugins extracted from core,
   // so, ensure that core plugin is always first (otherwise not possible to register actions - a parent group not defined)
   // don't use sortWith here - avoid loading kotlin stdlib

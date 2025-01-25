@@ -73,7 +73,7 @@ public abstract class WslDistributionManager implements Disposable {
   public @NotNull List<WSLDistribution> getInstalledDistributions() {
     if (!isAvailable()) return List.of();
     CachedDistributions cachedDistributions = myInstalledDistributions;
-    if (cachedDistributions != null && cachedDistributions.isUpToDate(false)) {
+    if (cachedDistributions != null && cachedDistributions.isUpToDate()) {
       return cachedDistributions.myInstalledDistributions;
     }
 
@@ -122,7 +122,7 @@ public abstract class WslDistributionManager implements Disposable {
   public @NotNull CompletableFuture<List<WSLDistribution>> getInstalledDistributionsFuture() {
     if (!isAvailable()) return CompletableFuture.completedFuture(List.of());
     CachedDistributions cachedDistributions = myInstalledDistributions;
-    if (cachedDistributions != null && cachedDistributions.isUpToDate(true)) {
+    if (cachedDistributions != null && cachedDistributions.isUpToDate()) {
       return CompletableFuture.completedFuture(cachedDistributions.myInstalledDistributions);
     }
     return CompletableFuture.supplyAsync(this::getInstalledDistributions, AppExecutorUtil.getAppExecutorService());
@@ -216,13 +216,8 @@ public abstract class WslDistributionManager implements Disposable {
       myExternalChangesCount = getCurrentExternalChangesCount();
     }
 
-    public boolean isUpToDate(boolean immediateCheck) {
-      if (immediateCheck) {
-        myDistributionWatcher.get().updateDistroInfo();
-      }
-      else {
-        myDistributionWatcher.get().scheduleUpdate();
-      }
+    public boolean isUpToDate() {
+      myDistributionWatcher.get().scheduleUpdate();
       return getCurrentExternalChangesCount() == myExternalChangesCount;
     }
 
@@ -235,6 +230,7 @@ public abstract class WslDistributionManager implements Disposable {
    * Tracks installed WSL distributions via Windows Registry.
    */
   private static class WSLDistributionWatcher extends SimpleModificationTracker {
+    private final static String DISTRO_KEY = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Lxss";
     private final Set<String> myCurrentGuids = new HashSet<>();
     private final Object LOCK = new Object();
 
@@ -257,12 +253,14 @@ public abstract class WslDistributionManager implements Disposable {
     }
 
     public void updateDistroInfo() {
-      Set<String> guids = Set.of(Advapi32Util.registryGetKeys(WinReg.HKEY_CURRENT_USER, "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Lxss"));
-      synchronized (LOCK) {
-        if (!myCurrentGuids.equals(guids)) {
-          incModificationCount();
-          myCurrentGuids.clear();
-          myCurrentGuids.addAll(guids);
+      if (Advapi32Util.registryKeyExists(WinReg.HKEY_CURRENT_USER, DISTRO_KEY)) {
+        Set<String> guids = Set.of(Advapi32Util.registryGetKeys(WinReg.HKEY_CURRENT_USER, DISTRO_KEY));
+        synchronized (LOCK) {
+          if (!myCurrentGuids.equals(guids)) {
+            incModificationCount();
+            myCurrentGuids.clear();
+            myCurrentGuids.addAll(guids);
+          }
         }
       }
     }

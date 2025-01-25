@@ -5455,6 +5455,10 @@ f:com.intellij.codeInsight.template.impl.WrapWithCustomTemplateAction
 - <init>(com.intellij.codeInsight.template.CustomLiveTemplate,com.intellij.openapi.editor.Editor,com.intellij.psi.PsiFile,java.util.Set,java.lang.Runnable):V
 - actionPerformed(com.intellij.openapi.actionSystem.AnActionEvent):V
 - perform():V
+f:com.intellij.codeInsight.template.impl.actions.ListTemplatesAction
+- com.intellij.codeInsight.actions.BaseCodeInsightAction
+- com.intellij.openapi.project.DumbAware
+- <init>():V
 c:com.intellij.codeInsight.template.impl.actions.SurroundWithTemplateAction
 - com.intellij.codeInsight.actions.BaseCodeInsightAction
 - <init>():V
@@ -10152,8 +10156,11 @@ a:com.intellij.ide.projectView.impl.AbstractProjectViewPane
 - updateFrom(java.lang.Object,Z,Z):V
 - a:updateFromRoot(Z):com.intellij.openapi.util.ActionCallback
 - writeExternal(org.jdom.Element):V
+com.intellij.ide.projectView.impl.AbstractProjectViewPane$ProjectViewPaneWithAsyncSelect
+- a:selectCB(java.lang.Object,com.intellij.openapi.vfs.VirtualFile,Z):com.intellij.openapi.util.ActionCallback
 a:com.intellij.ide.projectView.impl.AbstractProjectViewPaneWithAsyncSupport
 - com.intellij.ide.projectView.impl.AbstractProjectViewPane
+- com.intellij.ide.projectView.impl.AbstractProjectViewPane$ProjectViewPaneWithAsyncSelect
 - p:<init>(com.intellij.openapi.project.Project):V
 - createComponent():javax.swing.JComponent
 - pa:createStructure():com.intellij.ide.util.treeView.AbstractTreeStructureBase
@@ -13843,6 +13850,7 @@ c:com.intellij.openapi.roots.ui.configuration.SdkDetector
 - s:getInstance():com.intellij.openapi.roots.ui.configuration.SdkDetector
 com.intellij.openapi.roots.ui.configuration.SdkDetector$DetectedSdkListener
 - a:onSdkDetected(com.intellij.openapi.projectRoots.SdkType,java.lang.String,java.lang.String):V
+- onSdkDetected(com.intellij.openapi.projectRoots.SdkType,java.lang.String,java.lang.String,com.intellij.util.keyFMap.KeyFMap):V
 - onSearchCompleted():V
 - onSearchStarted():V
 a:com.intellij.openapi.roots.ui.configuration.SdkListItem
@@ -13893,6 +13901,7 @@ f:com.intellij.openapi.roots.ui.configuration.SdkListItem$SdkReferenceItem
 f:com.intellij.openapi.roots.ui.configuration.SdkListItem$SuggestedItem
 - com.intellij.openapi.roots.ui.configuration.SdkListItem
 - f:homePath:java.lang.String
+- f:info:com.intellij.util.keyFMap.KeyFMap
 - f:sdkType:com.intellij.openapi.projectRoots.SdkType
 - f:version:java.lang.String
 f:com.intellij.openapi.roots.ui.configuration.SdkListModel

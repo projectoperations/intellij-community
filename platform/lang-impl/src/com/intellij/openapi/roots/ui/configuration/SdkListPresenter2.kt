@@ -78,11 +78,14 @@ internal class SdkListPresenter2<T>(
       }
 
       is SdkListItem.SuggestedItem -> {
-        val icon = sdkListItem.sdkType.icon
+        var icon = sdkListItem.sdkType.icon
+        if (icon != null && sdkListItem.info.get(SdkType.IS_SYMLINK_KEY) == true) {
+          icon = AllIcons.Nodes.Related
+        }
         item.icon = icon ?: IconUtil.addIcon
 
-        item.append(SdkListPresenter.presentDetectedSdkPath(sdkListItem.homePath))
-        item.append(" ${sdkListItem.version}", SimpleTextAttributes.GRAYED_ATTRIBUTES)
+        item.append(sdkListItem.version)
+        item.append(" ${SdkListPresenter.presentDetectedSdkPath(sdkListItem.homePath)}", SimpleTextAttributes.GRAYED_ATTRIBUTES)
       }
 
       is SdkListItem.ProjectSdkItem -> {

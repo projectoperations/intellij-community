@@ -5,10 +5,7 @@ import com.intellij.java.codeserver.highlighting.JavaCompilationErrorBundle;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.HtmlChunk;
 import com.intellij.psi.PsiElement;
-import org.jetbrains.annotations.Nls;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.PropertyKey;
+import org.jetbrains.annotations.*;
 
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
@@ -229,6 +226,7 @@ public sealed interface JavaErrorKind<Psi extends PsiElement, Context> {
      * @param psi psi element to bind an error instance to
      * @return an instance of this error
      */
+    @Contract(pure = true)
     public @NotNull JavaCompilationError<Psi, Void> create(@NotNull Psi psi) {
       return new JavaCompilationError<>(this, psi, null);
     }
@@ -319,6 +317,7 @@ public sealed interface JavaErrorKind<Psi extends PsiElement, Context> {
      * @param context context to bind an error instance to
      * @return an instance of this error
      */
+    @Contract(pure = true)
     public @NotNull JavaCompilationError<Psi, Context> create(@NotNull Psi psi, Context context) {
       return new JavaCompilationError<>(this, psi, context);
     }
@@ -353,6 +352,16 @@ public sealed interface JavaErrorKind<Psi extends PsiElement, Context> {
      */
     Parameterized<Psi, Context> withValidator(@NotNull BiConsumer<? super Psi, ? super Context> validator) {
       return new Parameterized<>(myKey, myDescription, myTooltip, myAnchor, myRange, myHighlightType, validator);
+    }
+
+    /**
+     * Creates a new instance of Parameterized with the specified highlight type function.
+     *
+     * @param type a function that determines the {@link JavaErrorHighlightType} for a given Psi object.
+     * @return a new Parameterized instance with the updated highlight type function.
+     */
+    Parameterized<Psi, Context> withHighlightType(@NotNull BiFunction<? super Psi, ? super Context, JavaErrorHighlightType> type) {
+      return new Parameterized<>(myKey, myDescription, myTooltip, myAnchor, myRange, type, myValidator);
     }
 
     /**

@@ -9,25 +9,23 @@ import com.intellij.openapi.util.TextRange
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
-import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinDiagnosticBasedInspectionBase
+import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinKtDiagnosticBasedInspectionBase
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinModCommandQuickFix
 import org.jetbrains.kotlin.idea.codeinsight.api.applicators.ApplicabilityRange
 import org.jetbrains.kotlin.psi.*
 import kotlin.reflect.KClass
 
-internal class CanBeValInspection : KotlinDiagnosticBasedInspectionBase<KtDeclaration, KaFirDiagnostic.CanBeVal, Unit>() {
+internal class CanBeValInspection : KotlinKtDiagnosticBasedInspectionBase<KtDeclaration, KaFirDiagnostic.CanBeVal, Unit>() {
     override val diagnosticType: KClass<KaFirDiagnostic.CanBeVal>
         get() = KaFirDiagnostic.CanBeVal::class
 
     override fun buildVisitor(
         holder: ProblemsHolder,
         isOnTheFly: Boolean
-    ): KtVisitor<*, *> = object : KtVisitorVoid() {
-        override fun visitDeclaration(dcl: KtDeclaration) {
-            if (dcl !is KtProperty && dcl !is KtDestructuringDeclaration) return
-            visitTargetElement(dcl, holder, isOnTheFly)
-        }
-    }
+    ): KtVisitor<*, *> = declarationRecursiveVisitor(fun(declaration) {
+        if (declaration !is KtProperty && declaration !is KtDestructuringDeclaration) return
+        visitTargetElement(declaration, holder, isOnTheFly)
+    })
 
     override fun getProblemDescription(
         element: KtDeclaration,

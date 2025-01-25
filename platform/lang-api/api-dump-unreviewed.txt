@@ -5939,6 +5939,7 @@ com.intellij.util.ActionRunner$InterruptibleRunnableWithResult
 - a:run():java.lang.Object
 f:com.intellij.util.PsiNavigateUtil
 - <init>():V
+- s:getNavigatable(com.intellij.psi.PsiElement):com.intellij.pom.Navigatable
 - s:navigate(com.intellij.psi.PsiElement):V
 - s:navigate(com.intellij.psi.PsiElement,Z):V
 f:com.intellij.util.indexing.LightDirectoryIndex

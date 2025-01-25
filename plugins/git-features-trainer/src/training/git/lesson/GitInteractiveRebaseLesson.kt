@@ -57,7 +57,6 @@ class GitInteractiveRebaseLesson : GitLesson("Git.InteractiveRebase", GitLessons
   override val lessonContent: LessonContext.() -> Unit = {
     highlightToolWindowStripe(ToolWindowId.VCS)
 
-    @Suppress("UnresolvedPluginConfigReference", "InjectedReferences") // todo IJPL-165055
     task("ActivateVersionControlToolWindow") {
       openGitWindow(GitLessonsBundle.message("git.interactive.rebase.open.git.window", action(it),
                                              strong(GitBundle.message("git4idea.vcs.name"))))
@@ -101,7 +100,7 @@ class GitInteractiveRebaseLesson : GitLesson("Git.InteractiveRebase", GitLessons
         ideFrame {
           val table: VcsLogGraphTable = findComponentWithTimeout(defaultTimeout)
           val row = invokeAndWaitIfNeeded {
-            (0 until table.rowCount).find { table.model.getCommitMetadata(it).id == commitHashToHighlight }
+            (0 until table.rowCount).find { table.model.getCommitMetadata(it)?.id == commitHashToHighlight }
           } ?: error("Failed to find commit with hash: $commitHashToHighlight")
           JTableFixture(robot, table).click(TableCell.row(row).column(1), MouseButton.RIGHT_BUTTON)
         }

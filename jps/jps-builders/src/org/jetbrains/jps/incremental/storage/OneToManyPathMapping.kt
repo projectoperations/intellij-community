@@ -15,10 +15,10 @@ interface OneToManyPathMapping {
   fun getOutputs(file: Path): Collection<Path>?
 
   @Throws(IOException::class)
-  fun setOutputs(path: String, outPaths: List<String>)
+  fun setOutputs(path: Path, outPaths: List<Path>)
 
   @Throws(IOException::class)
-  fun remove(path: String)
+  fun remove(key: Path)
 }
 
 @ApiStatus.Internal

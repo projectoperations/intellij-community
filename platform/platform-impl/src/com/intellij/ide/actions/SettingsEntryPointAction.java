@@ -85,6 +85,9 @@ public final class SettingsEntryPointAction extends ActionGroup
     boolean newUI = ExperimentalUI.isNewUI() && ActionPlaces.MAIN_TOOLBAR.equals(place);
     return new ActionButton(this, presentation, place,
                             newUI ? ActionToolbar.experimentalToolbarMinimumButtonSize() : ActionToolbar.DEFAULT_MINIMUM_BUTTON_SIZE) {
+      {
+        putClientProperty(AccessibleContext.ACCESSIBLE_NAME_PROPERTY, IdeBundle.message("settings.entry.point.tooltip"));
+      }
       @Override
       protected void paintButtonLook(Graphics g) {
         Icon icon = getIcon();
@@ -207,7 +210,7 @@ public final class SettingsEntryPointAction extends ActionGroup
     }
     else {
       popup = JBPopupFactory.getInstance().createActionGroupPopup(
-        null, group, context, ActionSelectionAid.MNEMONICS, true, place);
+        null, group, context, null, true, place);
     }
 
     popup.setShowSubmenuOnHover(true);
@@ -221,7 +224,7 @@ public final class SettingsEntryPointAction extends ActionGroup
 
     MyPopup(@NotNull ActionGroup group, @NotNull DataContext context, @NotNull PresentationFactory presentationFactory, @NotNull String place) {
       super(null, null, group, context, place, presentationFactory,
-            ActionPopupOptions.mnemonicsAndDisabled(), null);
+            ActionPopupOptions.showDisabled(), null);
       myPresentationFactory = presentationFactory;
     }
 

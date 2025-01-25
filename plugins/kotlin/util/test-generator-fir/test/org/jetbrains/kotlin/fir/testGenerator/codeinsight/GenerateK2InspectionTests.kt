@@ -77,9 +77,12 @@ internal fun MutableTWorkspace.generateK2InspectionTests() {
             model("${idea}/inspectionsLocal/replaceArrayEqualityOpWithArraysEquals")
             model("${idea}/inspectionsLocal/nestedLambdaShadowedImplicitParameter")
             model("${idea}/inspectionsLocal/unusedReceiverParameter")
+            model("${idea}/inspectionsLocal/filterIsInstanceAlwaysEmpty")
             model("${idea}/inspectionsLocal/selfReferenceConstructorParameter")
             model("${idea}/inspectionsLocal/canBeVal")
             model("${idea}/inspectionsLocal/addOperatorModifier")
+            model("${idea}/inspectionsLocal/kotlinUnreachableCode")
+            model("${idea}/inspectionsLocal/removeRedundantLabel")
         }
         /**
          * `unusedSymbol` tests require [com.intellij.codeInsight.daemon.impl.GeneralHighlightingPass] to run,
@@ -146,6 +149,7 @@ internal fun MutableTWorkspace.generateK2InspectionTests() {
         testClass<AbstractK2MultiFileQuickFixTest> {
             val pattern = Patterns.forRegex("""^(\w+)\.((before\.Main\.\w+)|(test))$""")
             model("${idea}/quickfix/optIn", pattern = pattern, testMethodName = "doTestWithExtraFile")
+            model("${idea}/quickfix/changeSignature/jk", pattern = pattern, testMethodName = "doTestWithExtraFile")
         }
     }
 

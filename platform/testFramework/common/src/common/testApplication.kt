@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("JAVA_MODULE_DOES_NOT_EXPORT_PACKAGE", "RAW_RUN_BLOCKING")
 
 package com.intellij.testFramework.common
@@ -46,10 +46,7 @@ import com.intellij.openapi.vfs.newvfs.ManagingFS
 import com.intellij.openapi.vfs.newvfs.RefreshQueueImpl
 import com.intellij.openapi.vfs.newvfs.persistent.PersistentFS
 import com.intellij.openapi.vfs.newvfs.persistent.PersistentFSImpl
-import com.intellij.platform.ide.bootstrap.callAppInitialized
-import com.intellij.platform.ide.bootstrap.getAppInitializedListeners
-import com.intellij.platform.ide.bootstrap.initConfigurationStore
-import com.intellij.platform.ide.bootstrap.preloadCriticalServices
+import com.intellij.platform.ide.bootstrap.*
 import com.intellij.platform.ide.progress.ModalTaskOwner
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.psi.PsiManager
@@ -76,6 +73,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.future.asCompletableFuture
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.TestOnly
+import com.intellij.platform.ide.bootstrap.kernel.startServerKernel
 import sun.awt.AWTAutoShutdown
 import java.time.Duration
 import java.util.concurrent.TimeUnit
@@ -138,6 +136,7 @@ ${dumpCoroutines(stripDump = false)}
   loadAppInUnitTestMode(isHeadless)
 }
 
+@OptIn(DelicateCoroutinesApi::class)
 @TestOnly
 private fun loadAppInUnitTestMode(isHeadless: Boolean) {
   val loadedModuleFuture = PluginManagerCore.initPluginFuture
@@ -149,7 +148,11 @@ private fun loadAppInUnitTestMode(isHeadless: Boolean) {
     AWTAutoShutdown.getInstance().notifyThreadBusy(awtBusyThread)
   }
 
-  val app = ApplicationImpl(isHeadless)
+  val kernelStarted = runBlocking {
+    startServerKernel(GlobalScope)
+  }
+
+  val app = ApplicationImpl(kernelStarted.coroutineContext, isHeadless)
   Disposer.register(app) {
     AWTAutoShutdown.getInstance().notifyThreadFree(awtBusyThread)
   }

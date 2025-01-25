@@ -31,8 +31,8 @@ class MainToolbarUI(data: ComponentData) : UiComponent(data) {
   val runWidget get() = x(ActionButtonUi::class.java) { contains(byJavaClass("RedesignedRunConfigurationSelector")) }
   val cwmButton get() = x { byTooltip("Code With Me") }
 
-  fun projectWidget(projectName: String): UiComponent =
-    x("//div[@class='ToolbarComboButton' and @visible_text='$projectName']")
+  fun projectWidget(projectName: String): AbstractToolbarComboUi =
+    abstractToolbarCombo { and(byType("com.intellij.openapi.wm.impl.AbstractToolbarCombo"), byVisibleText(projectName)) }
 }
 
 val MainToolbarUI.rerunButton get() = x { contains(byAccessibleName("Rerun")) }
@@ -40,4 +40,3 @@ val MainToolbarUI.resumeButton get() = x { contains(byAccessibleName("Resume")) 
 val MainToolbarUI.pauseButton get() = x { contains(byAccessibleName("Pause")) }
 val MainToolbarUI.restartDebugButton get() = x { contains(byAccessibleName("Restart Debug")) }
 val MainToolbarUI.stopButton get() = x { contains(byAccessibleName("Stop")) }
-val MainToolbarUI.stopButtonWith2Configs get() = x { and(contains(byAccessibleName("Stop")), byVisibleText("2")) }

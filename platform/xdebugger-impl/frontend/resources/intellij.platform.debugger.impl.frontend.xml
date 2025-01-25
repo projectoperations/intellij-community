@@ -5,6 +5,10 @@
   </dependencies>
   <actions>
     <action id="QuickEvaluateExpression" class="com.intellij.platform.debugger.impl.frontend.actions.QuickEvaluateAction"/>
+    <action id="FrontendMarkObjectAction" class="com.intellij.platform.debugger.impl.frontend.actions.FrontendMarkObjectAction"
+            use-shortcut-of="ToggleBookmark">
+      <add-to-group group-id="XDebugger.ValueGroup" anchor="after" relative-to-action="XDebugger.Inspect"/>
+    </action>
     <action id="XDebugger.Hotswap.Modified.Files" class="com.intellij.platform.debugger.impl.frontend.hotswap.HotSwapModifiedFilesAction">
       <add-to-group group-id="DebugReloadGroup" anchor="first"/>
       <add-to-group group-id="EditorPopupMenuDebugHotSwap" anchor="first"/>
@@ -15,9 +19,6 @@
     <postStartupActivity implementation="com.intellij.platform.debugger.impl.frontend.evaluate.quick.common.ValueLookupManagerProjectActivity"/>
     <editorFloatingToolbarProvider implementation="com.intellij.platform.debugger.impl.frontend.hotswap.HotSwapFloatingToolbarProvider"/>
     <postStartupActivity implementation="com.intellij.platform.debugger.impl.frontend.FrontendXDebuggerInitializationProjectActivity"/>
-
-    <registryKey defaultValue="false" description="Allows to modify values during debugging on the frontend side"
-                 key="debugger.frontendValuesModification"/>
 
     <registryKey defaultValue="false" key="debugger.valueLookupFrontendBackend"
                  description="Provides a way to use frontend-backend implementation of debugger's evaluation popup"/>

@@ -1,4 +1,6 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+@file:Suppress("ReplaceGetOrSet")
+
 package org.jetbrains.jps.incremental.storage
 
 import org.h2.mvstore.MVMap
@@ -57,18 +59,25 @@ class ExperimentalSourceToOutputMapping private constructor(
     }
   }
 
-  override fun remove(srcPath: String) {
-    impl.remove(srcPath)
+  override fun remove(sourceFile: Path) {
+    impl.remove(sourceFile)
   }
 
-  override fun getOutputs(srcPath: String): List<String>? = impl.getOutputs(srcPath)
+  override fun getOutputs(sourcePath: String): List<String>? = impl.getOutputs(sourcePath)
 
   override fun getOutputs(sourceFile: Path): List<Path>? = impl.getOutputs(sourceFile)
 
-  override fun setOutputs(path: String, outPaths: List<String>) {
-    val relativeSourcePath = relativizer.toRelative(path, RelativePathType.SOURCE)
+  override fun setOutputs(sourceFile: Path, outputPaths: List<Path>) {
+    val relativeSourcePath = relativizer.toRelative(sourceFile, RelativePathType.SOURCE)
     val key = stringTo128BitHash(relativeSourcePath)
-    val normalizeOutputPaths = impl.normalizeOutputPaths(outPaths, relativeSourcePath)
+    val normalizeOutputPaths = if (outputPaths.isEmpty()) {
+      null
+    }
+    else {
+      Array(outputPaths.size + 1) {
+        if (it == 0) relativeSourcePath else impl.relativizer.toRelative(outputPaths.get(it - 1), RelativePathType.OUTPUT)
+      }
+    }
     if (normalizeOutputPaths == null) {
       impl.map.remove(key)
     }
@@ -76,13 +85,6 @@ class ExperimentalSourceToOutputMapping private constructor(
       impl.map.put(key, normalizeOutputPaths)
       outputToTargetMapping?.addMappings(normalizeOutputPaths, targetHashId)
     }
-  }
-
-  override fun setOutput(sourcePath: String, outputPath: String) {
-    val relativeSourcePath = relativizer.toRelative(sourcePath, RelativePathType.SOURCE)
-    val relativeOutputPath = relativizer.toRelative(outputPath, RelativePathType.OUTPUT)
-    impl.map.put(stringTo128BitHash(relativeSourcePath), arrayOf(relativeSourcePath, relativeOutputPath))
-    outputToTargetMapping?.addMapping(relativeOutputPath, targetHashId)
   }
 
   override fun appendOutput(sourcePath: String, outputPath: String) {

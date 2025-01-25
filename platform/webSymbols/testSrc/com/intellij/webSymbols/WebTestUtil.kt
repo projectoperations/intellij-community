@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:JvmName("WebTestUtil")
 
 package com.intellij.webSymbols
@@ -56,12 +56,14 @@ import com.intellij.webSymbols.query.WebSymbolMatch
 import com.intellij.webSymbols.query.WebSymbolsQueryExecutorFactory
 import junit.framework.TestCase.*
 import org.junit.Assert
+import org.opentest4j.AssertionFailedError
 import java.io.File
 import java.util.concurrent.Callable
 import kotlin.math.max
 import kotlin.math.min
 
-internal val webSymbolsTestsDataPath get() = "${PlatformTestUtil.getCommunityPath()}/platform/webSymbols/testData/"
+internal val webSymbolsTestsDataPath: String
+  get() = "${PlatformTestUtil.getCommunityPath()}/platform/webSymbols/testData/"
 
 fun UsefulTestCase.enableAstLoadingFilter() {
   Registry.get("ast.loading.filter").setValue(true, testRootDisposable)
@@ -140,12 +142,18 @@ fun CodeInsightTestFixture.checkLookupItems(
       locations.forEachIndexed { index, location ->
         moveToOffsetBySignature(location)
         completeBasic()
-        checkListByFile(
-          renderLookupItems(renderPriority, renderTypeText, renderTailText, renderProximity, renderDisplayText, renderDisplayEffects,
-                            lookupItemFilter),
-          expectedDataLocation + (if (hasDir) "/items" else "$fileName.items") + ".${index + 1}.txt",
-          containsCheck
-        )
+        try {
+          checkListByFile(
+            renderLookupItems(renderPriority, renderTypeText, renderTailText, renderProximity, renderDisplayText, renderDisplayEffects,
+                              lookupItemFilter),
+            expectedDataLocation + (if (hasDir) "/items" else "$fileName.items") + ".${index + 1}.txt",
+            containsCheck
+          )
+        } catch (e: FileComparisonFailedError) {
+          throw FileComparisonFailedError(e.message + "\nFor location: $location",
+                                          e.expectedStringPresentation, e.actualStringPresentation,
+                                          e.filePath, e.actualFilePath)
+        }
         checkLookupDocumentation(".${index + 1}")
       }
     }

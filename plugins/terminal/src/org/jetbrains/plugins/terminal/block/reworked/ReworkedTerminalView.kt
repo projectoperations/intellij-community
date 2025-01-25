@@ -11,6 +11,8 @@ import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.ex.EditorEx
+import com.intellij.openapi.editor.impl.SoftWrapModelImpl
+import com.intellij.openapi.editor.impl.softwrap.EmptySoftWrapPainter
 import com.intellij.openapi.options.advanced.AdvancedSettings
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
@@ -28,14 +30,15 @@ import kotlinx.coroutines.*
 import org.jetbrains.plugins.terminal.TerminalUtil
 import org.jetbrains.plugins.terminal.block.TerminalContentView
 import org.jetbrains.plugins.terminal.block.output.NEW_TERMINAL_OUTPUT_CAPACITY_KB
+import org.jetbrains.plugins.terminal.block.output.TerminalOutputEditorInputMethodSupport
 import org.jetbrains.plugins.terminal.block.reworked.lang.TerminalOutputFileType
-import org.jetbrains.plugins.terminal.block.reworked.session.TerminalResizeEvent
-import org.jetbrains.plugins.terminal.block.reworked.session.TerminalSession
-import org.jetbrains.plugins.terminal.block.reworked.session.TerminalWriteBytesEvent
-import org.jetbrains.plugins.terminal.block.reworked.session.startTerminalSession
+import org.jetbrains.plugins.terminal.block.reworked.session.*
+import org.jetbrains.plugins.terminal.block.ui.TerminalUi
 import org.jetbrains.plugins.terminal.block.ui.TerminalUi.useTerminalDefaultBackground
 import org.jetbrains.plugins.terminal.block.ui.TerminalUiUtils
+import org.jetbrains.plugins.terminal.block.ui.VerticalSpaceInlayRenderer
 import org.jetbrains.plugins.terminal.block.ui.calculateTerminalSize
+import org.jetbrains.plugins.terminal.block.util.TerminalDataContextUtils
 import org.jetbrains.plugins.terminal.util.terminalProjectScope
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
@@ -57,6 +60,8 @@ internal class ReworkedTerminalView(
   private val sessionModel: TerminalSessionModel
   private val encodingManager: TerminalKeyEncodingManager
   private val controller: TerminalSessionController
+
+  private val terminalInput: TerminalInput
 
   private val outputModel: TerminalOutputModel
   private val alternateBufferModel: TerminalOutputModel
@@ -90,15 +95,18 @@ internal class ReworkedTerminalView(
     sessionModel = TerminalSessionModelImpl(settings)
     encodingManager = TerminalKeyEncodingManager(sessionModel, coroutineScope.childScope("TerminalKeyEncodingManager"))
 
+    terminalInput = TerminalInput(terminalSessionFuture, sessionModel)
+
     outputModel = createOutputModel(
       editor = createOutputEditor(settings, parentDisposable = this),
       maxOutputLength = AdvancedSettings.getInt(NEW_TERMINAL_OUTPUT_CAPACITY_KB).coerceIn(1, 10 * 1024) * 1024,
       settings,
       sessionModel,
       encodingManager,
-      terminalSessionFuture,
+      terminalInput,
       coroutineScope.childScope("TerminalOutputModel"),
-      withVerticalScroll = true
+      withVerticalScroll = true,
+      withTopAndBottomInsets = true
     )
 
     alternateBufferModel = createOutputModel(
@@ -107,9 +115,10 @@ internal class ReworkedTerminalView(
       settings,
       sessionModel,
       encodingManager,
-      terminalSessionFuture,
+      terminalInput,
       coroutineScope.childScope("TerminalAlternateBufferModel"),
-      withVerticalScroll = false
+      withVerticalScroll = false,
+      withTopAndBottomInsets = false
     )
 
     val blocksModel = TerminalBlocksModelImpl(outputModel)
@@ -126,6 +135,7 @@ internal class ReworkedTerminalView(
 
     terminalPanel = TerminalPanel(initialContent = outputModel.editor)
 
+    (outputModel.editor.softWrapModel as? SoftWrapModelImpl)?.setSoftWrapPainter(EmptySoftWrapPainter)
     listenPanelSizeChanges()
     listenAlternateBufferSwitch()
   }
@@ -198,9 +208,10 @@ internal class ReworkedTerminalView(
     settings: JBTerminalSystemSettingsProviderBase,
     sessionModel: TerminalSessionModel,
     encodingManager: TerminalKeyEncodingManager,
-    terminalSessionFuture: CompletableFuture<TerminalSession>,
+    terminalInput: TerminalInput,
     coroutineScope: CoroutineScope,
     withVerticalScroll: Boolean,
+    withTopAndBottomInsets: Boolean,
   ): TerminalOutputModel {
     val model = TerminalOutputModelImpl(editor, maxOutputLength)
 
@@ -211,17 +222,43 @@ internal class ReworkedTerminalView(
     }
     else null
 
-    val eventsHandler = TerminalEventsHandlerImpl(sessionModel, model, encodingManager, terminalSessionFuture, settings, scrollingModel)
+    if (withTopAndBottomInsets) {
+      addTopAndBottomInsets(model.editor)
+    }
+
+    val eventsHandler = TerminalEventsHandlerImpl(sessionModel, model, encodingManager, terminalInput, settings, scrollingModel)
     val parentDisposable = coroutineScope.asDisposable()
     setupKeyEventDispatcher(model.editor, eventsHandler, parentDisposable)
     setupMouseListener(model.editor, sessionModel, settings, eventsHandler, parentDisposable)
 
+    TerminalOutputEditorInputMethodSupport(
+      model.editor,
+      sendInputString = { text -> terminalInput.sendString(text) },
+      getCaretPosition = {
+        val offset = model.cursorOffsetState.value
+        model.editor.offsetToLogicalPosition(offset)
+      }
+    ).install(parentDisposable)
+
+    (model.editor.softWrapModel as? SoftWrapModelImpl)?.setSoftWrapPainter(EmptySoftWrapPainter)
+
     return model
+  }
+
+  private fun addTopAndBottomInsets(editor: Editor) {
+    val inlayModel = editor.inlayModel
+
+    val topRenderer = VerticalSpaceInlayRenderer(TerminalUi.blockTopInset)
+    inlayModel.addBlockElement(0, false, true, TerminalUi.terminalTopInlayPriority, topRenderer)!!
+
+    val bottomRenderer = VerticalSpaceInlayRenderer(TerminalUi.blockBottomInset)
+    inlayModel.addBlockElement(editor.document.textLength, true, false, TerminalUi.terminalBottomInlayPriority, bottomRenderer)
   }
 
   private fun createOutputEditor(settings: JBTerminalSystemSettingsProviderBase, parentDisposable: Disposable): EditorEx {
     val document = createDocument()
     val editor = TerminalUiUtils.createOutputEditor(document, project, settings)
+    editor.putUserData(TerminalDataContextUtils.IS_OUTPUT_MODEL_EDITOR_KEY, true)
     editor.settings.isUseSoftWraps = true
     editor.useTerminalDefaultBackground(parentDisposable = this)
 
@@ -234,6 +271,7 @@ internal class ReworkedTerminalView(
   private fun createAlternateBufferEditor(settings: JBTerminalSystemSettingsProviderBase, parentDisposable: Disposable): EditorEx {
     val document = createDocument()
     val editor = TerminalUiUtils.createOutputEditor(document, project, settings)
+    editor.putUserData(TerminalDataContextUtils.IS_ALTERNATE_BUFFER_MODEL_EDITOR_KEY, true)
     editor.useTerminalDefaultBackground(parentDisposable = this)
     editor.scrollPane.verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_NEVER
     editor.scrollPane.horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
@@ -258,7 +296,7 @@ internal class ReworkedTerminalView(
 
   override fun dispose() {}
 
-  private class TerminalPanel(initialContent: Editor) : Wrapper(), UiDataProvider {
+  private inner class TerminalPanel(initialContent: Editor) : Wrapper(), UiDataProvider {
     private var curEditor: Editor = initialContent
 
     init {
@@ -275,6 +313,7 @@ internal class ReworkedTerminalView(
 
     override fun uiDataSnapshot(sink: DataSink) {
       sink[CommonDataKeys.EDITOR] = curEditor
+      sink[TerminalInput.KEY] = terminalInput
     }
   }
 }

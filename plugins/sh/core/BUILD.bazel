@@ -17,10 +17,12 @@ jvm_library(
     "//platform/platform-impl:ide-impl",
     "//platform/lang-impl",
     "//platform/execution-impl",
+    "//platform/usageView",
     "@lib//:pty4j",
     "@lib//:gson",
     "//spellchecker",
     "//platform/indexing-impl",
+    "//platform/refactoring",
     "//platform/statistics",
     "//platform/xdebugger-api:debugger",
     "//platform/core-ui",
@@ -29,7 +31,10 @@ jvm_library(
     "//platform/platform-util-io:ide-util-io",
     "//platform/util/jdom",
   ],
-  runtime_deps = [":core_resources"]
+  runtime_deps = [
+    ":core_resources",
+    "//platform/backend",
+  ]
 )
 ### auto-generated section `build intellij.sh.core` end
 

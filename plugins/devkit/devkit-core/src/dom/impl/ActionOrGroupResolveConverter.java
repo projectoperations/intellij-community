@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.idea.devkit.dom.impl;
 
 import com.intellij.codeInsight.lookup.LookupElement;
@@ -17,8 +17,6 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.pom.references.PomService;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.search.GlobalSearchScope;
-import com.intellij.psi.search.GlobalSearchScopesCore;
-import com.intellij.psi.search.ProjectScope;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.Processor;
 import com.intellij.util.xml.ConvertContext;
@@ -31,17 +29,46 @@ import org.jetbrains.idea.devkit.dom.Action;
 import org.jetbrains.idea.devkit.dom.ActionOrGroup;
 import org.jetbrains.idea.devkit.dom.Group;
 import org.jetbrains.idea.devkit.dom.index.IdeaPluginRegistrationIndex;
+import org.jetbrains.idea.devkit.references.ActionOrGroupIdResolveUtil;
 import org.jetbrains.idea.devkit.util.DescriptorI18nUtil;
+import org.jetbrains.idea.devkit.util.PluginRelatedLocatorsUtils;
 
 import java.util.*;
 
 import static com.intellij.openapi.util.NullableLazyValue.lazyNullable;
+import static org.jetbrains.idea.devkit.references.ActionOrGroupIdResolveUtil.ACTIVATE_TOOLWINDOW_ACTION_PREFIX;
+import static org.jetbrains.idea.devkit.references.ActionOrGroupIdResolveUtil.ACTIVATE_TOOLWINDOW_ACTION_SUFFIX;
 
 public class ActionOrGroupResolveConverter extends ResolvingConverter<ActionOrGroup> {
 
   @Override
   public @NotNull Collection<? extends ActionOrGroup> getVariants(@NotNull ConvertContext context) {
     return getVariants(context.getProject(), context.getModule());
+  }
+
+  @Override
+  public @NotNull Set<String> getAdditionalVariants(@NotNull ConvertContext context) {
+    if (!isActionsAllowed()) return Collections.emptySet();
+
+    // add executor/activate toolwindow IDs here as valid results
+    Project project = context.getProject();
+    Set<String> additionalIds = new HashSet<>();
+    ActionOrGroupIdResolveUtil.processExecutors(project, (id, psiClass) -> {
+      additionalIds.add(id);
+      return true;
+    });
+    ActionOrGroupIdResolveUtil.processActivateToolWindowActions(project, extension -> {
+      additionalIds.add(ACTIVATE_TOOLWINDOW_ACTION_PREFIX +
+                        ActionOrGroupIdResolveUtil.getToolWindowIdValue(extension) +
+                        ACTIVATE_TOOLWINDOW_ACTION_SUFFIX);
+      return true;
+    });
+    ActionOrGroupIdResolveUtil.processToolWindowId(project, (id, field) -> {
+      additionalIds.add(ACTIVATE_TOOLWINDOW_ACTION_PREFIX + id + ACTIVATE_TOOLWINDOW_ACTION_SUFFIX);
+      return true;
+    });
+
+    return additionalIds;
   }
 
   @ApiStatus.Internal
@@ -111,6 +138,10 @@ public class ActionOrGroupResolveConverter extends ResolvingConverter<ActionOrGr
     return true;
   }
 
+  protected boolean isActionsAllowed() {
+    return true;
+  }
+
   protected @Nls String getResultTypes() {
     return DevKitBundle.message("plugin.xml.convert.action.or.group.type.action.or.group");
   }
@@ -135,6 +166,11 @@ public class ActionOrGroupResolveConverter extends ResolvingConverter<ActionOrGr
     }
 
     @Override
+    protected boolean isActionsAllowed() {
+      return false;
+    }
+
+    @Override
     protected String getResultTypes() {
       return DevKitBundle.message("plugin.xml.convert.action.or.group.type.group");
     }
@@ -142,11 +178,8 @@ public class ActionOrGroupResolveConverter extends ResolvingConverter<ActionOrGr
 
 
   private static void processScopes(Project project, Module module, final Processor<GlobalSearchScope> processor) {
-
     if (module == null) {
-      final GlobalSearchScope projectScope = GlobalSearchScopesCore.projectProductionScope(project).
-        union(ProjectScope.getLibrariesScope(project));
-      processor.process(projectScope);
+      processor.process(PluginRelatedLocatorsUtils.getCandidatesScope(project));
       return;
     }
 
