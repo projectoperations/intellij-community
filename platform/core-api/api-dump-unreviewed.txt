@@ -888,9 +888,6 @@ com.intellij.lexer.MergeFunction
 com.intellij.lexer.RestartableLexer
 - a:getStartState():I
 com.intellij.model.search.SearchRequest
-- getInjectionSearchScope():com.intellij.psi.search.SearchScope
-- getSearchScope():com.intellij.psi.search.SearchScope
-- a:getSearchString():java.lang.String
 - s:of(java.lang.String):com.intellij.model.search.SearchRequest
 - s:of(java.lang.String,com.intellij.psi.search.SearchScope):com.intellij.model.search.SearchRequest
 - s:of(java.lang.String,com.intellij.psi.search.SearchScope,com.intellij.psi.search.SearchScope):com.intellij.model.search.SearchRequest
@@ -4235,6 +4232,7 @@ f:com.intellij.psi.SmartPointersKt
 - sf:createSmartPointer(com.intellij.psi.PsiElement):com.intellij.psi.SmartPsiElementPointer
 com.intellij.psi.SmartPsiElementPointer
 - com.intellij.model.Pointer
+- dereference():com.intellij.psi.PsiElement
 - a:getContainingFile():com.intellij.psi.PsiFile
 - a:getElement():com.intellij.psi.PsiElement
 - a:getProject():com.intellij.openapi.project.Project
@@ -5446,6 +5444,8 @@ f:com.intellij.util.AstLoadingFilter
 - s:forceAllowTreeLoading(com.intellij.openapi.vfs.VirtualFile,com.intellij.util.ThrowableRunnable):V
 - s:forceAllowTreeLoading(com.intellij.psi.PsiFile,com.intellij.openapi.util.ThrowableComputable):java.lang.Object
 - s:forceAllowTreeLoading(com.intellij.psi.PsiFile,com.intellij.util.ThrowableRunnable):V
+@:com.intellij.util.AwaitCancellationAndInvoke
+- java.lang.annotation.Annotation
 com.intellij.util.CharTable
 - sf:CHAR_TABLE_KEY:com.intellij.openapi.util.Key
 - a:intern(java.lang.CharSequence):java.lang.CharSequence

@@ -3,6 +3,8 @@ package com.intellij.idea
 
 import com.intellij.diagnostic.VMOptions
 import com.intellij.execution.ExecutionException
+import com.intellij.execution.wsl.WslIjentAvailabilityService
+import com.intellij.execution.wsl.ijent.nio.toggle.IjentWslNioFsToggler
 import com.intellij.ide.BrowserUtil
 import com.intellij.ide.IdeBundle
 import com.intellij.ide.actions.EditCustomVmOptionsAction
@@ -13,10 +15,8 @@ import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
 import com.intellij.notification.impl.NotificationFullContent
-import com.intellij.openapi.application.Application
-import com.intellij.openapi.application.ApplicationNamesInfo
-import com.intellij.openapi.application.EDT
-import com.intellij.openapi.application.PathManager
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.application.*
 import com.intellij.openapi.application.ex.ApplicationManagerEx
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
@@ -24,6 +24,7 @@ import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.updateSettings.impl.ExternalUpdateManager
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.SystemInfo
+import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.openapi.util.io.NioFiles
 import com.intellij.platform.ide.CoreUiCoroutineScopeHolder
 import com.intellij.platform.ide.bootstrap.eel.MultiRoutingFileSystemVmOptionsSetter
@@ -65,9 +66,9 @@ internal suspend fun startSystemHealthMonitor() {
     checkTempDirEnvVars()
     checkAncientOs()
   }
-  startDiskSpaceMonitoring()
+  checkEelVmOptions()
 
-  MultiRoutingFileSystemVmOptionsSetter.onApplicationActivated()
+  startDiskSpaceMonitoring()
 }
 
 private val LOG = logger<Application>()
@@ -253,7 +254,7 @@ private suspend fun checkEnvironment() {
 
 private fun checkLauncher() {
   if (
-    (SystemInfo.isWindows || SystemInfo.isLinux) &&
+    (SystemInfoRt.isWindows || SystemInfoRt.isLinux) &&
     System.getProperty("ide.native.launcher") == null &&
     !ExternalUpdateManager.isCreatingDesktopEntries()
   ) {
@@ -300,7 +301,7 @@ private fun checkTempDirEnvVars() {
 }
 
 private fun checkAncientOs() {
-  if (SystemInfo.isWindows) {
+  if (SystemInfoRt.isWindows) {
     val buildNumber = SystemInfo.getWinBuildNumber()
     if (buildNumber != null && buildNumber < 10000) {  // 10 1507 = 10240, Server 2016 = 14393
       showNotification("unsupported.windows", suppressable = true, action = null)
@@ -394,3 +395,41 @@ private fun monitorDiskSpace(scope: CoroutineScope, dir: Path, store: FileStore,
 private fun storeName(store: FileStore): String =
   if (store.name().isBlank()) store.toString().trim().trimStart('(').trimEnd(')')
   else store.toString()
+
+private suspend fun checkEelVmOptions() {
+  if (!WslIjentAvailabilityService.getInstance().useIjentForWslNioFileSystem()) return
+
+  val changedOptions = MultiRoutingFileSystemVmOptionsSetter.ensureInVmOptions()
+  when {
+    changedOptions.isEmpty() -> {
+      IjentWslNioFsToggler.instanceAsync().enableForAllWslDistributions()
+    }
+
+    PluginManagerCore.isRunningFromSources() || AppMode.isDevServer() -> {
+      logger<MultiRoutingFileSystemVmOptionsSetter>().warn(
+        changedOptions.joinToString(
+          prefix = "This message is seen only in Dev Mode/Run from sources.\n" +
+                   "The value of the registry flag for Eel FS doesn't match the VM options.\n" +
+                   "Add the following VM options to the Run Configuration:\n",
+          separator = "\n",
+        ) { (k, v) -> "  $k${v.orEmpty()}" }
+      )
+    }
+
+    else -> {
+      val actionName = IdeBundle.message(
+        if (ApplicationManager.getApplication().isRestartCapable) "ijent.wsl.fs.dialog.restart.button"
+        else "ijent.wsl.fs.dialog.shutdown.button"
+      )
+      showNotification(
+        key = "ijent.wsl.fs.dialog.message",
+        suppressable = false,
+        action = object : NotificationAction(actionName) {
+          override fun actionPerformed(e: AnActionEvent, notification: Notification) {
+            ApplicationManagerEx.getApplicationEx().restart(true)
+          }
+        }
+      )
+    }
+  }
+}

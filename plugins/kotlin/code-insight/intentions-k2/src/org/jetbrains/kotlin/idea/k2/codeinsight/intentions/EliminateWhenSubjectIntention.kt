@@ -23,8 +23,7 @@ class EliminateWhenSubjectIntention : KotlinApplicableModCommandAction<KtWhenExp
     override fun getPresentation(context: ActionContext, element: KtWhenExpression): Presentation =
         Presentation.of(familyName).withPriority(PriorityAction.Priority.LOW)
 
-    context(KaSession)
-    override fun prepareContext(element: KtWhenExpression): Boolean? {
+    override fun KaSession.prepareContext(element: KtWhenExpression): Boolean? {
         val subjectExpression = element.subjectExpression
         if (subjectExpression !is KtNameReferenceExpression) return null
         if (element.entries.lastOrNull()?.isElse == true || !element.isUsedAsExpression) {
@@ -59,7 +58,9 @@ class EliminateWhenSubjectIntention : KotlinApplicableModCommandAction<KtWhenExp
                     )
                     val guardExpression = entry.guard?.getExpression()
                     if (guardExpression != null) {
-                        appendFixedText("&&")
+                        if (entry.elseKeyword == null) {
+                            appendFixedText("&&")
+                        }
                         appendExpression(guardExpression)
                     }
                 }

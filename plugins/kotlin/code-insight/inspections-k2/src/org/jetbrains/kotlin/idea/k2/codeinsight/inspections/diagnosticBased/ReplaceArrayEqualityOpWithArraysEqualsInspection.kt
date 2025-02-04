@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.k2.codeinsight.inspections.diagnosticBased
 
 import com.intellij.codeInspection.ProblemsHolder
@@ -24,8 +24,7 @@ internal class ReplaceArrayEqualityOpWithArraysEqualsInspection :
 
     data class Context(val isNotEqualOperator: Boolean)
 
-    context(KaSession@KaSession)
-    override fun prepareContextByDiagnostic(
+    override fun KaSession.prepareContextByDiagnostic(
         element: KtExpression,
         diagnostic: KaFirDiagnostic.ArrayEqualityOperatorCanBeReplacedWithEquals,
     ): Context? {
@@ -43,10 +42,10 @@ internal class ReplaceArrayEqualityOpWithArraysEqualsInspection :
         context: Context,
     ): @InspectionMessage String = KotlinBundle.message("dangerous.array.comparison")
 
-    override fun createQuickFix(
+    override fun createQuickFixes(
         element: KtExpression,
         context: Context,
-    ): KotlinModCommandQuickFix<KtExpression> = object : KotlinModCommandQuickFix<KtExpression>() {
+    ): Array<KotlinModCommandQuickFix<KtExpression>> = arrayOf(object : KotlinModCommandQuickFix<KtExpression>() {
 
         override fun getFamilyName(): @IntentionFamilyName String = KotlinBundle.message("replace.with.content.equals")
 
@@ -70,7 +69,7 @@ internal class ReplaceArrayEqualityOpWithArraysEqualsInspection :
             }
             element.replace(KtPsiFactory(project).createExpressionByPattern(template, left, right))
         }
-    }
+    })
 
     override fun buildVisitor(
         holder: ProblemsHolder,

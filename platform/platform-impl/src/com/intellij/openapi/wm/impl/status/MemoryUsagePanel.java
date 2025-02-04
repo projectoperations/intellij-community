@@ -19,6 +19,7 @@ import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.update.Activatable;
 import com.intellij.util.ui.update.UiNotifyConnector;
+import com.jetbrains.JBR;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -102,11 +103,20 @@ public final class MemoryUsagePanel implements CustomStatusBarWidget, Activatabl
       new ClickListener() {
         @Override
         public boolean onClick(@NotNull MouseEvent event, int clickCount) {
-          //noinspection CallToSystemGC
-          System.gc();
-          StorageLockContext.forceDirectMemoryCache();
-          DirectByteBufferAllocator.ALLOCATOR.releaseCachedBuffers();
-          PlatformMemoryUtil.getInstance().trimLinuxNativeHeap();
+          if (clickCount == 1) {
+            //noinspection CallToSystemGC
+            System.gc();
+          } else if (clickCount == 2) {
+            if (JBR.isSystemUtilsSupported()) {
+              JBR.getSystemUtils().fullGC();
+            } else {
+              //noinspection CallToSystemGC
+              System.gc();
+            }
+            StorageLockContext.forceDirectMemoryCache();
+            DirectByteBufferAllocator.ALLOCATOR.releaseCachedBuffers();
+            PlatformMemoryUtil.getInstance().trimLinuxNativeHeap();
+          }
 
           updateState();
           return true;

@@ -3,7 +3,9 @@ package com.intellij.xdebugger.impl.rpc
 
 import com.intellij.ide.rpc.DocumentId
 import com.intellij.ide.ui.icons.IconId
+import com.intellij.ide.vfs.VirtualFileId
 import com.intellij.openapi.editor.colors.TextAttributesKey
+import com.intellij.openapi.editor.impl.EditorId
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.platform.rpc.RemoteApiProviderService
@@ -37,12 +39,6 @@ interface XDebuggerEvaluatorApi : RemoteApi<Unit> {
   suspend fun evaluateInDocument(evaluatorId: XDebuggerEvaluatorId, documentId: DocumentId, offset: Int, type: ValueHintType): Deferred<XEvaluationResult>
 
   suspend fun evaluateFullValue(fullValueEvaluatorId: XFullValueEvaluatorId): Deferred<XFullValueEvaluatorResult>
-
-  suspend fun disposeXValue(xValueId: XValueId)
-
-  suspend fun computePresentation(xValueId: XValueId, xValuePlace: XValuePlace): Flow<XValuePresentationEvent>?
-
-  suspend fun computeChildren(xValueId: XValueId): Flow<XValueComputeChildrenEvent>?
 
   companion object {
     @JvmStatic
@@ -101,6 +97,8 @@ data class XValueId(val uid: UID)
 @Serializable
 data class XValueDto(
   val id: XValueId,
+  val canNavigateToSource: Boolean,
+  @Serializable(with = DeferredSerializer::class) val canNavigateToTypeSource: Deferred<Boolean>,
   @Serializable(with = DeferredSerializer::class) val canBeModified: Deferred<Boolean>,
   val valueMark: RpcFlow<XValueMarkerDto?>,
 )

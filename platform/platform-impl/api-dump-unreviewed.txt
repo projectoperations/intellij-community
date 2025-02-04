@@ -1499,6 +1499,7 @@ com.intellij.ide.CommandLineInspectionProjectConfigurator
 - a:getName():java.lang.String
 - isApplicable(com.intellij.ide.CommandLineInspectionProjectConfigurator$ConfiguratorContext):Z
 - preConfigureProject(com.intellij.openapi.project.Project,com.intellij.ide.CommandLineInspectionProjectConfigurator$ConfiguratorContext):V
+- shouldBeInvokedAlongsideActivityTracking():Z
 com.intellij.ide.CommandLineInspectionProjectConfigurator$ConfiguratorContext
 - a:getFilesFilter():java.util.function.Predicate
 - a:getLogger():com.intellij.ide.CommandLineInspectionProgressReporter
@@ -2063,13 +2064,9 @@ c:com.intellij.ide.actions.JumpToLastEditAction
 c:com.intellij.ide.actions.NextOccurenceAction
 - com.intellij.openapi.project.DumbAwareAction
 - <init>():V
-- f:actionPerformed(com.intellij.openapi.actionSystem.AnActionEvent):V
-- getActionUpdateThread():com.intellij.openapi.actionSystem.ActionUpdateThread
 - p:getDescription(com.intellij.ide.OccurenceNavigator):java.lang.String
-- p:getNavigator(com.intellij.openapi.actionSystem.DataContext):com.intellij.ide.OccurenceNavigator
 - p:go(com.intellij.ide.OccurenceNavigator):com.intellij.ide.OccurenceNavigator$OccurenceInfo
 - p:hasOccurenceToGo(com.intellij.ide.OccurenceNavigator):Z
-- update(com.intellij.openapi.actionSystem.AnActionEvent):V
 f:com.intellij.ide.actions.NextOccurenceToolbarAction
 - com.intellij.ide.actions.NextOccurenceAction
 - <init>(com.intellij.ide.OccurenceNavigator):V
@@ -2141,13 +2138,9 @@ f:com.intellij.ide.actions.PinActiveTabAction$Toggle
 c:com.intellij.ide.actions.PreviousOccurenceAction
 - com.intellij.openapi.project.DumbAwareAction
 - <init>():V
-- f:actionPerformed(com.intellij.openapi.actionSystem.AnActionEvent):V
-- getActionUpdateThread():com.intellij.openapi.actionSystem.ActionUpdateThread
 - p:getDescription(com.intellij.ide.OccurenceNavigator):java.lang.String
-- p:getNavigator(com.intellij.openapi.actionSystem.DataContext):com.intellij.ide.OccurenceNavigator
 - p:go(com.intellij.ide.OccurenceNavigator):com.intellij.ide.OccurenceNavigator$OccurenceInfo
 - p:hasOccurenceToGo(com.intellij.ide.OccurenceNavigator):Z
-- update(com.intellij.openapi.actionSystem.AnActionEvent):V
 f:com.intellij.ide.actions.PreviousOccurenceToolbarAction
 - com.intellij.ide.actions.PreviousOccurenceAction
 - <init>(com.intellij.ide.OccurenceNavigator):V
@@ -5521,7 +5514,6 @@ f:com.intellij.idea.IdeaLogger
 - s:ourErrorsOccurred:java.lang.Exception
 - s:ourLastActionId:java.lang.String
 - s:dropFrequentExceptionsCaches():V
-- error(java.lang.Object):V
 - error(java.lang.String,java.lang.Throwable,com.intellij.openapi.diagnostic.Attachment[]):V
 - error(java.lang.String,java.lang.Throwable,java.lang.String[]):V
 - warn(java.lang.String,java.lang.Throwable):V
@@ -8210,12 +8202,10 @@ f:com.intellij.openapi.fileChooser.ex.LocalFsFinder$IoFile
 - getChildren(com.intellij.openapi.fileChooser.ex.FileLookup$LookupFilter):java.util.List
 - getFile():java.nio.file.Path
 - getIcon():javax.swing.Icon
-- f:getMacro():java.lang.String
 - getName():java.lang.String
 - getParent():com.intellij.openapi.fileChooser.ex.FileLookup$LookupFile
 - hashCode():I
 - isDirectory():Z
-- f:setMacro(java.lang.String):V
 f:com.intellij.openapi.fileChooser.ex.LocalFsFinder$VfsFile
 - com.intellij.openapi.fileChooser.ex.FileLookup$LookupFile
 - <init>(com.intellij.openapi.vfs.VirtualFile):V
@@ -8225,12 +8215,10 @@ f:com.intellij.openapi.fileChooser.ex.LocalFsFinder$VfsFile
 - getChildren(com.intellij.openapi.fileChooser.ex.FileLookup$LookupFilter):java.util.List
 - getFile():com.intellij.openapi.vfs.VirtualFile
 - getIcon():javax.swing.Icon
-- f:getMacro():java.lang.String
 - getName():java.lang.String
 - getParent():com.intellij.openapi.fileChooser.ex.FileLookup$LookupFile
 - hashCode():I
 - isDirectory():Z
-- f:setMacro(java.lang.String):V
 a:com.intellij.openapi.fileChooser.ex.TextFieldAction
 - com.intellij.ui.components.labels.LinkLabel
 - com.intellij.ui.components.labels.LinkListener
@@ -9039,6 +9027,9 @@ c:com.intellij.openapi.fileTypes.impl.FileTypeManagerImpl
 - removePlainTextAssociationsForFile(java.lang.CharSequence):V
 - setIgnoredFilesList(java.lang.String):V
 - unregisterFileType(com.intellij.openapi.fileTypes.FileType,com.intellij.openapi.extensions.PluginDescriptor):V
+com.intellij.openapi.fileTypes.impl.FileTypeOverrider
+- sf:EP_NAME:com.intellij.openapi.extensions.ExtensionPointName
+- a:getOverriddenFileType(com.intellij.openapi.vfs.VirtualFile):com.intellij.openapi.fileTypes.FileType
 c:com.intellij.openapi.fileTypes.impl.FileTypeRenderer
 - com.intellij.ui.SimpleListCellRenderer
 - <init>():V
@@ -9810,7 +9801,6 @@ f:com.intellij.openapi.progress.impl.ProgressManagerImpl
 - com.intellij.openapi.progress.impl.CoreProgressManager
 - com.intellij.openapi.Disposable
 - <init>():V
-- s:__testWhileAlwaysCheckingCanceled(java.lang.Runnable):V
 - executeProcessUnderProgress(java.lang.Runnable,com.intellij.openapi.progress.ProgressIndicator):V
 - hasUnsafeProgressIndicator():Z
 - markProgressSafe(com.intellij.openapi.util.UserDataHolder):V
@@ -10572,7 +10562,6 @@ f:com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.PluginsAdvertise
 - sf:installAndEnablePlugins(java.util.Set,java.lang.Runnable):V
 f:com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.PluginsAdvertiserDialog
 - com.intellij.openapi.ui.DialogWrapper
-- <init>(com.intellij.openapi.project.Project,java.util.Collection):V
 - <init>(com.intellij.openapi.project.Project,java.util.Collection,java.util.List):V
 - doInstallPlugins(Z,com.intellij.openapi.application.ModalityState):V
 - getPreferredFocusedComponent():javax.swing.JComponent
@@ -12932,11 +12921,7 @@ f:com.intellij.ui.BalloonImpl
 - com.intellij.ide.IdeTooltip$Ui
 - com.intellij.ide.ui.ScreenAreaConsumer
 - com.intellij.openapi.ui.popup.Balloon
-- sf:ABOVE:com.intellij.ui.BalloonImpl$AbstractPosition
 - sf:ARC:com.intellij.util.ui.JBValue
-- sf:AT_LEFT:com.intellij.ui.BalloonImpl$AbstractPosition
-- sf:AT_RIGHT:com.intellij.ui.BalloonImpl$AbstractPosition
-- sf:BELOW:com.intellij.ui.BalloonImpl$AbstractPosition
 - sf:DIALOG_POINTER_WIDTH:com.intellij.util.ui.JBValue
 - sf:FORCED_NO_SHADOW:com.intellij.openapi.util.Key
 - sf:POINTER_LENGTH:com.intellij.util.ui.JBValue
@@ -14816,6 +14801,15 @@ f:com.intellij.ui.components.LegalNoticeDialog$Builder
 - withCustomAction(java.lang.String,I):com.intellij.ui.components.LegalNoticeDialog$Builder
 - withParent(com.intellij.openapi.project.Project):com.intellij.ui.components.LegalNoticeDialog$Builder
 - withParent(java.awt.Component):com.intellij.ui.components.LegalNoticeDialog$Builder
+f:com.intellij.ui.components.SearchFieldWithExtension
+- javax.swing.JPanel
+- <init>(javax.swing.JComponent,com.intellij.ui.SearchTextField):V
+- f:getTextField():javax.swing.JTextField
+- getUI():javax.swing.plaf.PanelUI
+- getUIClassID():java.lang.String
+- hasFocus():Z
+- requestFocus():V
+- setBackground(java.awt.Color):V
 c:com.intellij.ui.components.SliderSelectorAction
 - com.intellij.openapi.project.DumbAwareAction
 - <init>(java.lang.String,java.lang.String,javax.swing.Icon,com.intellij.ui.components.SliderSelectorAction$Configuration):V
@@ -16772,6 +16766,7 @@ f:com.intellij.util.ScrambledInputStream
 - read(B[],I,I):I
 - reset():V
 - skip(J):J
+f:com.intellij.util.SwingBindingsKt
 f:com.intellij.util.UriUtilKt
 - sf:changeQuery(java.net.URI,java.net.URI,java.lang.String):java.net.URI
 - sf:fromRawParts(java.net.URI,java.lang.String,Z,java.lang.String,java.lang.String,java.lang.String,I,java.lang.String,java.lang.String,java.lang.String,java.lang.String):java.net.URI

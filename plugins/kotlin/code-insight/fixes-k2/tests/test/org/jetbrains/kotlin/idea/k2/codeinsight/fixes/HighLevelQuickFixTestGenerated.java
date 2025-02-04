@@ -6083,6 +6083,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
             runTest("../../../idea/tests/testData/quickfix/supertypeInitialization/someParametersAlreadyExist.kt");
         }
 
+        @TestMetadata("someParametersAlreadyExistNoTypeConflicts.kt")
+        public void testSomeParametersAlreadyExistNoTypeConflicts() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/supertypeInitialization/someParametersAlreadyExistNoTypeConflicts.kt");
+        }
+
         @TestMetadata("value.kt")
         public void testValue() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/supertypeInitialization/value.kt");
@@ -6106,6 +6111,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
         @TestMetadata("vararg4.kt")
         public void testVararg4() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/supertypeInitialization/vararg4.kt");
+        }
+
+        @TestMetadata("vararg5.kt")
+        public void testVararg5() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/supertypeInitialization/vararg5.kt");
         }
     }
 
@@ -7808,6 +7818,45 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
         @TestMetadata("vararg.kt")
         public void testVararg() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/changeToUseSpreadOperator/vararg.kt");
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("../../../idea/tests/testData/quickfix/checkArguments/addNameToArgument")
+    public static class AddNameToArgument extends AbstractHighLevelQuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K2;
+        }
+
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("invokeOnString.kt")
+        public void testInvokeOnString() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/checkArguments/addNameToArgument/invokeOnString.kt");
+        }
+
+        @TestMetadata("mixedNamedAndPositionalArguments.kt")
+        public void testMixedNamedAndPositionalArguments() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/checkArguments/addNameToArgument/mixedNamedAndPositionalArguments.kt");
+        }
+
+        @TestMetadata("mixedNamedAndPositionalArgumentsConstructor.kt")
+        public void testMixedNamedAndPositionalArgumentsConstructor() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/checkArguments/addNameToArgument/mixedNamedAndPositionalArgumentsConstructor.kt");
+        }
+
+        @TestMetadata("mixedNamedAndPositionalArgumentsMultiple.kt")
+        public void testMixedNamedAndPositionalArgumentsMultiple() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/checkArguments/addNameToArgument/mixedNamedAndPositionalArgumentsMultiple.kt");
+        }
+
+        @TestMetadata("mixedNamedAndPositionalArgumentsSubtype.kt")
+        public void testMixedNamedAndPositionalArgumentsSubtype() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/checkArguments/addNameToArgument/mixedNamedAndPositionalArgumentsSubtype.kt");
         }
     }
 

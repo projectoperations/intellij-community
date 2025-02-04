@@ -555,6 +555,7 @@
           <reference ref="SelectNextOccurrence"/>
           <action id="UnselectPreviousOccurrence" class="com.intellij.openapi.editor.actions.UnselectPreviousOccurrenceAction"/>
           <reference ref="ToggleFindInSelection"/>
+          <action id="ToggleScrollToResultsDuringTypingAction" class="com.intellij.find.editorHeaderActions.ToggleScrollToResultsDuringTypingAction"/>
           <separator/>
           <action id="FindWordAtCaret" class="com.intellij.openapi.editor.actions.FindWordAtCaretAction"/>
           <action id="FindPrevWordAtCaret" class="com.intellij.openapi.editor.actions.FindPrevWordAtCaretAction"/>
@@ -1612,9 +1613,7 @@
       <add-to-group group-id="Internal"/>
     </group>
 
-    <action id="AnalyzePluginStartupPerformance" class="com.intellij.diagnostic.AnalyzePluginStartupPerformanceAction">
-      <add-to-group group-id="HelpDiagnosticTools" anchor="after" relative-to-action="Performance.ActivityMonitor"/>
-    </action>
+    <action id="AnalyzePluginStartupPerformance" class="com.intellij.diagnostic.AnalyzePluginStartupPerformanceAction" internal="true"/>
 
     <action id="TriggerLowMemoryNotification" class="com.intellij.diagnostic.TriggerLowMemoryNotificationAction" internal="true"/>
 

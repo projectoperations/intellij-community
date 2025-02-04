@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.vcs.commit
 
 import com.intellij.openapi.Disposable
@@ -17,9 +17,11 @@ import com.intellij.openapi.project.ex.ProjectEx
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.registry.RegistryValue
 import com.intellij.openapi.util.registry.RegistryValueListener
-import com.intellij.openapi.vcs.*
+import com.intellij.openapi.vcs.AbstractVcs
+import com.intellij.openapi.vcs.ProjectLevelVcsManager
 import com.intellij.openapi.vcs.ProjectLevelVcsManager.VCS_CONFIGURATION_CHANGED
-import com.intellij.openapi.vcs.changes.actions.VcsStatisticsCollector
+import com.intellij.openapi.vcs.VcsListener
+import com.intellij.openapi.vcs.VcsType
 import com.intellij.openapi.vcs.impl.VcsEP
 import com.intellij.openapi.vcs.impl.VcsInitObject
 import com.intellij.openapi.vcs.impl.VcsStartupActivity
@@ -36,7 +38,6 @@ private const val TOGGLE_COMMIT_UI = "vcs.non.modal.commit.toggle.ui"
 
 private val isToggleCommitUi get() = AdvancedSettings.getBoolean(TOGGLE_COMMIT_UI)
 private val isForceNonModalCommit get() = Registry.get("vcs.force.non.modal.commit")
-private val appSettings get() = VcsApplicationSettings.getInstance()
 
 internal fun AnActionEvent.getProjectCommitMode(): CommitMode? {
   return project?.let { CommitModeManager.getInstance(it).getCurrentCommitMode() }
@@ -92,7 +93,11 @@ class CommitModeManager(private val project: Project, private val coroutineScope
       return CommitMode.ExternalCommitMode(singleVcs)
     }
 
-    if (isNonModalInSettings() && canSetNonModal()) {
+    if (System.getProperty("vcs.force.modal.commit").toBoolean()) {
+      return CommitMode.ModalCommitMode
+    }
+
+    if (canSetNonModal()) {
       return CommitMode.NonModalCommitMode(isToggleCommitUi)
     }
 
@@ -144,18 +149,6 @@ class CommitModeManager(private val project: Project, private val coroutineScope
 
     @JvmStatic
     fun getInstance(project: Project): CommitModeManager = project.service()
-
-    @JvmStatic
-    fun setCommitFromLocalChanges(project: Project?, value: Boolean) {
-      val oldValue = appSettings.COMMIT_FROM_LOCAL_CHANGES
-      if (oldValue == value) return
-
-      appSettings.COMMIT_FROM_LOCAL_CHANGES = value
-      VcsStatisticsCollector.logNonModalCommitStateChanged(project)
-      getApplication().messageBus.syncPublisher(SETTINGS).settingsChanged()
-    }
-
-    fun isNonModalInSettings(): Boolean = isForceNonModalCommit.asBoolean() || appSettings.COMMIT_FROM_LOCAL_CHANGES
   }
 
   interface SettingsListener : EventListener {
@@ -179,7 +172,7 @@ sealed class CommitMode {
   object PendingCommitMode : CommitMode() {
     override fun useCommitToolWindow(): Boolean {
       // Enable 'Commit' toolwindow before vcses are activated
-      return CommitModeManager.isNonModalInSettings()
+      return true
     }
 
     override fun disableDefaultCommitAction(): Boolean {

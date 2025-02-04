@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.diagnostic
 
 import com.intellij.ide.BrowserUtil
@@ -68,15 +68,20 @@ internal class WindowsDefenderCheckerActivity : ProjectActivity {
     }
 
     val paths = checker.popScheduledPaths(project)
-    if (paths != null) {
-      LOG.info("status check is disabled")
-      runAndNotify(project) { checker.excludeProjectPaths(project, paths) }
-      return
-    }
-
-    @OptIn(IntellijInternalApi::class, DelicateCoroutinesApi::class)
-    computeDetached {
-      checkDefenderStatus(project, checker)
+    when {
+      paths == null -> {
+        @OptIn(IntellijInternalApi::class, DelicateCoroutinesApi::class)
+        computeDetached {
+          checkDefenderStatus(project, checker)
+        }
+      }
+      paths.isEmpty() -> {
+        LOG.info("status check skipped for the current run as it was already displayed in the trust dialog")
+      }
+      else -> {
+        LOG.info("status check is disabled")
+        runAndNotify(project) { checker.excludeProjectPaths(project, paths) }
+      }
     }
   }
 

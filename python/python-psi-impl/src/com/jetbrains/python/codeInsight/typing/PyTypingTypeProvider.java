@@ -45,6 +45,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.*;
 import java.util.function.Function;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 import static com.intellij.openapi.util.RecursionManager.doPreventingRecursion;
 import static com.jetbrains.python.psi.PyKnownDecoratorUtil.KnownDecorator.TYPING_FINAL;
@@ -1486,7 +1487,16 @@ public final class PyTypingTypeProvider extends PyTypeProviderWithCustomContext<
                                  ? Ref.create(posVariadic) : null);
             }
             else if (calleeQNames.contains(TYPE_VAR) || calleeQNames.contains(TYPE_VAR_EXT)) {
-              return new PyTypeVarTypeImpl(name, getGenericTypeBound(arguments, context), defaultType);
+              // TypeVar __init__ parameters:
+              // (name, *constraints, bound = None, contravariant = False, covariant = False, infer_variance = False, default = ...)
+              List<PyType> constraints = Stream.of(arguments)
+                .skip(1)
+                .takeWhile(expr -> !(expr instanceof PyKeywordArgument))
+                .map(expr -> Ref.deref(getType(expr, context)))
+                .toList();
+              PyExpression boundExpression = assignedCall.getKeywordArgument("bound");
+              PyType bound = boundExpression == null ? null : Ref.deref(getType(boundExpression, context));
+              return new PyTypeVarTypeImpl(name, constraints, bound, defaultType);
             }
             else if (calleeQNames.contains(PARAM_SPEC) || calleeQNames.contains(PARAM_SPEC_EXT)) {
               return new PyParamSpecType(name)
@@ -1502,17 +1512,13 @@ public final class PyTypingTypeProvider extends PyTypeProviderWithCustomContext<
 
   private static @Nullable PyTypeParameterType getTypeParameterTypeFromTypeParameter(@NotNull PsiElement element, @NotNull Context context) {
     if (element instanceof PyTypeParameter typeParameter) {
+      String name = typeParameter.getName();
+      if (name == null) {
+        return null;
+      }
 
       PyTypeParameterListOwner typeParameterOwner = PsiTreeUtil.getStubOrPsiParentOfType(element, PyTypeParameterListOwner.class);
       PyQualifiedNameOwner scopeOwner = typeParameterOwner instanceof PyQualifiedNameOwner qualifiedNameOwner ? qualifiedNameOwner : null;
-
-      String boundExpressionText = typeParameter.getBoundExpressionText();
-      String name = typeParameter.getName();
-      PyTypeParameter.Kind kind = typeParameter.getKind();
-
-      PyExpression boundExpression = boundExpressionText != null
-                                     ? PyUtil.createExpressionFromFragment(boundExpressionText, typeParameter.getContainingFile())
-                                     : null;
 
       String defaultExpressionText = typeParameter.getDefaultExpressionText();
       PyExpression defaultExpression = defaultExpressionText != null
@@ -1521,38 +1527,55 @@ public final class PyTypingTypeProvider extends PyTypeProviderWithCustomContext<
                                                                              ? typeParameterOwner
                                                                              : typeParameter.getContainingFile())
                                        : null;
+      Ref<PyType> defaultType = null;
+      if (defaultExpression != null) {
+        final PyExpression defaultExprWithoutParens = PyPsiUtils.flattenParens(defaultExpression);
+        defaultType = defaultExprWithoutParens != null
+                      ? getTypePreventingRecursion(defaultExprWithoutParens, context)
+                      : Ref.create();
+      }
+
       PyQualifiedNameOwner declarationElement = as(element, PyQualifiedNameOwner.class);
 
-      if (name != null) {
-        return switch (kind) {
-          case TypeVar -> {
-            PyType boundType = boundExpression != null ? getTypeParameterBoundType(boundExpression, context) : null;
-            Ref<PyType> defaultType = defaultExpression != null ? Ref.create(getTypeParameterBoundType(defaultExpression, context)) : null;
-            yield new PyTypeVarTypeImpl(name, boundType, defaultType)
-              .withScopeOwner(scopeOwner)
-              .withDeclarationElement(declarationElement);
+      switch (typeParameter.getKind()) {
+        case TypeVar -> {
+          List<@Nullable PyType> constraints = List.of();
+          PyType boundType = null;
+          String boundExpressionText = typeParameter.getBoundExpressionText();
+          PyExpression boundExpression = boundExpressionText != null
+                                         ? PyPsiUtils.flattenParens(PyUtil.createExpressionFromFragment(boundExpressionText,
+                                                                                                        typeParameter.getContainingFile()))
+                                         : null;
+          if (boundExpression instanceof PyTupleExpression tupleExpression) {
+            constraints = ContainerUtil.map(tupleExpression.getElements(), expr -> Ref.deref(getTypePreventingRecursion(expr, context)));
           }
-          case ParamSpec -> {
-            Ref<PyType> defaultExprType = defaultExpression != null ? getType(defaultExpression, context) : null;
-            Ref<PyCallableParameterVariadicType> defaultType =
-              Ref.deref(defaultExprType) instanceof PyCallableParameterVariadicType variadicType ? Ref.create(variadicType) : null;
-            yield new PyParamSpecType(name)
-              .withScopeOwner(scopeOwner)
-              .withDefaultType(defaultType)
-              .withDeclarationElement(declarationElement);
+          else if (boundExpression != null) {
+            boundType = Ref.deref(getTypePreventingRecursion(boundExpression, context));
           }
-          case TypeVarTuple -> {
-            Ref<PyPositionalVariadicType> defaultType =
-              defaultExpression != null ? Ref.create(getTypeVarTupleParameterDefaultType(defaultExpression, context)) : null;
-            yield new PyTypeVarTupleTypeImpl(name)
-              .withScopeOwner(scopeOwner)
-              .withDefaultType(defaultType)
-              .withDeclarationElement(declarationElement);
-          }
-        };
+          return new PyTypeVarTypeImpl(name, constraints, boundType, defaultType)
+            .withScopeOwner(scopeOwner)
+            .withDeclarationElement(declarationElement);
+        }
+        case ParamSpec -> {
+          return new PyParamSpecType(name)
+            .withScopeOwner(scopeOwner)
+            .withDefaultType(
+              Ref.deref(defaultType) instanceof PyCallableParameterVariadicType variadicType ? Ref.create(variadicType) : null)
+            .withDeclarationElement(declarationElement);
+        }
+        case TypeVarTuple -> {
+          return new PyTypeVarTupleTypeImpl(name)
+            .withScopeOwner(scopeOwner)
+            .withDefaultType(Ref.deref(defaultType) instanceof PyPositionalVariadicType variadicType ? Ref.create(variadicType) : null)
+            .withDeclarationElement(declarationElement);
+        }
       }
     }
     return null;
+  }
+
+  private static @Nullable Ref<PyType> getTypePreventingRecursion(@NotNull PyExpression expression, @NotNull Context context) {
+    return doPreventingRecursion(context, false, () -> getType(expression, context));
   }
 
   // See https://peps.python.org/pep-0484/#scoping-rules-for-type-variables
@@ -1661,45 +1684,6 @@ public final class PyTypingTypeProvider extends PyTypeProviderWithCustomContext<
     PyExpression starredExpression = starExpression.getExpression();
     if (!(starredExpression instanceof PyReferenceExpression || starredExpression instanceof PySubscriptionExpression)) return null;
     return Ref.create(Ref.deref(getType(starredExpression, context)));
-  }
-
-  private static @Nullable PyType getGenericTypeBound(PyExpression @NotNull [] typeVarArguments, @NotNull Context context) {
-    final List<PyType> types = new ArrayList<>();
-    for (int i = 1; i < typeVarArguments.length; i++) {
-      final PyExpression argument = typeVarArguments[i];
-
-      if (argument instanceof PyKeywordArgument) {
-        if ("bound".equals(((PyKeywordArgument)argument).getKeyword())) {
-          final PyExpression value = ((PyKeywordArgument)argument).getValueExpression();
-          return value == null ? null : Ref.deref(getType(value, context));
-        }
-        else {
-          break; // covariant, contravariant
-        }
-      }
-
-      types.add(Ref.deref(getType(argument, context)));
-    }
-    return PyUnionType.union(types);
-  }
-
-  private static @Nullable PyPositionalVariadicType getTypeVarTupleParameterDefaultType(@NotNull PyExpression defaultExpression, @NotNull Context context) {
-    return as(getTypeParameterBoundType(defaultExpression, context), PyPositionalVariadicType.class);
-  }
-
-  private static @Nullable PyType getTypeParameterBoundType(@NotNull PyExpression boundExpression, @NotNull Context context) {
-    PyExpression bound = PyPsiUtils.flattenParens(boundExpression);
-    if (bound != null) {
-      if (bound instanceof PyTupleExpression tupleExpression) {
-        return StreamEx.of(tupleExpression.getElements())
-          .map(expr -> Ref.deref(getType(expr, context)))
-          .collect(PyTypeUtil.toUnion());
-      }
-      else {
-        return doPreventingRecursion(context, false, () -> Ref.deref(getType(bound, context)));
-      }
-    }
-    return null;
   }
 
   private static  @NotNull List<PyType> getIndexTypes(@NotNull PySubscriptionExpression expression, @NotNull Context context) {

@@ -26,6 +26,7 @@ import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
+import com.intellij.openapi.application.impl.InternalUICustomization
 import com.intellij.openapi.options.advanced.AdvancedSettings
 import com.intellij.openapi.progress.impl.PerProjectTaskInfoEntityCollector
 import com.intellij.openapi.project.Project
@@ -258,8 +259,11 @@ abstract class ProjectFrameHelper internal constructor(
     updateStatusBarVisibility()
     this.statusBar = statusBar
     val component = statusBar.component
-    if (component != null) {
-      contentPane.add(component, BorderLayout.SOUTH)
+
+    if (InternalUICustomization.getInstance().statusBarRequired()) {
+      component?.let {
+        contentPane.add(it, BorderLayout.SOUTH)
+      }
     }
   }
 
@@ -381,13 +385,13 @@ abstract class ProjectFrameHelper internal constructor(
 
     withContext(Dispatchers.EDT) {
       applyInitBounds()
+      statusBar?.initialize()
     }
     frameDecorator?.setProject()
   }
 
   internal open suspend fun setProject(project: Project) {
     frameHeaderHelper.setProject(project)
-    statusBar?.initialize()
     statusBar?.let {
       project.messageBus.simpleConnect().subscribe(StatusBar.Info.TOPIC, it)
     }

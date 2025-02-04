@@ -415,6 +415,7 @@
     <projectService serviceImplementation="com.intellij.jarRepository.RemoteRepositoriesConfiguration"/>
     <projectService serviceImplementation="com.intellij.jarRepository.services.MavenRepositoryServicesManager"/>
     <projectService serviceImplementation="com.intellij.codeInsight.JavaProjectCodeInsightSettings"/>
+    <optionController implementation="com.intellij.codeInsight.JavaProjectCodeInsightSettings$Provider"/>
     <applicationService serviceImplementation="com.intellij.codeInsight.JavaIdeCodeInsightSettings"/>
     <projectService serviceInterface="com.intellij.testIntegration.TestFailedLineManager"
                     serviceImplementation="com.intellij.execution.codeInspection.TestFailedLineManagerImpl"/>
@@ -655,8 +656,6 @@
     <externalSystem.beforeRunTaskImporter
       implementation="com.intellij.openapi.externalSystem.service.project.settings.BuildArtifactsTaskImporter"/>
     <externalSystemConfigurationHandler implementation="com.intellij.openapi.externalSystem.service.project.settings.ArtifactsImporter"/>
-    <externalSystem.moduleDataServiceExtension
-      implementation="com.intellij.openapi.externalSystem.service.project.ModuleDataServiceJavaExtension"/>
     <externalSystem.runConfigurationEx implementation="com.intellij.execution.ExternalSystemRunConfigurationJavaExtension"/>
     <applicationService serviceInterface="com.intellij.openapi.externalSystem.service.execution.ExternalSystemJdkProvider"
                         serviceImplementation="com.intellij.openapi.externalSystem.service.execution.ExternalSystemJavaSdkProvider"
@@ -1972,6 +1971,11 @@
                      level="INFORMATION"
                      implementationClass="com.intellij.codeInspection.streamToLoop.StreamToLoopInspection"
                      key="inspection.stream.to.loop.display.name" bundle="messages.JavaBundle"/>
+    <localInspection groupPath="Java" language="JAVA" shortName="UnreachableCatch"
+                     groupKey="group.names.verbose.or.redundant.code.constructs" groupBundle="messages.InspectionsBundle" 
+                     enabledByDefault="true" level="WARNING"
+                     implementationClass="com.intellij.codeInspection.deadCode.UnreachableCatchInspection"
+                     key="inspection.unreachable.catch.name" bundle="messages.JavaAnalysisBundle"/>
     <localInspection groupPath="Java" language="JAVA" shortName="OptionalToIf"
                      groupKey="group.names.code.style.issues" groupBundle="messages.InspectionsBundle" enabledByDefault="true"
                      level="INFORMATION"
@@ -2386,6 +2390,12 @@
     </intentionAction>
     <intentionAction>
       <language>JAVA</language>
+      <className>com.intellij.codeInsight.intention.impl.AddOnDemandStaticImportToAutoImportAction</className>
+      <bundleName>messages.JavaBundle</bundleName>
+      <categoryKey>intention.category.imports</categoryKey>
+    </intentionAction>
+    <intentionAction>
+      <language>JAVA</language>
       <className>com.intellij.codeInsight.intention.impl.ConcatenationToMessageFormatAction</className>
       <bundleName>messages.JavaBundle</bundleName>
       <categoryKey>intention.category.i18n</categoryKey>
@@ -2786,6 +2796,7 @@
     <completion.contributor language="TEXT" id="commandsPlain" order="first, after liveTemplates"
                             implementationClass="com.intellij.codeInsight.completion.commands.core.CommandCompletionContributor"/>
     <lookup.charFilter implementation="com.intellij.codeInsight.completion.commands.core.CommandCompletionCharFilter" order="first" id="commandCompletion"/>
+    <lookup.customizer implementation="com.intellij.codeInsight.completion.commands.core.CommandCompletionLookupCustomizer" order="last" id="commandCompletionLookupCustomizer"/>
 
     <registryKey key="java.completion.command.enabled" defaultValue="false"
                  description="Enable experimental support command completion" restartRequired="true"/>

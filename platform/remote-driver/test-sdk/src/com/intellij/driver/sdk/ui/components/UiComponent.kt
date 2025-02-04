@@ -7,6 +7,7 @@ import com.intellij.driver.sdk.ui.Finder
 import com.intellij.driver.sdk.ui.SearchContext
 import com.intellij.driver.sdk.ui.UiText
 import com.intellij.driver.sdk.ui.UiText.Companion.allText
+import com.intellij.driver.sdk.ui.components.elements.DialogUiComponent
 import com.intellij.driver.sdk.ui.keyboard.WithKeyboard
 import com.intellij.driver.sdk.ui.remote.Component
 import com.intellij.driver.sdk.ui.remote.Robot
@@ -457,8 +458,8 @@ open class UiComponent(private val data: ComponentData) : Finder, WithKeyboard {
     return ImageIO.read(File(screenshotPath))
   }
 
-  fun getColor(point: Point?): Color {
-    moveMouse(point)
+  fun getColor(point: Point?, moveMouse: Boolean = true): Color {
+    if (moveMouse) moveMouse(point)
     return withComponent {
       Color(robot.getColor(it, point).getRGB())
     }

@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.k2.codeinsight.fixes
 
 import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
@@ -167,7 +167,7 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
         registerFactory(ModifierFormForNonBuiltInSuspendFixFactories.addEmptyArgumentListFixFactory)
         registerFactory(ModifierFormForNonBuiltInSuspendFixFactories.wrapWithParenthesesFixFactory)
         registerFactory(ModifierFormForNonBuiltInSuspendFixFactories.wrapFunWithParenthesesFixFactory)
-        registerFactory(DeclarationCantBeInlinedFixFactories.removeOpenModifierFixFactory)
+        registerFactory(DeclarationCantBeInlinedFixFactories.fixFactory)
         registerFactory(WrongAnnotationTargetFixFactories.addAnnotationUseSiteTargetFixFactory)
         registerFactory(WrongAnnotationTargetFixFactories.addAnnotationUseSiteTargetForConstructorParameterFixFactory)
         registerFactory(WrongAnnotationTargetFixFactories.enableFutureAnnotationTargetModeFactory)
@@ -271,8 +271,10 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
         registerFactory(AddMemberToSupertypeFixFactory.addMemberToSupertypeFixFactory)
     }
 
+    /**
+     * Note: For the auto-import fixes, see [importOnTheFlyList] and [KotlinFirUnresolvedReferenceQuickFixProvider]. 
+     */
     private val imports = KtQuickFixesListBuilder.registerPsiQuickFix {
-        registerFactory(ImportQuickFixFactories.invisibleReferenceFactory)
         registerPsiQuickFixes(KaFirDiagnostic.ConflictingImport::class, RemovePsiElementSimpleFix.RemoveImportFactory)
         registerPsiQuickFixes(KaFirDiagnostic.UnresolvedImport::class, AddDependencyQuickFixHelper)
     }
@@ -329,6 +331,7 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
         registerFactory(AddExclExclCallFixFactories.unsafeInfixCallFactory)
         registerFactory(AddExclExclCallFixFactories.unsafeOperatorCallFactory)
         registerFactory(AddExclExclCallFixFactories.iteratorOnNullableFactory)
+        registerFactory(AddNameToArgumentFixFactory.addNameToArgumentFixFactory)
         registerFactory(TypeMismatchFactories.argumentTypeMismatchFactory)
         registerFactory(TypeMismatchFactories.returnTypeMismatchFactory)
         registerFactory(TypeMismatchFactories.assignmentTypeMismatch)
@@ -444,7 +447,7 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
     }
 
     private val superType = KtQuickFixesListBuilder.registerPsiQuickFix {
-        registerFactory(SuperClassNotInitializedFactories.addParenthesis)
+        registerFactory(SuperClassNotInitializedFactories.changeToConstructorCall)
     }
 
     private val vararg = KtQuickFixesListBuilder.registerPsiQuickFix {

@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.k2.codeinsight.inspections
 
 import com.intellij.codeInspection.ProblemsHolder
@@ -40,9 +40,8 @@ internal class SelfReferenceConstructorParameterInspection :
         context: Context,
     ): @InspectionMessage String = KotlinBundle.message("constructor.has.non.null.self.reference.parameter")
 
-    context(KaSession@KaSession)
     @OptIn(KaExperimentalApi::class)
-    override fun prepareContext(element: KtPrimaryConstructor): Context? {
+    override fun KaSession.prepareContext(element: KtPrimaryConstructor): Context? {
         val parameterList = element.valueParameterList ?: return null
         val containingClass = parameterList.containingClass() ?: return null
         val className = containingClass.name ?: return null
@@ -60,10 +59,10 @@ internal class SelfReferenceConstructorParameterInspection :
         )
     }
 
-    override fun createQuickFix(
+    override fun createQuickFixes(
         element: KtPrimaryConstructor,
         context: Context,
-    ): KotlinModCommandQuickFix<KtPrimaryConstructor> = object : KotlinModCommandQuickFix<KtPrimaryConstructor>() {
+    ): Array<KotlinModCommandQuickFix<KtPrimaryConstructor>> = arrayOf(object : KotlinModCommandQuickFix<KtPrimaryConstructor>() {
 
         override fun getFamilyName(): @IntentionFamilyName String = KotlinBundle.message("convert.to.nullable.type.fix.text")
 
@@ -76,5 +75,5 @@ internal class SelfReferenceConstructorParameterInspection :
             val parameter = element.valueParameterList?.parameters[context.parameterIndex] ?: return
             parameter.typeReference = KtPsiFactory(project).createType(context.nullableType)
         }
-    }
+    })
 }

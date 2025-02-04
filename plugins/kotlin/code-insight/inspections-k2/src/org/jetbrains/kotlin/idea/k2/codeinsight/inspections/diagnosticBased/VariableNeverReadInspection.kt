@@ -20,8 +20,7 @@ internal class VariableNeverReadInspection : KotlinKtDiagnosticBasedInspectionBa
     override val diagnosticType: KClass<KaFirDiagnostic.VariableNeverRead>
         get() = KaFirDiagnostic.VariableNeverRead::class
 
-    context(KaSession@KaSession)
-    override fun prepareContextByDiagnostic(
+    override fun KaSession.prepareContextByDiagnostic(
         element: KtNamedDeclaration,
         diagnostic: KaFirDiagnostic.VariableNeverRead,
     ): Unit = Unit
@@ -36,10 +35,10 @@ internal class VariableNeverReadInspection : KotlinKtDiagnosticBasedInspectionBa
     override fun getProblemHighlightType(element: KtNamedDeclaration, context: Unit): ProblemHighlightType =
         ProblemHighlightType.LIKE_UNUSED_SYMBOL
 
-    override fun createQuickFix(
+    override fun createQuickFixes(
         element: KtNamedDeclaration,
         context: Unit,
-    ): KotlinModCommandQuickFix<KtNamedDeclaration>? = null // KTIJ-29530
+    ): Array<KotlinModCommandQuickFix<KtNamedDeclaration>> = emptyArray() // KTIJ-29530
 
     override fun buildVisitor(
         holder: ProblemsHolder,

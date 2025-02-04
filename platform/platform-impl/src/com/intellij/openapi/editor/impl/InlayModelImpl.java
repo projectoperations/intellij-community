@@ -9,6 +9,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.*;
 import com.intellij.openapi.editor.event.DocumentEvent;
 import com.intellij.openapi.editor.ex.DocumentEx;
+import com.intellij.openapi.editor.ex.InlayModelEx;
 import com.intellij.openapi.editor.ex.PrioritizedDocumentListener;
 import com.intellij.openapi.editor.ex.util.EditorUtil;
 import com.intellij.openapi.editor.impl.view.EditorView;
@@ -34,7 +35,7 @@ import java.util.function.Supplier;
 import static com.intellij.openapi.editor.impl.InlayKeys.OFFSET_BEFORE_DISPOSAL;
 
 //@ApiStatus.Internal
-public final class InlayModelImpl implements InlayModel, PrioritizedDocumentListener, Disposable, Dumpable {
+public final class InlayModelImpl implements InlayModel, InlayModelEx, PrioritizedDocumentListener, Disposable, Dumpable {
   private static final Logger LOG = Logger.getInstance(InlayModelImpl.class);
 
   private static final Comparator<InlineInlayImpl<?>> INLINE_ELEMENTS_COMPARATOR = Comparator
@@ -302,6 +303,7 @@ public final class InlayModelImpl implements InlayModel, PrioritizedDocumentList
   }
 
   @ApiStatus.Internal
+  @Override
   public int getHeightOfBlockElementsBeforeVisualLine(int visualLine, int startOffset, int prevFoldRegionIndex) {
     if (visualLine < 0 || !hasBlockElements()) return 0;
     int visibleLineCount = myEditor.getVisibleLineCount();
@@ -330,6 +332,7 @@ public final class InlayModelImpl implements InlayModel, PrioritizedDocumentList
    * Unlike {@link #getElementsInRange}, this method does not allocate and sort an array
    */
   @ApiStatus.Internal
+  @Override
   public @Nullable Inlay<?> getWidestVisibleBlockInlay() {
     AtomicInteger maxWidth = new AtomicInteger(-1);
     Ref<Inlay<?>> inlayRef = new Ref<>(null);
@@ -560,11 +563,11 @@ public final class InlayModelImpl implements InlayModel, PrioritizedDocumentList
     myDispatcher.addListener(listener, disposable);
   }
 
-  private void notifyAdded(InlayImpl inlay) {
+  private void notifyAdded(InlayImpl<?, ?> inlay) {
     myDispatcher.getMulticaster().onAdded(inlay);
   }
 
-  void notifyChanged(InlayImpl inlay, int changeFlags) {
+  void notifyChanged(InlayImpl<?, ?> inlay, int changeFlags) {
     myDispatcher.getMulticaster().onUpdated(inlay, changeFlags);
   }
 
@@ -621,7 +624,7 @@ public final class InlayModelImpl implements InlayModel, PrioritizedDocumentList
                                                                 boolean greedyToLeft, boolean greedyToRight, boolean stickingToRight, int layer) {
       return new RMNode<InlineInlayImpl<?>>(this, key, start, end, greedyToLeft, greedyToRight, stickingToRight) {
         @Override
-        void addIntervalsFrom(@NotNull IntervalNode<InlineInlayImpl<?>> otherNode) {
+        public void addIntervalsFrom(@NotNull IntervalNode<InlineInlayImpl<?>> otherNode) {
           super.addIntervalsFrom(otherNode);
           if (myPutMergedIntervalsAtBeginning) {
             List<Supplier<? extends InlineInlayImpl<?>>> added = ContainerUtil.subList(intervals, intervals.size() - otherNode.intervals.size());
@@ -634,7 +637,7 @@ public final class InlayModelImpl implements InlayModel, PrioritizedDocumentList
     }
 
     @Override
-    void fireBeforeRemoved(@NotNull InlineInlayImpl inlay) {
+    public void fireBeforeRemoved(@NotNull InlineInlayImpl inlay) {
       if (inlay.getUserData(OFFSET_BEFORE_DISPOSAL) == null) {
         if (myMoveInProgress) {
           // delay notification about invalidated inlay - folding model is not consistent at this point
@@ -654,7 +657,7 @@ public final class InlayModelImpl implements InlayModel, PrioritizedDocumentList
     }
 
     @Override
-    void fireBeforeRemoved(@NotNull BlockInlayImpl inlay) {
+    public void fireBeforeRemoved(@NotNull BlockInlayImpl inlay) {
       if (inlay.getUserData(OFFSET_BEFORE_DISPOSAL) == null) {
         notifyRemoved(inlay);
       }
@@ -667,7 +670,7 @@ public final class InlayModelImpl implements InlayModel, PrioritizedDocumentList
     }
 
     @Override
-    void fireBeforeRemoved(@NotNull AfterLineEndInlayImpl inlay) {
+    public void fireBeforeRemoved(@NotNull AfterLineEndInlayImpl inlay) {
       if (inlay.getUserData(OFFSET_BEFORE_DISPOSAL) == null) {
         notifyRemoved(inlay);
       }

@@ -1,14 +1,14 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.sdk.add.v2
 
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.util.io.toNioPathOrNull
 import com.jetbrains.python.Result
 import com.jetbrains.python.sdk.ModuleOrProject
-import com.jetbrains.python.sdk.VirtualEnvReader
+import com.jetbrains.python.venvReader.VirtualEnvReader
 import com.jetbrains.python.sdk.rootManager
 import com.jetbrains.python.sdk.service.PySdkService.Companion.pySdkService
-import com.jetbrains.python.util.ErrorSink
+import com.jetbrains.python.errorProcessing.ErrorSink
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow

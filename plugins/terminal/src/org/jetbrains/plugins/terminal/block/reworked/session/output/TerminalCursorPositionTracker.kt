@@ -3,6 +3,7 @@ package org.jetbrains.plugins.terminal.block.reworked.session.output
 
 import com.jediterm.terminal.model.TerminalTextBuffer
 import com.jediterm.terminal.util.CharUtils
+import org.jetbrains.plugins.terminal.block.session.TerminalModel.Companion.withLock
 import org.jetbrains.plugins.terminal.block.ui.getLengthWithoutDwc
 
 internal class TerminalCursorPositionTracker(
@@ -17,16 +18,21 @@ internal class TerminalCursorPositionTracker(
   init {
     terminalDisplay.addListener(object : TerminalDisplayListener {
       override fun cursorPositionChanged(x: Int, y: Int) {
-        cursorX = x
-        cursorY = y
-        cursorPositionChanged = true
+        textBuffer.withLock {
+          cursorX = x
+          cursorY = y
+          cursorPositionChanged = true
 
-        // Make sure that line with cursor is created in the text buffer.
-        textBuffer.getLine(y)
+          // Make sure that line with cursor is created in the text buffer.
+          textBuffer.getLine(y)
+        }
       }
     })
   }
 
+  /**
+   * Should be executed under [TerminalTextBuffer.lock]
+   */
   fun getCursorPositionUpdate(): TerminalCursorPositionChangedEvent? {
     return if (cursorPositionChanged) {
       doGetCursorPositionUpdate()
@@ -34,7 +40,7 @@ internal class TerminalCursorPositionTracker(
     else null
   }
 
-  private fun doGetCursorPositionUpdate(): TerminalCursorPositionChangedEvent {
+  private fun doGetCursorPositionUpdate(): TerminalCursorPositionChangedEvent? {
     check(cursorPositionChanged) { "It is expected that this method is called only if something is changed" }
 
     var line = cursorY
@@ -42,7 +48,10 @@ internal class TerminalCursorPositionTracker(
     // that indicate that the previous character is double width (for example, chinese symbol).
     // This character is synthetic and present there only to create space in the TextBuffer grid.
     // But DWC is dropped when we parse the TextBuffer to string, so we also should exclude them from the offset calculation there.
-    val dwcCountBeforeCursor = textBuffer.getLine(line).text.subSequence(0, cursorX).count { it == CharUtils.DWC }
+    val text = textBuffer.getLine(line).text
+    // The cursorX value can be temporarily out of range due to async updates (or a bug in model state update).
+    val end = cursorX.coerceIn(0, text.length)
+    val dwcCountBeforeCursor = text.subSequence(0, end).count { it == CharUtils.DWC }
     var column = cursorX - dwcCountBeforeCursor
 
     // Ensure that line is either not a wrapped line or the start of the wrapped line.

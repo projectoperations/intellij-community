@@ -23,10 +23,10 @@ class C {
   interface II extends I {
     default void m() {
       I.super.m();
-      <error descr="Unqualified super reference is not allowed in extension method">super.m</error>();
+      <error descr="Unqualified super reference is not allowed in extension method">super.<error descr="Cannot resolve method 'm' in 'Object'">m</error></error>();
 
       System.out.println(<error descr="'C.I' is not an enclosing class">I.super</error>.i);
-      System.out.println(super.<error descr="Cannot resolve symbol 'i'">i</error>);
+      System.out.println(<error descr="Unqualified super reference is not allowed in extension method">super.<error descr="Cannot resolve symbol 'i'">i</error></error>);
     }
 
     void ma();

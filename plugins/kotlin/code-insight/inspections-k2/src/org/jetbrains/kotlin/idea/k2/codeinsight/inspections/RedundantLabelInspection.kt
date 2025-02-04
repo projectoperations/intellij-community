@@ -56,28 +56,24 @@ internal class RedundantLabelInspection : KotlinApplicableInspectionBase.Simple<
         }
     }
 
-    override fun createQuickFix(
+    override fun createQuickFixes(
         element: KtLabeledExpression,
         context: Unit,
-    ): KotlinModCommandQuickFix<KtLabeledExpression> {
-        return object : KotlinModCommandQuickFix<KtLabeledExpression>() {
-            override fun getFamilyName(): @IntentionFamilyName String {
-                return KotlinBundle.message("remove.redundant.label")
-            }
-
-            override fun applyFix(
-                project: Project,
-                element: KtLabeledExpression,
-                updater: ModPsiUpdater
-            ) {
-                val baseExpression = element.baseExpression ?: return
-                element.replace(baseExpression)
-            }
-
+    ): Array<KotlinModCommandQuickFix<KtLabeledExpression>> = arrayOf(object : KotlinModCommandQuickFix<KtLabeledExpression>() {
+        override fun getFamilyName(): @IntentionFamilyName String {
+            return KotlinBundle.message("remove.redundant.label")
         }
-    }
 
-    context(KaSession@KaSession)
-    override fun prepareContext(element: KtLabeledExpression) {
-    }
+        override fun applyFix(
+            project: Project,
+            element: KtLabeledExpression,
+            updater: ModPsiUpdater
+        ) {
+            val baseExpression = element.baseExpression ?: return
+            element.replace(baseExpression)
+        }
+
+    })
+
+    override fun KaSession.prepareContext(element: KtLabeledExpression) = Unit
 }

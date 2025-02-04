@@ -18,8 +18,7 @@ internal class AssignedValueIsNeverReadInspection : KotlinPsiDiagnosticBasedInsp
     override val diagnosticType: KClass<KaFirDiagnostic.AssignedValueIsNeverRead>
         get() = KaFirDiagnostic.AssignedValueIsNeverRead::class
 
-    context(KaSession@KaSession)
-    override fun prepareContextByDiagnostic(
+    override fun KaSession.prepareContextByDiagnostic(
         element: KtExpression,
         diagnostic: KaFirDiagnostic.AssignedValueIsNeverRead,
     ): Unit = Unit
@@ -32,10 +31,10 @@ internal class AssignedValueIsNeverReadInspection : KotlinPsiDiagnosticBasedInsp
     override fun getProblemHighlightType(element: KtExpression, context: Unit): ProblemHighlightType =
         ProblemHighlightType.LIKE_UNUSED_SYMBOL
 
-    override fun createQuickFix(
+    override fun createQuickFixes(
         element: KtExpression,
         context: Unit,
-    ): KotlinModCommandQuickFix<KtExpression>? = null // KTIJ-29530
+    ): Array<KotlinModCommandQuickFix<KtExpression>> = emptyArray() // KTIJ-29530
 
     override fun buildVisitor(
         holder: ProblemsHolder,

@@ -1,6 +1,7 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.options.newEditor.settings
 
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorManagerKeys
 import com.intellij.openapi.fileEditor.FileEditorState
@@ -14,18 +15,23 @@ import com.intellij.openapi.vfs.VirtualFile
 import org.jetbrains.annotations.ApiStatus
 import java.beans.PropertyChangeListener
 import javax.swing.JComponent
-import javax.swing.JPanel
 
 @ApiStatus.Internal
-internal class SettingsFileEditor(private val settingsFile: SettingsVirtualFile) : FileEditor {
+internal class SettingsFileEditor(
+  private val settingsFile: SettingsVirtualFile,
+  component: JComponent,
+  private val preferredFocusedComponent: JComponent?,
+  dialogDisposable: Disposable
+) : FileEditor {
 
   private val userDataHolder: UserDataHolder = UserDataHolderBase()
-  private val emptyPanelLazy = lazy<JPanel>{ JPanel() }
+  private val myPanel = component
 
   init {
     userDataHolder.putUserData(FileEditorManagerKeys.DUMB_AWARE, true)
     userDataHolder.putUserData(FileEditorManagerKeys.FORBID_PREVIEW_TAB, true)
     userDataHolder.putUserData(FileEditorManagerKeys.SINGLETON_EDITOR_IN_WINDOW, true)
+    Disposer.register(dialogDisposable, this)
   }
 
   override fun getFile(): VirtualFile {
@@ -33,11 +39,11 @@ internal class SettingsFileEditor(private val settingsFile: SettingsVirtualFile)
   }
 
   override fun getComponent(): JComponent {
-    return settingsFile.dialog.rootPane ?: emptyPanelLazy.value
+    return myPanel
   }
 
   override fun getPreferredFocusedComponent(): JComponent? {
-    return null
+    return preferredFocusedComponent
   }
 
   override fun getName(): @TabTitle String = com.intellij.CommonBundle.settingsTitle()
@@ -49,7 +55,7 @@ internal class SettingsFileEditor(private val settingsFile: SettingsVirtualFile)
   }
 
   override fun isValid(): Boolean {
-    return settingsFile.dialog.editor.rootPane != null
+    return true
   }
 
   override fun addPropertyChangeListener(listener: PropertyChangeListener) {
@@ -59,7 +65,7 @@ internal class SettingsFileEditor(private val settingsFile: SettingsVirtualFile)
   }
 
   override fun dispose() {
-    Disposer.dispose(settingsFile.dialog.disposable)
+    settingsFile.disposeDialog()
   }
 
   override fun <T> getUserData(key: Key<T?>): T? {

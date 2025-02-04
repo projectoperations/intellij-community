@@ -2,12 +2,14 @@ package com.jetbrains.python
 
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.platform.eel.getOr
-import com.intellij.platform.eel.impl.utils.exec
+import com.intellij.platform.eel.provider.utils.exec
+import com.intellij.platform.eel.provider.utils.stderrString
+import com.intellij.platform.eel.provider.utils.stdoutString
 import com.jetbrains.python.PySdkBundle.message
 import com.jetbrains.python.Result.Companion.failure
 import com.jetbrains.python.psi.LanguageLevel
 import com.jetbrains.python.sdk.flavors.PythonSdkFlavor.PYTHON_VERSION_ARG
-import com.jetbrains.python.sdk.flavors.PythonSdkFlavor.getVersionStringFromOutput
+import com.jetbrains.python.sdk.flavors.PythonSdkFlavor.getLanguageLevelFromVersionStringStaticSafe
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
@@ -30,9 +32,7 @@ suspend fun PythonBinary.validatePythonAndGetVersion(): Result<LanguageLevel, @N
   }
 
   val versionString = executeWithResult(PYTHON_VERSION_ARG).getOr { return@withContext it }
-  val languageLevel = getVersionStringFromOutput(versionString)?.let {
-    LanguageLevel.fromPythonVersion(it)
-  }
+  val languageLevel = getLanguageLevelFromVersionStringStaticSafe(versionString.trim())
   if (languageLevel == null) {
     return@withContext failure(message("python.get.version.wrong.version", pathString, versionString))
   }
@@ -49,9 +49,9 @@ suspend fun PythonBinary.executeWithResult(vararg args: String): Result<@NlsSafe
     return failure(text)
   }
   return if (output.exitCode != 0) {
-    failure(message("python.get.version.error", pathString, "code ${output.exitCode}, {output.stderr}"))
+    failure(message("python.get.version.error", pathString, "code ${output.exitCode}, ${output.stderrString}"))
   }
   else {
-    Result.success(output.stdout)
+    Result.success(output.stdoutString)
   }
 }

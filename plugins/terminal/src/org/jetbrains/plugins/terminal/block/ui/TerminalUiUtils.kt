@@ -30,6 +30,7 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.Key
 import com.intellij.terminal.JBTerminalSystemSettingsProviderBase
 import com.intellij.terminal.TerminalColorPalette
+import com.intellij.ui.components.JBLayeredPane
 import com.intellij.ui.scale.JBUIScale
 import com.intellij.util.Alarm
 import com.intellij.util.DocumentUtil
@@ -61,6 +62,7 @@ import java.awt.event.KeyEvent
 import java.awt.font.FontRenderContext
 import java.awt.geom.Dimension2D
 import java.util.concurrent.CompletableFuture
+import javax.swing.JComponent
 import javax.swing.JScrollBar
 import javax.swing.JScrollPane
 import javax.swing.KeyStroke
@@ -69,7 +71,12 @@ import javax.swing.event.ChangeListener
 import kotlin.math.max
 
 internal object TerminalUiUtils {
-  fun createOutputEditor(document: Document, project: Project, settings: JBTerminalSystemSettingsProviderBase): EditorImpl {
+  fun createOutputEditor(
+    document: Document,
+    project: Project,
+    settings: JBTerminalSystemSettingsProviderBase,
+    installContextMenu: Boolean,
+  ): EditorImpl {
     val editor = EditorFactory.getInstance().createEditor(document, project, EditorKind.CONSOLE) as EditorImpl
     editor.isScrollToCaret = false
     editor.isRendererMode = true
@@ -96,9 +103,12 @@ internal object TerminalUiUtils {
       isAdditionalPageAtBottom = false
       isBlockCursor = true
       isWhitespacesShown = false
+      characterGridWidth = editor.getCharSize().width.toFloat()
     }
 
-    installPopupMenu(editor)
+    if (installContextMenu) {
+      installPopupMenu(editor)
+    }
     return editor
   }
 
@@ -269,7 +279,10 @@ internal fun Editor.getCharSize(): Dimension2D {
                                   AntialiasingType.getKeyForCurrentScope(true),
                                   UISettings.editorFractionalMetricsHint)
   val fontMetrics = FontInfo.getFontMetrics(colorsScheme.getFont(EditorFontType.PLAIN), context)
-  val width = FontLayoutService.getInstance().charWidth2D(fontMetrics, ' '.code)
+  // Using the '%' to calculate the size as it's usually one of the widest non-double-width characters.
+  // For monospaced fonts this shouldn't really matter, but let's stay on the safe side.
+  // Otherwise, we may end up with some characters falsely displayed as double-width ones.
+  val width = FontLayoutService.getInstance().charWidth2D(fontMetrics, '%'.code)
   return Dimension2DDouble(width.toDouble(), lineHeight.toDouble())
 }
 
@@ -339,7 +352,7 @@ private val TERMINAL_OUTPUT_SCROLL_CHANGING_ACTION_KEY = Key.create<Unit>("TERMI
  */
 internal var Editor.isTerminalOutputScrollChangingActionInProgress: Boolean
   get() = getUserData(TERMINAL_OUTPUT_SCROLL_CHANGING_ACTION_KEY) != null
-  private set(value) = putUserData(TERMINAL_OUTPUT_SCROLL_CHANGING_ACTION_KEY, if (value) Unit else null)
+  set(value) = putUserData(TERMINAL_OUTPUT_SCROLL_CHANGING_ACTION_KEY, if (value) Unit else null)
 
 internal inline fun <T> Editor.doTerminalOutputScrollChangingAction(action: () -> T): T {
   isTerminalOutputScrollChangingActionInProgress = true
@@ -433,4 +446,8 @@ internal fun TerminalLine.getLengthWithoutDwc(): Int {
     curCount + dwcInEntryCount
   }
   return length() - dwcCount
+}
+
+internal fun JBLayeredPane.addToLayer(component: JComponent, layer: Int) {
+  add(component, layer as Any) // Any is needed to resolve to the correct overload.
 }

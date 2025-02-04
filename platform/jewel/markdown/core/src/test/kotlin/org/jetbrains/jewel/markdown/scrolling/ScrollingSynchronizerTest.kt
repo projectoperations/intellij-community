@@ -21,6 +21,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.util.Arrays
 import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -630,7 +631,7 @@ class ScrollingSynchronizerTest {
     private fun assertSameDistance(distance: Int, vararg elements: Int) {
         assertTrue(elements.size > 1)
         for (i in 0..<elements.lastIndex) {
-            assertEquals(distance, elements[i + 1] - elements[i])
+            assertEquals(Arrays.toString(elements), distance, elements[i + 1] - elements[i])
         }
     }
 

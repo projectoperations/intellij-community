@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.k2.codeinsight.inspections.diagnosticBased
 
 import com.intellij.codeInspection.ProblemsHolder
@@ -22,7 +22,7 @@ internal class CanBeValInspection : KotlinKtDiagnosticBasedInspectionBase<KtDecl
     override fun buildVisitor(
         holder: ProblemsHolder,
         isOnTheFly: Boolean
-    ): KtVisitor<*, *> = declarationRecursiveVisitor(fun(declaration) {
+    ): KtVisitor<*, *> = declarationVisitor (fun(declaration) {
         if (declaration !is KtProperty && declaration !is KtDestructuringDeclaration) return
         visitTargetElement(declaration, holder, isOnTheFly)
     })
@@ -36,18 +36,17 @@ internal class CanBeValInspection : KotlinKtDiagnosticBasedInspectionBase<KtDecl
         return ApplicabilityRange.single(element) { (it as? KtValVarKeywordOwner)?.valOrVarKeyword }
     }
 
-    context(KaSession@KaSession)
-    override fun prepareContextByDiagnostic(
+    override fun KaSession.prepareContextByDiagnostic(
         element: KtDeclaration,
         diagnostic: KaFirDiagnostic.CanBeVal
     ): Unit? {
         return if (element is KtValVarKeywordOwner) Unit else null
     }
 
-    override fun createQuickFix(
+    override fun createQuickFixes(
         element: KtDeclaration,
         context: Unit
-    ): KotlinModCommandQuickFix<KtDeclaration> = object : KotlinModCommandQuickFix<KtDeclaration>() {
+    ): Array<KotlinModCommandQuickFix<KtDeclaration>> = arrayOf(object : KotlinModCommandQuickFix<KtDeclaration>() {
 
         override fun getFamilyName(): String = KotlinBundle.message("change.to.val")
 
@@ -61,5 +60,5 @@ internal class CanBeValInspection : KotlinKtDiagnosticBasedInspectionBase<KtDecl
                 KtPsiFactory(project).createValKeyword()
             )
         }
-    }
+    })
 }

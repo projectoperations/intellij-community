@@ -21,6 +21,7 @@
     <module name="intellij.platform.diagnostic.freezes"/>
   </content>
 
+  <xi:include href="/META-INF/grid-core-modules.xml"/>
   <xi:include href="/META-INF/vcs-modules.xml"/>
 
 </idea-plugin>

@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.daemon.impl;
 
 import com.intellij.codeHighlighting.*;
@@ -9,7 +9,7 @@ import com.intellij.codeInsight.daemon.ReferenceImporter;
 import com.intellij.codeInsight.hint.HintManager;
 import com.intellij.codeInsight.intention.impl.FileLevelIntentionComponent;
 import com.intellij.codeInsight.intention.impl.IntentionHintComponent;
-import com.intellij.codeInsight.quickfix.UnresolvedReferenceQuickFixUpdater;
+import com.intellij.codeInsight.quickfix.LazyQuickFixUpdater;
 import com.intellij.codeInspection.ex.GlobalInspectionContextBase;
 import com.intellij.codeWithMe.ClientId;
 import com.intellij.concurrency.JobLauncher;
@@ -286,7 +286,8 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
   }
 
   @Override
-  void removeFileLevelHighlight(@NotNull PsiFile psiFile, @NotNull HighlightInfo info) {
+  @ApiStatus.Internal
+  public void removeFileLevelHighlight(@NotNull PsiFile psiFile, @NotNull HighlightInfo info) {
     ThreadingAssertions.assertEventDispatchThread();
     assertMyFile(psiFile.getProject(), psiFile);
     VirtualFile vFile = BackedVirtualFile.getOriginFileIfBacked(psiFile.getViewProvider().getVirtualFile());
@@ -427,12 +428,12 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
   }
 
   @Override
-  boolean cutOperationJustHappened() {
+  public boolean cutOperationJustHappened() {
     return myListeners.cutOperationJustHappened;
   }
 
   @Override
-  boolean isEscapeJustPressed() {
+  public boolean isEscapeJustPressed() {
     return myListeners.isEscapeJustPressed();
   }
 
@@ -1032,19 +1033,24 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
       Document document = editor.getDocument();
       int logicalLine = caretModel.getLogicalPosition().line;
       processHighlights(document, project, null, 0, document.getTextLength(), info -> {
-        if (info.containsOffset(offset, true) && info.isUnresolvedReference()) {
+        if (!info.hasLazyQuickFixes()) {
+          return true;
+        }
+        if (info.containsOffset(offset, true)) {
           relevantInfos.add(info);
           return true;
         }
         // since we don't know fix ranges of potentially not-yet-added quick fixes, consider all HighlightInfos at the same line
         boolean atTheSameLine = editor.offsetToLogicalPosition(info.getActualStartOffset()).line <= logicalLine && logicalLine <= editor.offsetToLogicalPosition(info.getActualEndOffset()).line;
-        if (atTheSameLine && info.isUnresolvedReference()) {
+        if (atTheSameLine) {
           relevantInfos.add(info);
         }
         return true;
       });
     });
-    UnresolvedReferenceQuickFixUpdater.getInstance(project).waitQuickFixesSynchronously(file, editor, relevantInfos);
+    for (HighlightInfo info : relevantInfos) {
+      LazyQuickFixUpdater.getInstance(project).waitQuickFixesSynchronously(file, editor, info);
+    }
   }
 
   static final class HighlightByOffsetProcessor implements Processor<HighlightInfo> {

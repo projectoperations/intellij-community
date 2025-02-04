@@ -15,6 +15,8 @@ import org.jetbrains.kotlin.jps.model.JpsKotlinFacetModuleExtension
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.*
+import kotlin.io.path.ExperimentalPathApi
+import kotlin.io.path.deleteRecursively
 import kotlin.io.path.invariantSeparatorsPathString
 
 internal class ModuleList(
@@ -186,6 +188,10 @@ internal class BazelBuildFileGenerator(
     val community = ArrayList<ModuleDescriptor>()
     val ultimate = ArrayList<ModuleDescriptor>()
     for (module in project.model.project.modules) {
+      if (module.name == "fleet.compiler.plugins") {
+        continue
+      }
+
       val descriptor = getModuleDescriptor(module)
       if (descriptor.isCommunity) {
         community.add(descriptor)
@@ -513,6 +519,7 @@ private fun computeResources(module: JpsModule, contentRoots: List<Path>, bazelB
     .toList()
 }
 
+@OptIn(ExperimentalPathApi::class)
 private fun extraResourceTarget(
   module: JpsModule,
   contentRoots: List<Path>,
@@ -525,6 +532,20 @@ private fun extraResourceTarget(
       val sourceRootDir = sourceRoot.path
       val metaInf = sourceRootDir.resolve("META-INF")
       if (!Files.exists(metaInf)) {
+        return@mapNotNull null
+      }
+
+      val isEmptyDir = Files.newDirectoryStream(metaInf).use { stream ->
+        val iterator = stream.iterator()
+        while (iterator.hasNext()) {
+          if (!iterator.next().toString().startsWith('.')) {
+            return@use false
+          }
+        }
+        true
+      }
+      if (isEmptyDir) {
+        metaInf.deleteRecursively()
         return@mapNotNull null
       }
 

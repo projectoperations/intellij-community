@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.diagnostic;
 
 import com.intellij.execution.configurations.PathEnvironmentVariableUtil;
@@ -278,6 +278,7 @@ public class WindowsDefenderChecker {
 
   public final boolean excludeProjectPaths(@NotNull Project project, @NotNull List<Path> paths) {
     logCaller("paths=" + paths + " project=" + project);
+
     try {
       var script = PathManager.findBinFile(HELPER_SCRIPT_NAME);
       if (script == null) {
