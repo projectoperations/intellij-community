@@ -4,7 +4,7 @@ load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources", "jvm_test")
 
 create_kotlinc_options(
   name = "custom",
-  jvm_target = 17,
+  context_receivers = True,
   opt_in = [
     "org.jetbrains.kotlin.utils.addToStdlib.UnsafeCastFunction",
     "org.jetbrains.kotlin.analysis.api.KaPlatformInterface",
@@ -65,7 +65,10 @@ jvm_library(
     "//platform/external-system-impl:externalSystem-impl",
     "//java/idea-ui:ui",
     "@lib//:kotlinc-kotlin-scripting-dependencies",
+    "@lib//:kotlin-base-scripting-amper-dependency-resolution",
+    "//plugins/kotlin/scripting",
   ],
+  exports = ["@lib//:kotlin-base-scripting-amper-dependency-resolution"],
   runtime_deps = [":kotlin-base-scripting_resources"]
 )
 
@@ -123,6 +126,8 @@ jvm_library(
     "//platform/external-system-impl:externalSystem-impl",
     "//java/idea-ui:ui",
     "@lib//:kotlinc-kotlin-scripting-dependencies",
+    "@lib//:kotlin-base-scripting-amper-dependency-resolution",
+    "//plugins/kotlin/scripting",
   ],
   runtime_deps = [":kotlin-base-scripting_resources"]
 )

@@ -3,7 +3,7 @@ package fleet.kernel
 
 import com.jetbrains.rhizomedb.*
 import com.jetbrains.rhizomedb.Entity
-import fleet.tracing.spannedScope
+import fleet.reporting.shared.tracing.spannedScope
 import fleet.util.async.*
 import fleet.util.logging.logger
 import kotlinx.coroutines.*
@@ -27,6 +27,9 @@ import kotlin.coroutines.CoroutineContext
 object FailFastMarker : CoroutineContext.Element, CoroutineContext.Key<FailFastMarker> {
   override val key: CoroutineContext.Key<*> get() = this
 }
+
+val CoroutineContext.shouldFailFast: Boolean
+  get() = this[FailFastMarker] != null
 
 data class SagaScopeEntity(override val eid: EID) : Entity {
   companion object : EntityType<SagaScopeEntity>(SagaScopeEntity::class, ::SagaScopeEntity) {

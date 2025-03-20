@@ -1,6 +1,12 @@
 ### auto-generated section `build intellij.java.tests` start
 load("@rules_java//java:defs.bzl", "java_library")
-load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_test")
+load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources", "jvm_test")
+
+jvm_resources(
+  name = "tests_test_resources",
+  files = glob(["testData/inspection/**/*"]),
+  strip_prefix = "testData/inspection"
+)
 
 java_library(
   name = "tests",
@@ -108,7 +114,6 @@ jvm_library(
     "//platform/core-api:core",
     "//tools/intellij.tools.ide.metrics.benchmark:ide-metrics-benchmark",
     "//tools/intellij.tools.ide.metrics.benchmark:ide-metrics-benchmark_test_lib",
-    "//plugins/junit/java-tests:java-tests_test_lib",
     "//platform/util/coroutines",
     "//platform/navbar/testFramework",
     "//java/unscramble",
@@ -118,8 +123,13 @@ jvm_library(
     "//platform/statistics/testFramework",
     "//platform/searchEverywhere/shared:searchEverywhere",
     "//platform/searchEverywhere/testFramework",
+    "//java/codeserver/highlighting:java-codeserver-highlighting",
+    "//java/codeserver/core:java-codeserver-core",
+    "//platform/testFramework/junit5/projectStructure:testFramework-junit5-projectStructure",
+    "//platform/testFramework/junit5/projectStructure:testFramework-junit5-projectStructure_test_lib",
   ],
   runtime_deps = [
+    ":tests_test_resources",
     "//community-resources:customization",
     "//plugins/IntelliLang/java-support:java-langInjection",
     "//plugins/IntelliLang/xml-support:xml-langInjection",

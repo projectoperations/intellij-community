@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.actions.searcheverywhere;
 
 import com.intellij.concurrency.ConcurrentCollectionFactory;
@@ -14,6 +14,7 @@ import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.util.ProgressIndicatorBase;
 import com.intellij.util.ConcurrencyUtil;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
@@ -24,10 +25,8 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-/**
- * @author msokolov
- */
-final class MixedResultsSearcher implements SESearcher {
+@ApiStatus.Internal
+public final class MixedResultsSearcher implements SESearcher {
 
   private static final Logger LOG = Logger.getInstance(MixedResultsSearcher.class);
 
@@ -42,7 +41,7 @@ final class MixedResultsSearcher implements SESearcher {
    * @param notificationExecutor searcher guarantees that all listener methods will be called only through this executor
    * @param equalityProviders collection of equality providers that checks if found elements are already in the search results
    */
-  MixedResultsSearcher(@NotNull SearchListener listener,
+  public MixedResultsSearcher(@NotNull SearchListener listener,
                        @NotNull Executor notificationExecutor,
                        @NotNull Collection<? extends SEResultsEqualityProvider> equalityProviders) {
     myListener = listener;
@@ -171,7 +170,10 @@ final class MixedResultsSearcher implements SESearcher {
 
     @Override
     public void run() {
-      LOG.debug("Search task started for contributor ", myContributor);
+      LOG.debug("Search task started for contributor ",
+                myContributor instanceof PSIPresentationBgRendererWrapper wrapper
+                ? "PSIPresentationBgRendererWrapper(" + wrapper.getEffectiveContributor().getClass().getSimpleName() + ")"
+                : myContributor.getClass().getSimpleName());
       SearchingProcessStatisticsCollector.searchStarted(myContributor);
       try {
         boolean repeat;
@@ -195,6 +197,10 @@ final class MixedResultsSearcher implements SESearcher {
             }
           }
           catch (ProcessCanceledException ignore) {}
+          catch (Throwable e) {
+            LOG.warn("Contributor " + myContributor.getSearchProviderId() +" threw an exception during search:", e);
+            break;
+          }
           repeat = !myIndicator.isCanceled() && wrapperIndicator.isCanceled();
         }
         while (repeat);
@@ -207,7 +213,10 @@ final class MixedResultsSearcher implements SESearcher {
       finally {
         finishCallback.run();
       }
-      LOG.debug("Search task finished for contributor ", myContributor);
+      LOG.debug("Search task finished for contributor ",
+                myContributor instanceof PSIPresentationBgRendererWrapper wrapper
+                ? "PSIPresentationBgRendererWrapper(" + wrapper.getEffectiveContributor().getClass().getSimpleName() + ")"
+                : myContributor.getClass().getSimpleName());
     }
 
     private boolean processFoundItem(Item element, int priority, ProgressIndicator wrapperIndicator) {

@@ -8,14 +8,17 @@ import com.intellij.internal.statistic.eventLog.events.EventFields
 import com.intellij.internal.statistic.eventLog.events.EventId
 import com.intellij.internal.statistic.eventLog.events.EventId1
 import com.intellij.internal.statistic.service.fus.collectors.ApplicationUsagesCollector
+import com.intellij.openapi.util.SystemInfo
 import com.intellij.terminal.TerminalUiSettingsManager
 import org.jetbrains.plugins.terminal.TerminalCommandHandlerCustomizer.Constants
 import org.jetbrains.plugins.terminal.TerminalOptionsProvider
 import org.jetbrains.plugins.terminal.block.BlockTerminalOptions
 import org.jetbrains.plugins.terminal.block.prompt.TerminalPromptStyle
+import org.jetbrains.plugins.terminal.settings.TerminalLocalOptions
+import org.jetbrains.plugins.terminal.settings.TerminalOsSpecificOptions
 
 internal class TerminalSettingsStateCollector : ApplicationUsagesCollector() {
-  private val GROUP = EventLogGroup("terminalShell.settings", 1)
+  private val GROUP = EventLogGroup("terminalShell.settings", 2)
 
   private val NON_DEFAULT_OPTIONS = GROUP.registerEvent(
     "non.default.options",
@@ -39,16 +42,14 @@ internal class TerminalSettingsStateCollector : ApplicationUsagesCollector() {
     val metrics = mutableSetOf<MetricEvent>()
     addNonDefaultBooleanOptions(metrics)
 
-    val curOptions = TerminalOptionsProvider.instance.state
-    val defaultOptions = TerminalOptionsProvider.State()
-    addIfNotDefault(metrics, NON_DEFAULT_SHELL, curOptions, defaultOptions) { it.myShellPath }
-    addIfNotDefault(metrics, NON_DEFAULT_TAB_NAME, curOptions, defaultOptions) { it.myTabName }
+    addIfNotDefault(metrics, NON_DEFAULT_SHELL, TerminalLocalOptions.getInstance().shellPath, null)
+    addIfNotDefault(metrics, NON_DEFAULT_TAB_NAME, TerminalOptionsProvider.instance.tabName, TerminalOptionsProvider.State().myTabName)
 
     addIfNotDefault(
       metrics,
       NON_DEFAULT_CURSOR_SHAPE,
-      curValue = TerminalUiSettingsManager.getInstance().cursorShape,
-      defaultValue = TerminalUiSettingsManager.State().cursorShape
+      curValue = TerminalOptionsProvider.instance.cursorShape,
+      defaultValue = TerminalOptionsProvider.State().cursorShape
     )
 
     addIfNotDefault(
@@ -68,12 +69,22 @@ internal class TerminalSettingsStateCollector : ApplicationUsagesCollector() {
     addBooleanIfNotDefault(metrics, BooleanOptions.ENABLE_AUDIBLE_BELL, curOptions, defaultOptions) { it.mySoundBell }
     addBooleanIfNotDefault(metrics, BooleanOptions.CLOSE_ON_SESSION_END, curOptions, defaultOptions) { it.myCloseSessionOnLogout }
     addBooleanIfNotDefault(metrics, BooleanOptions.REPORT_MOUSE, curOptions, defaultOptions) { it.myReportMouse }
-    addBooleanIfNotDefault(metrics, BooleanOptions.COPY_ON_SELECTION, curOptions, defaultOptions) { it.myCopyOnSelection }
     addBooleanIfNotDefault(metrics, BooleanOptions.PASTE_ON_MIDDLE_MOUSE_BUTTON, curOptions, defaultOptions) { it.myPasteOnMiddleMouseButton }
     addBooleanIfNotDefault(metrics, BooleanOptions.OVERRIDE_IDE_SHORTCUTS, curOptions, defaultOptions) { it.myOverrideIdeShortcuts }
     addBooleanIfNotDefault(metrics, BooleanOptions.ENABLE_SHELL_INTEGRATION, curOptions, defaultOptions) { it.myShellIntegration }
     addBooleanIfNotDefault(metrics, BooleanOptions.HIGHLIGHT_HYPERLINKS, curOptions, defaultOptions) { it.myHighlightHyperlinks }
     addBooleanIfNotDefault(metrics, BooleanOptions.USE_OPTION_AS_META, curOptions, defaultOptions) { it.useOptionAsMetaKey }
+
+    addIfNotDefault(
+      metrics,
+      BooleanOptions.COPY_ON_SELECTION,
+      curValue = TerminalOsSpecificOptions.getInstance().copyOnSelection,
+      defaultValue = SystemInfo.isLinux
+    )
+
+    val curBlockOptions = BlockTerminalOptions.getInstance().state
+    val defaultBlockOptions = BlockTerminalOptions.State()
+    addBooleanIfNotDefault(metrics, BooleanOptions.SHOW_SEPARATORS_BETWEEN_COMMANDS, curBlockOptions, defaultBlockOptions) { it.showSeparatorsBetweenBlocks }
 
     addIfNotDefault(
       metrics,
@@ -101,15 +112,7 @@ internal class TerminalSettingsStateCollector : ApplicationUsagesCollector() {
     }
   }
 
-  private inline fun <T> addIfNotDefault(
-    metrics: MutableSet<MetricEvent>,
-    event: EventId,
-    curState: T,
-    defaultState: T,
-    valueFunction: (T) -> Any?,
-  ) {
-    val curValue = valueFunction(curState)
-    val defaultValue = valueFunction(defaultState)
+  private fun <T> addIfNotDefault(metrics: MutableSet<MetricEvent>, event: EventId, curValue: T, defaultValue: T) {
     if (curValue != defaultValue) {
       metrics.add(event.metric())
     }
@@ -132,5 +135,6 @@ internal class TerminalSettingsStateCollector : ApplicationUsagesCollector() {
     HIGHLIGHT_HYPERLINKS("highlight_hyperlinks"),
     USE_OPTION_AS_META("use_option_as_meta"),
     RUN_COMMANDS_USING_IDE("run_commands_using_ide"),
+    SHOW_SEPARATORS_BETWEEN_COMMANDS("show_separators_between_commands"),
   }
 }

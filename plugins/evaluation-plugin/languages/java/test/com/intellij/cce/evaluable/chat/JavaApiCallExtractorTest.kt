@@ -121,7 +121,7 @@ class JavaApiCallExtractorTest : BasePlatformTestCase() {
 
     val code = """
                 public void bar() {
-                    foo()
+                    foo();
                 }
         """.trimIndent()
 
@@ -131,10 +131,7 @@ class JavaApiCallExtractorTest : BasePlatformTestCase() {
     runBlocking {
       val extractor = JavaApiCallExtractor(InEditorGeneratedCodeIntegrator())
       val apiCalls = extractor.extractApiCalls(code, project, tokenProperties)
-      assertEquals(
-        listOf("MyClass#foo"),
-        apiCalls
-      )
+      assertEquals(listOf("MyClass#foo"), apiCalls)
     }
   }
 
@@ -146,7 +143,7 @@ class JavaApiCallExtractorTest : BasePlatformTestCase() {
                 }
                 
                 public void bar(Integer t) {
-                  bar()
+                  bar();
                 }
                 <caret>
             }
@@ -156,7 +153,7 @@ class JavaApiCallExtractorTest : BasePlatformTestCase() {
 
     val code = """
                 public void bar() {
-                    foo()
+                    foo();
                 }
         """.trimIndent()
 
@@ -166,10 +163,7 @@ class JavaApiCallExtractorTest : BasePlatformTestCase() {
     runBlocking {
       val extractor = JavaApiCallExtractor(InEditorGeneratedCodeIntegrator())
       val apiCalls = extractor.extractApiCalls(code, project, tokenProperties)
-      assertEquals(
-        listOf("MyClass#foo"),
-        apiCalls
-      )
+      assertEquals(listOf("MyClass#foo"), apiCalls)
     }
   }
 
@@ -177,7 +171,7 @@ class JavaApiCallExtractorTest : BasePlatformTestCase() {
     val code = """
             public class MyClass {
                 public void foo() {
-                    something()
+                    something();
                 }
             }
         """.trimIndent()
@@ -239,9 +233,9 @@ public class MySubClass extends SuperClass {
 // Assuming Velocity is another class defined elsewhere
 class Velocity {
     private float length;
-
+    
     // Constructor and other methods
-
+    
     public float getLength() {
         return length;
     }

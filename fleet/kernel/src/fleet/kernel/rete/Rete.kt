@@ -4,7 +4,7 @@ package fleet.kernel.rete
 import com.jetbrains.rhizomedb.*
 import fleet.kernel.*
 import fleet.kernel.rete.impl.*
-import fleet.tracing.spannedScope
+import fleet.reporting.shared.tracing.spannedScope
 import fleet.util.async.conflateReduce
 import fleet.util.async.use
 import fleet.util.channels.channels
@@ -36,7 +36,7 @@ fun ReteState.dbOrThrow(): DB =
   }
 
 data class Rete internal constructor(
-  internal val failFast: Boolean,
+  internal val abortOnError: Boolean,
   internal val commands: SendChannel<Command>,
   internal val reteState: StateFlow<ReteState>,
   internal val dbSource: ReteDbSource,
@@ -85,72 +85,79 @@ suspend fun <T> withQueriesTracing(logger: KLogger, key: Any, body: suspend Coro
  * Sets up [Rete] for use inside [body]
  * Runs a coroutine which consumes changes made in db and commands to add or remove [QueryObserver]s
  *
- * [failFast] disables exception handling for testing purposes.
+ * [abortOnError] disables exception handling for testing purposes.
+ * [performAdditionalChecks] enables additional expensive checks while running queries
  * */
-suspend fun <T> withRete(failFast: Boolean = false, body: suspend CoroutineScope.() -> T): T {
+suspend fun <T> withRete(
+  abortOnError: Boolean = false,
+  performAdditionalChecks: Boolean = false,
+  body: suspend CoroutineScope.() -> T,
+): T {
   val (commandsSender, commandsReceiver) = channels<Rete.Command>(Channel.UNLIMITED)
   return spannedScope("withRete") {
     val kernel = transactor()
     kernel.subscribe(Channel.UNLIMITED) { db, changes ->
       val lastKnownDb = MutableStateFlow<ReteState>(ReteState.Db(db))
-      val result = runCatching {
-        coroutineScope {
-          launch {
-            spannedScope("rete event loop") {
-              // todo: implement a proper reconnect, this could still fail because of thread starvation
-              changes.consumeAsFlow()
-                .conflateReduce { c1, c2 ->
-                  Change(dbBefore = c1.dbBefore,
-                         dbAfter = c2.dbAfter,
-                         novelty = c1.novelty + c2.novelty,
-                         meta = c1.meta.merge(c2.meta))
-                }
-                .produceIn(this)
-                .consume {
-                  val changesConflated = this
-                  val rete = postponedVars(lastKnownDb, ReteNetwork.new(lastKnownDb, failFast))
-                  whileSelect {
-                    commandsReceiver.onReceive { cmd ->
-                      rete.command(cmd)
-                      true
-                    }
-                    changesConflated.onReceiveCatching { changeResult ->
-                      when {
-                        changeResult.isSuccess -> {
-                          val change = changeResult.getOrNull()!!
-                          rete.propagateChange(change)
-                          true
-                        }
-                        else -> false
+      coroutineScope {
+        launch {
+          spannedScope("rete event loop") {
+            // todo: implement a proper reconnect, this could still fail because of thread starvation
+            changes.consumeAsFlow()
+              .conflateReduce { c1, c2 ->
+                Change(dbBefore = c1.dbBefore,
+                       dbAfter = c2.dbAfter,
+                       novelty = c1.novelty + c2.novelty,
+                       meta = c1.meta.merge(c2.meta))
+              }
+              .produceIn(this)
+              .consume {
+                val changesConflated = this
+                val rete = postponedVars(lastKnownDb, ReteNetwork.new(lastKnownDb,
+                                                                      failWhenPropagationFailed = abortOnError,
+                                                                      performAdditionalChecks = performAdditionalChecks))
+                whileSelect {
+                  commandsReceiver.onReceive { cmd ->
+                    rete.command(cmd)
+                    true
+                  }
+                  changesConflated.onReceiveCatching { changeResult ->
+                    when {
+                      changeResult.isSuccess -> {
+                        val change = changeResult.getOrNull()!!
+                        rete.propagateChange(change)
+                        true
                       }
+                      else -> false
                     }
                   }
                 }
-            }
-          }.use {
-            val rete = Rete(commands = commandsSender,
-                            reteState = lastKnownDb,
-                            failFast = failFast,
-                            dbSource = ReteDbSource(lastKnownDb))
-            val reteEntity = change {
-              register(ReteEntity)
-              ReteEntity.new {
-                it[ReteEntity.ReteAttr] = rete
-                it[ReteEntity.TransactorAttr] = kernel
               }
+          }
+        }.apply {
+          invokeOnCompletion { ex ->
+            lastKnownDb.value = ReteState.Poison(ex ?: RuntimeException("rete is terminating"))
+          }
+        }.use {
+          val rete = Rete(commands = commandsSender,
+                          reteState = lastKnownDb,
+                          abortOnError = abortOnError,
+                          dbSource = ReteDbSource(lastKnownDb))
+          val reteEntity = change {
+            register(ReteEntity)
+            ReteEntity.new {
+              it[ReteEntity.ReteAttr] = rete
+              it[ReteEntity.TransactorAttr] = kernel
             }
-            withContext(rete) {
-              body()
-            }.also {
-              change {
-                reteEntity.delete()
-              }
+          }
+          withContext(rete) {
+            body()
+          }.also {
+            change {
+              reteEntity.delete()
             }
           }
         }
       }
-      lastKnownDb.value = ReteState.Poison(result.exceptionOrNull() ?: RuntimeException("rete is terminated"))
-      result.getOrThrow()
     }
   }
 }
@@ -303,9 +310,17 @@ internal suspend fun <T> withReteDbSource(body: suspend () -> T): T =
     else {
       waitForReteToCatchUp(coroutineContext.transactor.dbState.value)
       val dbSourceContextElement = DbSource.ContextElement(rete.dbSource)
-      withContext(dbSourceContextElement + ReteSpinChangeInterceptor) {
-        body()
+      val (res, dbTimestamp) = withContext(dbSourceContextElement + ReteSpinChangeInterceptor) {
+        val res = body()
+        res to db().timestamp
       }
+      // we're switching db source here:
+      // in general we don't know how this db source is ordered to Rete, 
+      // it might not necessary be a transactor source, 
+      // it might be noria, or other Rete,
+      // so let's ensure happens before here by catching up with what we've seen:
+      waitForDbSourceToCatchUpWithTimestamp(dbTimestamp)
+      res
     }
   }
 
@@ -349,7 +364,7 @@ suspend fun <T> Query<T>.launchOnEach(body: suspend CoroutineScope.(T) -> Unit) 
     }
   }
   when {
-    rete.failFast -> coroutineScope { impl(this) }
+    rete.abortOnError -> coroutineScope { impl(this) }
     else -> supervisorScope { impl(this) }
   }
 }

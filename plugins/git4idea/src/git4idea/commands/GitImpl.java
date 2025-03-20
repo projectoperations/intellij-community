@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package git4idea.commands;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -9,7 +9,7 @@ import com.intellij.execution.process.ProcessAdapter;
 import com.intellij.execution.process.ProcessEvent;
 import com.intellij.execution.process.ProcessOutputTypes;
 import com.intellij.externalProcessAuthHelper.AuthenticationGate;
-import com.intellij.ide.impl.TrustedProjects;
+import com.intellij.ide.trustedProjects.TrustedProjects;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.options.advanced.AdvancedSettings;
 import com.intellij.openapi.progress.ProgressManager;
@@ -572,6 +572,14 @@ public class GitImpl extends GitImplBase {
     return runCommand(h);
   }
 
+  @Override
+  public @NotNull GitCommandResult getResolvedFiles(@NotNull GitRepository repository) {
+    GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.LS_FILES);
+    h.addParameters("--resolve-undo");
+    h.setSilent(true);
+    return runCommand(h);
+  }
+
   /**
    * Fetch remote branch
    * {@code git fetch <remote> <params>}
@@ -824,7 +832,7 @@ public class GitImpl extends GitImplBase {
   }
 
   public static @NotNull String runBundledCommand(@Nullable Project project, String... args) throws VcsException {
-    if (project != null && !TrustedProjects.isTrusted(project)) {
+    if (project != null && !TrustedProjects.isProjectTrusted(project)) {
       throw new IllegalStateException("Shouldn't be possible to run a Git command in the safe mode");
     }
 

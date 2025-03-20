@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.workspaceModel.ide.impl.jps.serialization
 
 import com.intellij.configurationStore.StoreReloadManager
@@ -8,7 +8,7 @@ import com.intellij.diagnostic.StartUpMeasurer.startActivity
 import com.intellij.ide.IdeBundle
 import com.intellij.ide.highlighter.ModuleFileType
 import com.intellij.ide.highlighter.ProjectFileType
-import com.intellij.ide.impl.isTrusted
+import com.intellij.ide.trustedProjects.TrustedProjects
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.Disposable
@@ -40,6 +40,7 @@ import com.intellij.platform.backend.workspace.*
 import com.intellij.platform.backend.workspace.impl.WorkspaceModelInternal
 import com.intellij.platform.diagnostic.telemetry.helpers.Milliseconds
 import com.intellij.platform.diagnostic.telemetry.helpers.MillisecondsMeasurer
+import com.intellij.platform.eel.provider.getEelDescriptor
 import com.intellij.platform.workspace.jps.*
 import com.intellij.platform.workspace.jps.entities.ContentRootEntity
 import com.intellij.platform.workspace.jps.entities.ModuleEntity
@@ -360,7 +361,7 @@ class JpsProjectModelSynchronizer(private val project: Project) : Disposable {
       activity = null
       null
     }
-    else if (project.isTrusted()) {
+    else if (TrustedProjects.isProjectTrusted(project)) {
       childActivity = childActivity?.endAndStart("loading entities from files")
       val unloadedModuleNamesHolder = UnloadedModulesListStorage.getInstance(project).unloadedModuleNameHolder
       val sourcesToUpdate = loadAndReportErrors {
@@ -370,7 +371,7 @@ class JpsProjectModelSynchronizer(private val project: Project) : Disposable {
       (WorkspaceModel.getInstance(project) as? WorkspaceModelImpl)?.entityTracer?.printInfoAboutTracedEntity(builder, "JPS files")
       childActivity = childActivity?.endAndStart("applying entities from global storage")
       val mutableStorage = MutableEntityStorage.create()
-      GlobalWorkspaceModel.getInstance().applyStateToProjectBuilder(project, mutableStorage)
+      GlobalWorkspaceModel.getInstance(project.getEelDescriptor()).applyStateToProjectBuilder(project, mutableStorage)
       builder.applyChangesFrom(mutableStorage)
       childActivity = childActivity?.endAndStart("applying loaded changes (in queue)")
       LoadedProjectEntities(builder, orphanage, unloadedEntitiesBuilder, sourcesToUpdate)

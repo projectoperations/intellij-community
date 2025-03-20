@@ -38,6 +38,8 @@ object PythonCommunityPluginModules {
     "intellij.python.sdk",
     "intellij.python.terminal",
     "intellij.python.ml.features",
+    "intellij.python.pyproject",
+    "intellij.python.hatch",
   )
 
   /**
@@ -65,9 +67,7 @@ object PythonCommunityPluginModules {
   }
 
   fun pythonPlugin(mainModuleName: String, name: String, modules: List<String>, body: (PluginLayout.PluginLayoutSpec) -> Unit): PluginLayout {
-    return PluginLayout.pluginAutoWithDeprecatedCustomDirName(mainModuleName) { spec ->
-      spec.directoryName = name
-      spec.mainJarName = "$name.jar"
+    return PluginLayout.pluginAutoWithCustomDirName(mainModuleName, name) { spec ->
       spec.withModules(modules)
       if (mainModuleName == "intellij.python.community.plugin") {
         spec.withGeneratedResources { targetDir, context ->

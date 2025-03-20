@@ -4,23 +4,6 @@ package fleet.util
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class StackTraceElementHolder(
-  val classLoaderName: String?,
-  val moduleName: String?,
-  val moduleVersion: String?,
-  val declaringClass: String?,
-  val methodName: String?,
-  val fileName: String?,
-  val lineNumber: Int
-)
-
-fun StackTraceElementHolder.toSTE() =
-  StackTraceElement(classLoaderName, moduleName, moduleVersion, declaringClass, methodName, fileName, lineNumber)
-
-fun StackTraceElement.toSTEH() =
-  StackTraceElementHolder(classLoaderName, moduleName, moduleVersion, className, methodName, fileName, lineNumber)
-
-@Serializable
 data class LogErrorHolder(
   val logMessage: String,
   val throwable: ThrowableHolder,
@@ -34,37 +17,31 @@ data class LogErrorHolder(
 @Serializable
 data class ThrowableHolder(
   val message: String?,
-  val className: String,
-  val stackTraceElementProxies: List<StackTraceElementHolder>?,
+  val exceptionType: String, //under JVM, it's the exception class name
+  val stackTrace: List<String>?, //each string is a single line of text, trimmed.
+  // Is not supposed to contain trailing offset chars and "at" word
   val cause: ThrowableHolder?,
-  val suppressed: List<ThrowableHolder>
+  val suppressed: List<ThrowableHolder>?,
 ) {
-  constructor(e: Throwable)
-    : this(e.localizedMessage ?: e.message,
-           e.javaClass.name,
-           e.stackTrace.map { it.toSTEH() },
-           e.cause?.let { ThrowableHolder(it) },
-           e.suppressedExceptions.map { ThrowableHolder(it) })
+  fun getMessageString(): String = "$exceptionType: $message"
 
-  fun getMessageString() = "$className: $message"
+  fun getStacktraceString(): String = StringBuilder().also { appendStacktraceString(it) }.toString()
 
-  fun getStacktraceString(offset: Int = 2): String {
-    val sb: StringBuilder = StringBuilder()
-    appendStacktraceString(sb, offset)
-    return sb.toString()
-  }
+  private fun appendStacktraceString(sb: StringBuilder, additionalOffset: Int = 0) {
+    //todo suppressed
+    val offset = "".repeat(additionalOffset)
+    stackTrace?.forEach { sb.append(offset).append("  at ").append(it).append('\n') }
 
-  private fun appendStacktraceString(sb: StringBuilder, offset: Int) {
-    //todo match kotlin exception formatting, suppressed
-    stackTraceElementProxies?.forEach {
-      sb
-        .append(" ".repeat(offset))
-        .append("at ${it.toSTE()}\n")
+    if (suppressed != null) {
+      for (se in suppressed) {
+        sb.append(offset).append("  Suppressed: ${se.getMessageString()}\n")
+        se.appendStacktraceString(sb, additionalOffset + 2)
+      }
     }
+
     if (cause != null) {
-      sb.append(" ".repeat(offset))
-        .append("Caused by: ${cause.getMessageString()}")
-      cause.appendStacktraceString(sb, offset)
+      sb.append(offset).append("Caused by: ${cause.getMessageString()}\n")
+      cause.appendStacktraceString(sb, additionalOffset)
     }
   }
 }

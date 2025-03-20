@@ -18,6 +18,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ApplicationNamesInfo
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.application.impl.InternalUICustomization
 import com.intellij.openapi.application.impl.LaterInvocator
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.components.serviceIfCreated
@@ -26,9 +27,7 @@ import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
-import com.intellij.openapi.application.impl.InternalUICustomization
 import com.intellij.openapi.options.advanced.AdvancedSettings
-import com.intellij.openapi.progress.impl.PerProjectTaskInfoEntityCollector
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.SystemInfoRt
@@ -77,6 +76,8 @@ abstract class ProjectFrameHelper internal constructor(
   val frame: IdeFrameImpl,
   loadingState: FrameLoadingState? = null,
 ) : IdeFrameEx, AccessibleContextAccessor, UiDataProvider {
+  @Internal
+  constructor(frame: IdeFrameImpl) : this(frame, null)
 
   @Suppress("SSBasedInspection")
   @Internal
@@ -176,7 +177,10 @@ abstract class ProjectFrameHelper internal constructor(
     ProjectFrameCustomHeaderHelper(ApplicationManager.getApplication(), this, frame, frameDecorator, rootPane, false, null)
 
   private fun createContentPane(): JPanel {
-    val contentPane = JPanel(BorderLayout()).apply {
+    val contentPane = InternalUICustomization.getInstance()?.toolWindowUIDecorator?.createCustomToolWindowPaneHolder() ?: JPanel()
+
+    contentPane.apply {
+      layout = BorderLayout()
       background = JBColor.PanelBackground
 
       // listen to mouse motion events for a11y
@@ -249,6 +253,8 @@ abstract class ProjectFrameHelper internal constructor(
   }
 
   private fun createAndConfigureStatusBar() {
+    LOG.info("Creating status bar")
+
     val statusBar = createStatusBar()
     this.statusBar = statusBar
 
@@ -260,11 +266,13 @@ abstract class ProjectFrameHelper internal constructor(
     this.statusBar = statusBar
     val component = statusBar.component
 
-    if (InternalUICustomization.getInstance().statusBarRequired()) {
+    if (InternalUICustomization.getInstance()?.statusBarRequired() == true) {
       component?.let {
         contentPane.add(it, BorderLayout.SOUTH)
       }
     }
+
+    LOG.info("Status bar created")
   }
 
   @Internal
@@ -376,8 +384,12 @@ abstract class ProjectFrameHelper internal constructor(
   override fun getProject(): Project? = project
 
   // any activities that will not access a workspace model
-  internal suspend fun setRawProject(project: Project) {
+  @Internal
+  suspend fun setRawProject(project: Project) {
+    LOG.info("Setting project frame to $project")
+
     if (this.project === project) {
+      LOG.info("Project is already set for the frame $this")
       return
     }
 
@@ -385,12 +397,19 @@ abstract class ProjectFrameHelper internal constructor(
 
     withContext(Dispatchers.EDT) {
       applyInitBounds()
+
+      if (statusBar == null) {
+        LOG.error("Status bar is null, so it won't be initialized")
+      }
       statusBar?.initialize()
     }
     frameDecorator?.setProject()
+
+    LOG.info("Project frame set to $project")
   }
 
-  internal open suspend fun setProject(project: Project) {
+  @Internal
+  open suspend fun setProject(project: Project) {
     frameHeaderHelper.setProject(project)
     statusBar?.let {
       project.messageBus.simpleConnect().subscribe(StatusBar.Info.TOPIC, it)
@@ -400,8 +419,9 @@ abstract class ProjectFrameHelper internal constructor(
     }
   }
 
+  @Internal
   @RequiresEdt
-  internal fun setInitBounds(bounds: Rectangle?) {
+  fun setInitBounds(bounds: Rectangle?) {
     if (bounds != null && frame.isInFullScreen) {
       checkForNonsenseBounds("ProjectFrameHelper.setInitBounds.bounds", bounds)
       frame.rootPane.putClientProperty(INIT_BOUNDS_KEY, bounds)
@@ -537,6 +557,13 @@ abstract class ProjectFrameHelper internal constructor(
 
   open fun windowClosing(project: Project) {
     CloseProjectWindowHelper().windowClosing(project)
+  }
+}
+
+@Internal
+fun ProjectFrameHelper.updateFullScreenState(isFullScreen: Boolean) {
+  if (isFullScreen && FrameInfoHelper.isFullScreenSupportedInCurrentOs()) {
+    toggleFullScreen(true)
   }
 }
 

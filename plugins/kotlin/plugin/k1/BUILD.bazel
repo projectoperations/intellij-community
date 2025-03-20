@@ -108,7 +108,8 @@ java_library(
     "//plugins/kotlin/run-configurations/jvm:kotlin-run-configurations-jvm",
     "//plugins/kotlin/run-configurations/junit:kotlin-run-configurations-junit",
     "//plugins/kotlin/run-configurations/junit-fe10:kotlin-run-configurations-junit-fe10",
-    "//plugins/kotlin/jvm",
+    "//plugins/kotlin/jvm/shared:kotlin-jvm-shared",
+    "//plugins/kotlin/jvm/k1:kotlin-jvm-k1",
     "//plugins/kotlin/jvm-debugger/base/util:kotlin-jvm-debugger-base-util",
     "//plugins/kotlin/jvm-debugger/core:kotlin-jvm-debugger-core",
     "//plugins/kotlin/jvm-debugger/core-fe10:kotlin-jvm-debugger-core-fe10",
@@ -168,6 +169,8 @@ java_library(
     "//plugins/kotlin/formatter/minimal:kotlin-formatter-minimal",
     "//plugins/kotlin/kotlin.ide:ide",
     "//plugins/kotlin/jsr223",
+    "//plugins/kotlin/gradle/scripting/kotlin.gradle.scripting.shared:kotlin-gradle-scripting-shared",
+    "//plugins/kotlin/gradle/scripting/kotlin.gradle.scripting.k1:kotlin-gradle-scripting-k1",
   ]
 )
 ### auto-generated section `build kotlin.plugin.k1` end

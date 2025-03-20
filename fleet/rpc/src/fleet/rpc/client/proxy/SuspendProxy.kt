@@ -1,17 +1,16 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package fleet.rpc.client.proxy
 
+import fleet.reporting.shared.runtime.currentSpan
+import fleet.reporting.shared.tracing.span
+import fleet.reporting.shared.tracing.spannedScope
 import fleet.rpc.RemoteApi
 import fleet.rpc.RemoteApiDescriptor
 import fleet.rpc.RemoteKind
 import fleet.rpc.core.AssumptionsViolatedException
 import fleet.rpc.core.RemoteObject
-import fleet.tracing.runtime.currentSpan
-import fleet.tracing.span
-import fleet.tracing.spannedScope
 import fleet.util.async.catching
 import fleet.util.async.use
-import fleet.util.cast
 import fleet.util.causeOfType
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -148,7 +147,7 @@ fun <A : RemoteApi<*>> delegatingHandler(target: A): SuspendInvocationHandler =
     }
   }
 
-fun SuspendInvocationHandler.poisoned(poison: () -> CancellationException?): SuspendInvocationHandler =
+fun SuspendInvocationHandler.poisoned(poison: () -> Throwable?): SuspendInvocationHandler =
   object : SuspendInvocationHandler {
     override suspend fun call(remoteApiDescriptor: RemoteApiDescriptor<*>,
                               method: String,
@@ -156,7 +155,7 @@ fun SuspendInvocationHandler.poisoned(poison: () -> CancellationException?): Sus
                               publish: (SuspendInvocationHandler.CallResult) -> Unit) {
       when (val cause = poison()) {
         null -> this@poisoned.call(remoteApiDescriptor, method, args, publish)
-        else -> throw RuntimeException("RequestQueue is terminated", cause)
+        else -> throw cause
       }
     }
   }

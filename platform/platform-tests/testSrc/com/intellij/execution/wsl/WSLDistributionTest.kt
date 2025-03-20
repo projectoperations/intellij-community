@@ -37,7 +37,6 @@ import io.kotest.matchers.collections.beEmpty
 import io.kotest.matchers.collections.haveSize
 import io.kotest.matchers.nulls.beNull
 import io.kotest.matchers.should
-import io.kotest.matchers.shouldNot
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DelicateCoroutinesApi
@@ -566,6 +565,7 @@ private class MockIjentExecApi(private val adapter: GeneralCommandLine, private 
   }
 
   override suspend fun fetchLoginShellEnvVariables(): Map<String, String> = mapOf("SHELL" to TEST_SHELL)
+  override suspend fun findExeFilesInPath(binaryName: String): List<EelPath> = listOf(EelPath.parse("/bin/$binaryName", descriptor))
 }
 
 private val TEST_ROOT_USER_SET by lazy { Key.create<Boolean>("TEST_ROOT_USER_SET") }

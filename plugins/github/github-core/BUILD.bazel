@@ -3,8 +3,20 @@ load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources", "jvm_test")
 
 jvm_resources(
   name = "vcs-github_resources",
+  files = glob(["gen-resources/**/*"]),
+  strip_prefix = "gen-resources"
+)
+
+jvm_resources(
+  name = "vcs-github_resources_1",
   files = glob(["resources/**/*"]),
   strip_prefix = "resources"
+)
+
+jvm_resources(
+  name = "vcs-github_test_resources",
+  files = glob(["test-resources/**/*"]),
+  strip_prefix = "test-resources"
 )
 
 jvm_library(
@@ -58,7 +70,10 @@ jvm_library(
     "//platform/platform-impl/ui:ide-ui",
     "@lib//:gson",
   ],
-  runtime_deps = [":vcs-github_resources"]
+  runtime_deps = [
+    ":vcs-github_resources",
+    ":vcs-github_resources_1",
+  ]
 )
 
 jvm_library(
@@ -129,8 +144,16 @@ jvm_library(
     "@lib//:io-mockk-jvm",
     "//platform/platform-impl/ui:ide-ui",
     "@lib//:gson",
+    "@lib//:classgraph",
+    "@lib//:assert_j",
+    "@lib//:kotlin-reflect",
+    "@lib//:vcs-github-apollographql-apollo-ast-jvm",
   ],
-  runtime_deps = [":vcs-github_resources"]
+  runtime_deps = [
+    ":vcs-github_resources",
+    ":vcs-github_resources_1",
+    ":vcs-github_test_resources",
+  ]
 )
 
 jvm_test(

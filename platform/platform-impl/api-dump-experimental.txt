@@ -4,6 +4,20 @@
 c:com.intellij.execution.wsl.WSLDistribution
 - com.intellij.execution.wsl.AbstractWslDistribution
 - *:getUNCRootPath():java.nio.file.Path
+*:com.intellij.frontend.HostIdeInfoService
+- a:getHostInfo():com.intellij.frontend.HostInfo
+*f:com.intellij.frontend.HostInfo
+- <init>(java.lang.String,java.lang.String,java.lang.String):V
+- f:component1():java.lang.String
+- f:component2():java.lang.String
+- f:component3():java.lang.String
+- f:copy(java.lang.String,java.lang.String,java.lang.String):com.intellij.frontend.HostInfo
+- bs:copy$default(com.intellij.frontend.HostInfo,java.lang.String,java.lang.String,java.lang.String,I,java.lang.Object):com.intellij.frontend.HostInfo
+- equals(java.lang.Object):Z
+- f:getOsName():java.lang.String
+- f:getOsVersion():java.lang.String
+- f:getProductCode():java.lang.String
+- hashCode():I
 *:com.intellij.ide.CommandLineInspectionProjectAsyncConfigurator
 - com.intellij.ide.CommandLineInspectionProjectConfigurator
 - configureProject(com.intellij.openapi.project.Project,com.intellij.ide.CommandLineInspectionProjectConfigurator$ConfiguratorContext):V
@@ -96,6 +110,7 @@ f:com.intellij.ide.plugins.PluginNode
 - show():V
 - uninstallingUI():V
 f:com.intellij.ide.wizard.UIWizardUtil
+- *sf:runAfterOpened(com.intellij.ide.wizard.NewProjectWizardStep,com.intellij.openapi.project.Project,kotlin.jvm.functions.Function1):V
 - *sf:setupProjectSafe(com.intellij.ide.wizard.NewProjectWizardStep,com.intellij.openapi.project.Project,java.lang.String,kotlin.jvm.functions.Function0):V
 f:com.intellij.openapi.actionSystem.ActionGroupUtil
 - *s:forceHideDisabledChildren(com.intellij.openapi.actionSystem.ActionGroup):com.intellij.openapi.actionSystem.ActionGroup
@@ -201,18 +216,6 @@ f:com.intellij.openapi.editor.impl.EditorImpl
 - setCaretPosition(I):V
 - setText(java.lang.String):V
 - setTextToFile(com.intellij.openapi.fileChooser.ex.FileLookup$LookupFile):V
-*a:com.intellij.openapi.fileEditor.TextEditorWithPreviewProvider
-- com.intellij.openapi.fileEditor.AsyncFileEditorProvider
-- <init>(com.intellij.openapi.fileEditor.FileEditorProvider):V
-- accept(com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile):Z
-- acceptRequiresReadAction():Z
-- createEditor(com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile):com.intellij.openapi.fileEditor.FileEditor
-- f:createFileEditor(com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile,com.intellij.openapi.editor.Document,kotlinx.coroutines.CoroutineScope,kotlin.coroutines.Continuation):java.lang.Object
-- p:createSplitEditor(com.intellij.openapi.fileEditor.TextEditor,com.intellij.openapi.fileEditor.FileEditor):com.intellij.openapi.fileEditor.FileEditor
-- getEditorTypeId():java.lang.String
-- getPolicy():com.intellij.openapi.fileEditor.FileEditorPolicy
-- readState(org.jdom.Element,com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile):com.intellij.openapi.fileEditor.FileEditorState
-- writeState(com.intellij.openapi.fileEditor.FileEditorState,com.intellij.openapi.project.Project,org.jdom.Element):V
 a:com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
 - com.intellij.openapi.fileEditor.FileEditorManager
 - *a:openFile(com.intellij.openapi.vfs.VirtualFile,com.intellij.openapi.fileEditor.impl.FileEditorOpenOptions,kotlin.coroutines.Continuation):java.lang.Object
@@ -416,6 +419,7 @@ f:com.intellij.ui.dsl.builder.components.ValidationTooltipKt
 f:com.intellij.util.SwingBindingsKt
 - *sf:bindSelectedTabIn(javax.swing.JTabbedPane,kotlinx.coroutines.flow.MutableStateFlow,kotlinx.coroutines.CoroutineScope):V
 - *sf:bindTextIn(javax.swing.text.JTextComponent,kotlinx.coroutines.flow.MutableStateFlow,kotlinx.coroutines.CoroutineScope):V
+- *sf:bindTextOnShow(javax.swing.text.JTextComponent,kotlinx.coroutines.flow.MutableStateFlow,java.lang.String):V
 *f:com.intellij.util.ui.RestartDialogImpl
 - *sf:Companion:com.intellij.util.ui.RestartDialogImpl$Companion
 - <init>():V

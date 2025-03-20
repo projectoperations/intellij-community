@@ -4,15 +4,20 @@ package com.intellij.openapi.projectRoots.impl;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProcessCanceledException;
-import com.intellij.openapi.projectRoots.*;
+import com.intellij.openapi.projectRoots.JavaSdkType;
+import com.intellij.openapi.projectRoots.JdkUtil;
+import com.intellij.openapi.projectRoots.ProjectJdkTable;
+import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.projectRoots.impl.jdkDownloader.JdkInstaller;
 import com.intellij.openapi.projectRoots.impl.jdkDownloader.JdkInstallerStore;
 import com.intellij.openapi.projectRoots.impl.jdkDownloader.OsAbstractionForJdkInstaller;
 import com.intellij.openapi.util.text.StringUtilRt;
+import com.intellij.platform.eel.EelDescriptor;
+import com.intellij.platform.eel.path.EelPath;
+import com.intellij.platform.eel.provider.EelProviderUtil;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.SystemProperties;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.keyFMap.KeyFMap;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -116,19 +121,13 @@ public class JavaHomeFinderBasic {
   }
 
   /// Detects the paths of JDKs on the machine with information about the Java version and architecture.
-  public final @NotNull Set<KeyFMap> findExistingJdkEntries() {
+  public final @NotNull Set<JavaHomeFinder.JdkEntry> findExistingJdkEntries() {
     final var paths = findExistingJdks();
     final var detector = JdkVersionDetector.getInstance();
 
     return paths.stream().map(path -> {
       final var version = detector.detectJdkVersionInfo(path);
-      var info = KeyFMap.EMPTY_MAP.plus(SdkType.HOMEPATH_KEY, path);
-      if (version != null) {
-        info = info
-          .plus(JavaHomeFinder.JDK_VERSION_KEY, version)
-          .plus(SdkType.VERSION_KEY, version.displayVersionString());
-      }
-      return info;
+      return new JavaHomeFinder.JdkEntry(path, version);
     }).collect(Collectors.toSet());
 
   }
@@ -215,13 +214,13 @@ public class JavaHomeFinderBasic {
   protected @NotNull Set<String> scanAll(@NotNull Collection<? extends Path> files, boolean includeNestDirs) {
     Set<String> result = new HashSet<>();
     for (Path root : new HashSet<>(files)) {
-      scanFolder(root, includeNestDirs, result);
+      scanFolder(root, includeNestDirs, result, isWindowsPath(root));
     }
     return result;
   }
 
-  protected void scanFolder(@NotNull Path folder, boolean includeNestDirs, @NotNull Collection<? super String> result) {
-    if (JdkUtil.checkForJdk(folder)) {
+  protected void scanFolder(@NotNull Path folder, boolean includeNestDirs, @NotNull Collection<? super String> result, boolean isWindowsPath) {
+    if (JdkUtil.checkForJdk(folder, isWindowsPath)) {
       result.add(folder.toAbsolutePath().toString());
       return;
     }
@@ -232,7 +231,7 @@ public class JavaHomeFinderBasic {
         for (Path adjusted : listPossibleJdkHomesFromInstallRoot(candidate)) {
           try {
             final int found = result.size();
-            scanFolder(adjusted, false, result);
+            scanFolder(adjusted, false, result, isWindowsPath);
             if (result.size() > found) { break; } // Avoid duplicates
           }
           catch (IllegalStateException ignored) {}
@@ -308,11 +307,18 @@ public class JavaHomeFinderBasic {
     Path miseDataDir = getPathInEnvironmentVariable("MISE_DATA_DIR", "installs");
     if (miseDataDir != null) return miseDataDir;
 
-    Path xdgDataDir = getPathInEnvironmentVariable("XDG_DATA_DIR", "mise/installs");
-    if (xdgDataDir != null) return xdgDataDir;
+    Path xdgDataHome = getPathInEnvironmentVariable("XDG_DATA_HOME", "mise/installs");
+    if (xdgDataHome != null) return xdgDataHome;
 
-    // finally, try the usual location in Unix or macOS
-    if (!(this instanceof JavaHomeFinderWindows) && !(this instanceof JavaHomeFinderWsl)) {
+    // finally, try the usual system-specific directories
+    if (this instanceof JavaHomeFinderWindows) {
+      // Windows
+      Path localAppData = getPathInEnvironmentVariable("LOCALAPPDATA", "mise/installs");
+      if (localAppData != null) return localAppData;
+      localAppData = getPathInUserHome("AppData/Local/mise/installs");
+      if (localAppData != null && safeIsDirectory(localAppData)) return localAppData;
+    } else if (!(this instanceof JavaHomeFinderWsl)) {
+      // Unix and macOS
       Path installsDir = getPathInUserHome(".local/share/mise/installs");
       if (installsDir != null && safeIsDirectory(installsDir)) return installsDir;
     }
@@ -350,12 +356,13 @@ public class JavaHomeFinderBasic {
   private @NotNull Set<@NotNull String> listJavaHomeDirsInstalledBySdkMan(@NotNull Path javasDir) {
     var mac = this instanceof JavaHomeFinderMac;
     var result = new HashSet<@NotNull String>();
+    var isWindowsPath = isWindowsPath(javasDir);
 
     try (Stream<Path> stream = Files.list(javasDir)) {
       List<Path> innerDirectories = stream.filter(d -> Files.isDirectory(d)).toList();
       for (Path innerDir : innerDirectories) {
         var home = innerDir;
-        if (!JdkUtil.checkForJdk(home)) continue;
+        if (!JdkUtil.checkForJdk(home, isWindowsPath)) continue;
         var releaseFile = home.resolve("release");
 
         if (mac) {
@@ -454,5 +461,10 @@ public class JavaHomeFinderBasic {
       log.debug("Failed to check file existence: unexpected exception " + e.getClass().getSimpleName() + ": " + e.getMessage(), e);
       return false;
     }
+  }
+
+  private static boolean isWindowsPath(@NotNull Path folder) {
+    EelDescriptor eelDescriptor = EelProviderUtil.getEelDescriptor(folder);
+    return EelPath.OS.WINDOWS == eelDescriptor.getOperatingSystem();
   }
 }

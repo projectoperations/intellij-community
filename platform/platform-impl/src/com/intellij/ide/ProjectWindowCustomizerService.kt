@@ -2,13 +2,13 @@
 package com.intellij.ide
 
 import com.intellij.ide.actions.DistractionFreeModeController
+import com.intellij.ide.impl.ProjectUtil
 import com.intellij.ide.ui.GradientTextureCache
 import com.intellij.ide.ui.LafManagerListener
 import com.intellij.ide.ui.UISettings
 import com.intellij.ide.ui.UISettingsListener
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.actionSystem.ex.CustomComponentAction
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.impl.InternalUICustomization
 import com.intellij.openapi.components.Service
@@ -23,11 +23,12 @@ import com.intellij.openapi.project.ex.ProjectManagerEx
 import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.wm.impl.ProjectFrameHelper
-import com.intellij.openapi.wm.impl.ToolbarComboButton
 import com.intellij.openapi.wm.impl.customFrameDecorations.header.CustomWindowHeaderUtil
 import com.intellij.openapi.wm.impl.headertoolbar.MainToolbar
-import com.intellij.openapi.wm.impl.headertoolbar.ProjectToolbarWidgetAction
-import com.intellij.ui.*
+import com.intellij.ui.ColorHexUtil
+import com.intellij.ui.ColorUtil
+import com.intellij.ui.ComponentUtil
+import com.intellij.ui.JBColor
 import com.intellij.ui.paint.PaintUtil
 import com.intellij.ui.paint.PaintUtil.alignIntToInt
 import com.intellij.ui.paint.PaintUtil.alignTxToInt
@@ -38,10 +39,8 @@ import com.intellij.util.concurrency.SynchronizedClearableLazy
 import com.intellij.util.concurrency.ThreadingAssertions
 import com.intellij.util.ui.AvatarIcon
 import com.intellij.util.ui.JBUI
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.MainScope
-import kotlinx.coroutines.async
-import kotlinx.coroutines.job
+import com.intellij.util.ui.launchOnShow
+import kotlinx.coroutines.*
 import org.jetbrains.annotations.ApiStatus.Internal
 import java.awt.Color
 import java.awt.Graphics2D
@@ -51,21 +50,22 @@ import java.nio.file.Path
 import java.util.*
 import javax.swing.Icon
 import javax.swing.JComponent
-import javax.swing.SwingUtilities
+import kotlin.math.abs
 
 @Service(Service.Level.PROJECT)
-private class ProjectWindowCustomizerIconCache(private val project: Project) {
+private class ProjectWindowCustomizerIconCache(private val project: Project, coroutineScope: CoroutineScope) {
   val cachedIcon: SynchronizedClearableLazy<Icon> = SynchronizedClearableLazy { getIconRaw() }
 
   init {
-    val busConnection = project.messageBus.simpleConnect()
-    busConnection.subscribe(UISettingsListener.TOPIC, UISettingsListener {
+    val projectConnection = project.messageBus.connect(coroutineScope)
+    val appConnection = ApplicationManager.getApplication().messageBus.connect(coroutineScope)
+    projectConnection.subscribe(UISettingsListener.TOPIC, UISettingsListener {
       cachedIcon.drop()
     })
-    busConnection.subscribe(LafManagerListener.TOPIC, LafManagerListener {
+    appConnection.subscribe(LafManagerListener.TOPIC, LafManagerListener {
       cachedIcon.drop()
     })
-    busConnection.subscribe(ProjectNameListener.TOPIC, object: ProjectNameListener {
+    projectConnection.subscribe(ProjectNameListener.TOPIC, object: ProjectNameListener {
       override fun nameChanged(newName: String?) {
         cachedIcon.drop()
       }
@@ -75,7 +75,7 @@ private class ProjectWindowCustomizerIconCache(private val project: Project) {
   private fun getIconRaw(): Icon {
     val path = ProjectWindowCustomizerService.projectPath(project) ?: ""
     val size = JBUI.CurrentTheme.Toolbar.experimentalToolbarButtonIconSize()
-    return RecentProjectsManagerBase.getInstanceEx().getProjectIcon(path = path, isProjectValid = true, iconSize = size, name = project.name)
+    return RecentProjectsManagerBase.getInstanceEx().getProjectIcon(path = path, isProjectValid = true, unscaledIconSize = size, name = project.name)
   }
 }
 
@@ -139,6 +139,18 @@ class ProjectWindowCustomizerService : Disposable {
       JBColor.namedColor("RecentProject.Color8.MainToolbarGradientStart", JBColor(0x954294, 0xC840B9)),
       JBColor.namedColor("RecentProject.Color9.MainToolbarGradientStart", JBColor(0xE75371, 0xD75370))
     )
+
+  private val gradientRepaintRoots = HashSet<JComponent>()
+
+  internal fun addGradientRepaintRoot(component: JComponent) {
+    gradientRepaintRoots.add(component)
+  }
+
+  internal fun removeGradientRepaintRoot(component: JComponent) {
+    gradientRepaintRoots.remove(component)
+  }
+
+  internal fun getGradientRepaintRoots(): Set<JComponent> = gradientRepaintRoots
 
   fun getProjectIcon(project: Project): Icon {
     return project.service<ProjectWindowCustomizerIconCache>().cachedIcon.get()
@@ -327,7 +339,7 @@ class ProjectWindowCustomizerService : Disposable {
 
   fun isAvailable(): Boolean {
     return !DistractionFreeModeController.shouldMinimizeCustomHeader() &&
-           InternalUICustomization.getInstance().isProjectCustomDecorationActive &&
+           InternalUICustomization.getInstance()?.isProjectCustomDecorationActive != false &&
            (PlatformUtils.isRider () || Registry.`is`("ide.colorful.toolbar", true))
   }
 
@@ -371,13 +383,7 @@ class ProjectWindowCustomizerService : Disposable {
     val color = getGradientProjectColor(project)
 
     val length = Registry.intValue("ide.colorful.toolbar.gradient.radius", 300)
-    val projectComboBtn = ComponentUtil.findComponentsOfType(parent, ToolbarComboButton::class.java).find {
-      ClientProperty.get(it, CustomComponentAction.ACTION_KEY) is ProjectToolbarWidgetAction
-    }
-    val projectIconWidth = projectComboBtn?.leftIcons?.firstOrNull()?.iconWidth?.toFloat() ?: 0f
-    val offset = projectComboBtn?.let {
-      SwingUtilities.convertPoint(it.parent, it.x, it.y, parent).x.toFloat() + it.margin.left.toFloat() + projectIconWidth / 2
-    } ?: 150f
+    val offset = project.service<ProjectWidgetGradientLocationService>().gradientOffsetRelativeToRootPane
 
     if (ComponentUtil.findComponentsOfType(parent, MainToolbar::class.java).firstOrNull() == null
         && !(CustomWindowHeaderUtil.isToolbarInHeader(UISettings.getInstance(), frameHelper.isInFullScreen))) return true
@@ -394,10 +400,13 @@ class ProjectWindowCustomizerService : Disposable {
     val rightX = leftX + leftWidth
     val rightWidth = alignIntToInt(length, ctx, PaintUtil.RoundingMode.CEIL, null)
 
-    g.paint = leftGradientCache.getTexture(g, leftWidth, parent.background, blendedColor, leftX)
+    val leftGradientTexture = leftGradientCache.getTexture(g, leftWidth, parent.background, blendedColor, leftX)
+    val rightGradientTexture = rightGradientCache.getTexture(g, rightWidth, blendedColor, parent.background, rightX)
+
+    g.paint = leftGradientTexture
     g.fillRect(leftX, 0, leftWidth, height)
 
-    g.paint = rightGradientCache.getTexture(g, rightWidth, blendedColor, parent.background, rightX)
+    g.paint = rightGradientTexture
     g.fillRect(rightX, 0, rightWidth, height)
 
     return true
@@ -405,6 +414,58 @@ class ProjectWindowCustomizerService : Disposable {
 
   override fun dispose() {}
 }
+
+/**
+ * Automatically repaints the given component whenever the gradient position changes.
+ *
+ * The component is only repainted if it belongs to the same project frame as the project widget.
+ *
+ * It is guaranteed that the given component will not leak after it's removed from the Swing hierarchy or just hidden.
+ */
+internal fun repaintWhenProjectGradientOffsetChanged(componentToRepaint: JComponent) {
+  // Using launchOnShow + try-finally prevents leaks:
+  // the component is only kept in the set as long as it's showing,
+  // and launchOnShow was designed not to keep any extra references to the lambda when the component is not showing.
+  componentToRepaint.launchOnShow("ProjectWidgetGradientLocationService.repaintWhenChanged") {
+    // This is more complicated than it should be.
+    // Ideally, we just want to have a flow of offsets,
+    // and a collector on that flow that repaints the component.
+    // But for that the component must know the project,
+    // and at this point it's still not known:
+    // the component is shown before the project is assigned to the frame,
+    // and there are no convenient "the project is now known" listeners either.
+    // So we need to store the components and query their projects later, when the offset changes.
+    val customizerService = ProjectWindowCustomizerService.getInstance()
+    customizerService.addGradientRepaintRoot(componentToRepaint)
+    try {
+      awaitCancellation()
+    }
+    finally {
+      customizerService.removeGradientRepaintRoot(componentToRepaint)
+    }
+  }
+}
+
+@Service(Service.Level.PROJECT)
+internal class ProjectWidgetGradientLocationService(private val project: Project) {
+  var gradientOffsetRelativeToRootPane: Float = DEFAULT_GRADIENT_OFFSET
+    private set
+
+  fun setProjectWidgetIconCenterRelativeToRootPane(value: Float?) {
+    // Could use a state flow, but no point, really, as the whole thing is EDT, and this is the only use.
+    val newValue = value ?: DEFAULT_GRADIENT_OFFSET
+    // And besides, not using a flow allows us to make this nice and safe fuzzy comparison (it's in pixels, so 0.1 is essentially zero).
+    if (abs(gradientOffsetRelativeToRootPane - newValue) < 0.1) return
+    gradientOffsetRelativeToRootPane = newValue
+    for (repaintRoot in ProjectWindowCustomizerService.getInstance().getGradientRepaintRoots()) {
+      if (ProjectUtil.getProjectForComponent(repaintRoot) == project) {
+        repaintRoot.repaint()
+      }
+    }
+  }
+}
+
+private const val DEFAULT_GRADIENT_OFFSET = 150.0f
 
 private class ProjectWindowCustomizerListener : ProjectActivity, UISettingsListener {
   init {

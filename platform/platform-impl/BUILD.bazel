@@ -133,6 +133,8 @@ jvm_library(
     "//platform/eel-provider",
     "//platform/platform-impl/ui:ide-ui",
     "//platform/buildData",
+    "//platform/kernel/pasta",
+    "//platform/plugins/parser/impl:plugins-parser-impl",
   ],
   exports = [
     "//platform/platform-api:ide",
@@ -155,6 +157,10 @@ jvm_library(
     "@lib//:bouncy-castle-provider",
     "//platform/platform-resources:resources",
     "//platform/platform-resources-en:resources-en",
+    "//platform/syntax/syntax-api:syntax",
+    "//platform/syntax/syntax-psi:psi",
+    "//platform/syntax/syntax-i18n:i18n",
+    "//platform/syntax/syntax-util:util",
   ]
 )
 
@@ -215,6 +221,7 @@ jvm_library(
     "@lib//:netty-buffer",
     "//platform/util/progress",
     "//platform/util/concurrency",
+    "//platform/util/concurrency:concurrency_test_lib",
     "//platform/core-ui",
     "@lib//:zip-signer",
     "@lib//:caffeine",
@@ -273,6 +280,8 @@ jvm_library(
     "//platform/eel-provider",
     "//platform/platform-impl/ui:ide-ui",
     "//platform/buildData",
+    "//platform/kernel/pasta",
+    "//platform/plugins/parser/impl:plugins-parser-impl",
   ],
   runtime_deps = [":ide-impl_resources"]
 )

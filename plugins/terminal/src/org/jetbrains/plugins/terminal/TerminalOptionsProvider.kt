@@ -1,18 +1,25 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.terminal
 
+import com.intellij.ide.util.RunOnceUtil
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.*
 import com.intellij.openapi.util.SystemInfo
+import com.intellij.openapi.util.registry.Registry
 import com.intellij.terminal.TerminalUiSettingsManager
+import com.intellij.terminal.TerminalUiSettingsManager.CursorShape
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.Nls
+import org.jetbrains.plugins.terminal.settings.TerminalLocalOptions
+import org.jetbrains.plugins.terminal.settings.TerminalOsSpecificOptions
 import java.util.concurrent.CopyOnWriteArrayList
 
-@State(name = "TerminalOptionsProvider",
+@Suppress("DEPRECATION")
+@State(name = TerminalOptionsProvider.COMPONENT_NAME,
        category = SettingsCategory.TOOLS,
        exportable = true,
        presentableName = TerminalOptionsProvider.PresentableNameGetter::class,
-       storages = [Storage(value = "terminal.xml", roamingType = RoamingType.DISABLED)])
+       storages = [Storage(value = "terminal.xml")])
 class TerminalOptionsProvider : PersistentStateComponent<TerminalOptionsProvider.State> {
   private var state = State()
 
@@ -20,21 +27,59 @@ class TerminalOptionsProvider : PersistentStateComponent<TerminalOptionsProvider
 
   override fun loadState(newState: State) {
     state = newState
+
+    RunOnceUtil.runOnceForApp("TerminalOptionsProvider.cursorShape.migration") {
+      val previousCursorShape = TerminalUiSettingsManager.getInstance().cursorShape
+      state.cursorShape = previousCursorShape
+    }
+
+    RunOnceUtil.runOnceForApp("TerminalOptionsProvider.terminalEngine.migration") {
+      // The initial state of the terminal engine value should be composed out of registry values
+      // used previously to determine what terminal to use.
+      val isReworkedValue = Registry.`is`(LocalBlockTerminalRunner.REWORKED_BLOCK_TERMINAL_REGISTRY)
+      val isNewTerminalValue = Registry.`is`(LocalBlockTerminalRunner.BLOCK_TERMINAL_REGISTRY)
+
+      // Order of conditions is important!
+      // New Terminal registry prevails, even if reworked registry is enabled.
+      state.terminalEngine = when {
+        isNewTerminalValue -> TerminalEngine.NEW_TERMINAL
+        isReworkedValue -> TerminalEngine.REWORKED
+        else -> TerminalEngine.CLASSIC
+      }
+    }
+
+    // In the case of RemDev settings are synced from backend to frontend using `loadState` method.
+    // So, notify the listeners on every `loadState` to not miss the change.
+    fireSettingsChanged()
+  }
+
+  override fun noStateLoaded() {
+    loadState(State())
   }
 
   class State {
-    var myShellPath: String? = null
+    @ApiStatus.Internal
+    var terminalEngine: TerminalEngine = TerminalEngine.CLASSIC
+
     var myTabName: @Nls String = TerminalBundle.message("local.terminal.default.name")
     var myCloseSessionOnLogout: Boolean = true
     var myReportMouse: Boolean = true
     var mySoundBell: Boolean = true
-    var myCopyOnSelection: Boolean = SystemInfo.isLinux
     var myPasteOnMiddleMouseButton: Boolean = true
     var myOverrideIdeShortcuts: Boolean = true
     var myShellIntegration: Boolean = true
     var myHighlightHyperlinks: Boolean = true
     var useOptionAsMetaKey: Boolean = false
+    var cursorShape: CursorShape = CursorShape.BLOCK
+
+    @Deprecated("Use BlockTerminalOptions#promptStyle instead")
     var useShellPrompt: Boolean = false
+
+    @Deprecated("Use TerminalLocalOptions#shellPath instead", ReplaceWith("TerminalLocalOptions.getInstance().shellPath"))
+    var myShellPath: String? = null
+
+    @Deprecated("Use TerminalOsSpecificOptions#copyOnSelection instead", ReplaceWith("TerminalOsSpecificOptions.getInstance().copyOnSelection"))
+    var myCopyOnSelection: Boolean = SystemInfo.isLinux
   }
 
   private val listeners: MutableList<() -> Unit> = CopyOnWriteArrayList()
@@ -50,11 +95,25 @@ class TerminalOptionsProvider : PersistentStateComponent<TerminalOptionsProvider
   }
 
   // Nice property delegation (var shellPath: String? by state::myShellPath) cannot be used on `var` properties (KTIJ-19450)
-  var shellPath: String?
-    get() = state.myShellPath
+
+  @get:ApiStatus.Internal
+  @set:ApiStatus.Internal
+  var terminalEngine: TerminalEngine
+    get() = state.terminalEngine
     set(value) {
-      if (state.myShellPath != value) {
-        state.myShellPath = value
+      if (state.terminalEngine != value) {
+        state.terminalEngine = value
+        fireSettingsChanged()
+      }
+    }
+
+  @Deprecated("Use TerminalLocalOptions#shellPath instead", ReplaceWith("TerminalLocalOptions.getInstance().shellPath"))
+  var shellPath: String?
+    get() = TerminalLocalOptions.getInstance().shellPath
+    set(value) {
+      val options = TerminalLocalOptions.getInstance()
+      if (options.shellPath != value) {
+        options.shellPath = value
         fireSettingsChanged()
       }
     }
@@ -95,11 +154,13 @@ class TerminalOptionsProvider : PersistentStateComponent<TerminalOptionsProvider
       }
     }
 
+  @Deprecated("Use TerminalOsSpecificOptions#copyOnSelection instead", ReplaceWith("TerminalOsSpecificOptions.getInstance().copyOnSelection"))
   var copyOnSelection: Boolean
-    get() = state.myCopyOnSelection
+    get() = TerminalOsSpecificOptions.getInstance().copyOnSelection
     set(value) {
-      if (state.myCopyOnSelection != value) {
-        state.myCopyOnSelection = value
+      val options = TerminalOsSpecificOptions.getInstance()
+      if (options.copyOnSelection != value) {
+        options.copyOnSelection = value
         fireSettingsChanged()
       }
     }
@@ -159,12 +220,12 @@ class TerminalOptionsProvider : PersistentStateComponent<TerminalOptionsProvider
       }
     }
 
-  var cursorShape: TerminalUiSettingsManager.CursorShape
-    get() = TerminalUiSettingsManager.getInstance().cursorShape
+  var cursorShape: CursorShape
+    get() = state.cursorShape
     set(value) {
-      val uiSettings = TerminalUiSettingsManager.getInstance()
-      if (uiSettings.cursorShape != value) {
-        uiSettings.cursorShape = value
+      if (state.cursorShape != value) {
+        state.cursorShape = value
+        TerminalUiSettingsManager.getInstance().cursorShape = value
         fireSettingsChanged()
       }
     }
@@ -173,6 +234,8 @@ class TerminalOptionsProvider : PersistentStateComponent<TerminalOptionsProvider
     val instance: TerminalOptionsProvider
       @JvmStatic
       get() = service()
+
+    internal const val COMPONENT_NAME: String = "TerminalOptionsProvider"
   }
 
   class PresentableNameGetter: com.intellij.openapi.components.State.NameGetter() {

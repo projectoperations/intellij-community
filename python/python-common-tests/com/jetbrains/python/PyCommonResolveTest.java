@@ -1419,6 +1419,15 @@ public abstract class PyCommonResolveTest extends PyCommonResolveTestCase {
     assertEquals("global", ((PyStringLiteralExpression)value).getStringValue());
   }
 
+  // PY-26947
+  public void testVariableDeclaredOnClassLevelResolvesOnlyToItself() {
+    final PyTargetExpression foo = assertResolvesTo(PyTargetExpression.class, "foo");
+
+    final PyExpression value = foo.findAssignedValue();
+    assertInstanceOf(value, PyStringLiteralExpression.class);
+    assertEquals("correct", ((PyStringLiteralExpression)value).getStringValue());
+  }
+
   // PY-29975
   public void testUnboundVariableOnClassLevelNotDeclaredBelow() {
     assertResolvesTo(PyNamedParameter.class, "foo");
@@ -2143,6 +2152,28 @@ public abstract class PyCommonResolveTest extends PyCommonResolveTestCase {
                            name: Alias
                        #          <ref>
                        """, PyTargetExpression.class, "Alias");
+  }
+
+  // PY-79480
+  public void testInheritedAttributeWithTypeAnnotationInParentConstructor() {
+    runWithLanguageLevel(LanguageLevel.PYTHON312, () -> {
+      PyTargetExpression resolved = assertResolvesTo(PyTargetExpression.class, "_some_var");
+      assertEquals("FakeBase", resolved.getContainingClass().getName());
+    });
+  }
+
+  public void testInheritedAttributeWithTypeAnnotationInParent() {
+    runWithLanguageLevel(LanguageLevel.PYTHON312, () -> {
+      PyTargetExpression resolved = assertResolvesTo(PyTargetExpression.class, "_some_var");
+      assertEquals("Fake", resolved.getContainingClass().getName());
+    });
+  }
+
+  public void testInheritedAttributeWithTypeAnnotationInChild() {
+    runWithLanguageLevel(LanguageLevel.PYTHON312, () -> {
+      PyTargetExpression resolved = assertResolvesTo(PyTargetExpression.class, "_some_var");
+      assertEquals("Fake", resolved.getContainingClass().getName());
+    });
   }
 
   private void assertResolvedElement(@NotNull LanguageLevel languageLevel, @NotNull String text, @NotNull Consumer<PsiElement> assertion) {

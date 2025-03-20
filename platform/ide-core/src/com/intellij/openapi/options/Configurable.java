@@ -161,7 +161,7 @@ public interface Configurable extends UnnamedConfigurable {
    */
   @FunctionalInterface
   interface Composite {
-    Configurable @NotNull [] getConfigurables();
+    @NotNull Configurable @NotNull [] getConfigurables();
   }
 
   /**
@@ -230,6 +230,18 @@ public interface Configurable extends UnnamedConfigurable {
   @ApiStatus.Experimental
   interface InnerWithModifiableParent {
     @NotNull java.util.List<Configurable> getModifiableParents();
+  }
+
+  /**
+   * The interface is used when configuration opens as single configuration in dialog.
+   */
+  interface SingleEditorConfiguration {
+    /**
+     * Override to set default initial size of the window.
+     *
+     * @return initial window size
+     */
+    @NotNull Dimension getDialogInitialSize();
   }
 
   /**

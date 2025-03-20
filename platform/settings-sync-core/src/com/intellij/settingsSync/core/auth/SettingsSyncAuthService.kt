@@ -1,7 +1,6 @@
 package com.intellij.settingsSync.core.auth
 
 import com.intellij.settingsSync.core.communicator.SettingsSyncUserData
-import kotlinx.coroutines.Deferred
 import java.awt.Component
 import javax.swing.Icon
 
@@ -23,6 +22,14 @@ interface SettingsSyncAuthService {
   val icon: Icon?
 
   /**
+   * Provides a function/action responsible for the logout procedure or navigates a user to the place where they can log out themselves.
+   * The method must call `SettingsSyncEvents.getInstance().fireLoginStateChanged()` in order to propagate the changed state.
+   * If function is null, logout link in the UI is not visible
+   */
+  val logoutFunction: ( suspend (Component?) -> Unit)?
+    get() = null
+
+  /**
    * Starts the login procedure (if necessary) and returns the Deferred of the logged-in user
    */
   suspend fun login(parentComponent: Component?) : SettingsSyncUserData?
@@ -34,4 +41,6 @@ interface SettingsSyncAuthService {
   fun getUserData(userId: String): SettingsSyncUserData?
 
   fun getAvailableUserAccounts(): List<SettingsSyncUserData>
+
+  fun crossSyncSupported(): Boolean = true
 }

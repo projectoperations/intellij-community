@@ -1,12 +1,10 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.k2.codeinsight.fixes.imprt
 
-import com.intellij.psi.PsiElement
-import com.intellij.psi.util.startOffset
+import com.intellij.codeInsight.intention.IntentionAction
 import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.diagnostics.KaDiagnosticWithPsi
-import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
 import org.jetbrains.kotlin.analysis.api.renderer.base.annotations.KaRendererAnnotationsFilter
 import org.jetbrains.kotlin.analysis.api.renderer.declarations.KaCallableReturnTypeFilter
 import org.jetbrains.kotlin.analysis.api.renderer.declarations.KaDeclarationRenderer
@@ -15,95 +13,44 @@ import org.jetbrains.kotlin.analysis.api.renderer.declarations.modifiers.rendere
 import org.jetbrains.kotlin.analysis.api.symbols.*
 import org.jetbrains.kotlin.analysis.api.types.KaErrorType
 import org.jetbrains.kotlin.analysis.utils.printer.prettyPrint
-import org.jetbrains.kotlin.idea.base.analysis.api.utils.KtSymbolFromIndexProvider
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.getDefaultImports
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinIconProvider.getIconFor
 import org.jetbrains.kotlin.idea.base.util.isImported
 import org.jetbrains.kotlin.idea.codeInsight.K2StatisticsInfoProvider
+import org.jetbrains.kotlin.idea.codeinsight.api.applicators.fixes.KotlinQuickFixFactory
+import org.jetbrains.kotlin.idea.k2.codeinsight.fixes.imprt.factories.*
 import org.jetbrains.kotlin.idea.quickfix.AutoImportVariant
 import org.jetbrains.kotlin.idea.quickfix.ImportFixHelper
 import org.jetbrains.kotlin.idea.quickfix.ImportPrioritizer
-import org.jetbrains.kotlin.idea.util.positionContext.*
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.psi.KtElement
 import org.jetbrains.kotlin.resolve.ImportPath
 import javax.swing.Icon
 
-object ImportQuickFixProvider {
+/**
+ * N.B. Declared as [KotlinQuickFixFactory.IntentionBased] factory so that it can be easily used as aт all-in-one factory
+ * combined from existing [org.jetbrains.kotlin.idea.k2.codeinsight.fixes.imprt.factories.AbstractImportQuickFixFactory].
+ */
+object ImportQuickFixProvider : KotlinQuickFixFactory.IntentionBased<KaDiagnosticWithPsi<*>> {
+    override fun KaSession.createQuickFixes(diagnostic: KaDiagnosticWithPsi<*>): List<IntentionAction> = getFixes(diagnostic)
+
     context(KaSession)
     fun getFixes(diagnostic: KaDiagnosticWithPsi<*>): List<ImportQuickFix> {
-        return getFixes(diagnostic.psi, setOf(diagnostic))
+        return getFixes(setOf(diagnostic))
     }
 
     context(KaSession)
-    fun getFixes(diagnosticPsi: PsiElement, diagnostic: KaDiagnosticWithPsi<*>): List<ImportQuickFix> {
-        return getFixes(diagnosticPsi, setOf(diagnostic))
-    }
-
-    context(KaSession)
-    fun getFixes(diagnosticPsi: PsiElement, diagnostics: Set<KaDiagnosticWithPsi<*>>): List<ImportQuickFix> {
-        val position = diagnosticPsi.containingFile.findElementAt(diagnosticPsi.startOffset)
-        val positionContext = position?.let { KotlinPositionContextDetector.detect(it) }
-
-        if (positionContext !is KotlinNameReferencePositionContext) return emptyList()
-        val indexProvider = KtSymbolFromIndexProvider(positionContext.nameExpression.containingKtFile)
-
-        return diagnostics
-            .asSequence()
-            .map { diagnostic ->
-                when (diagnostic) {
-                    is KaFirDiagnostic.DelegateSpecialFunctionNoneApplicable -> 
-                        sequenceOf(DelegateMethodImportCandidatesProvider(diagnostic.expectedFunctionSignature, positionContext))
-                    is KaFirDiagnostic.DelegateSpecialFunctionMissing -> 
-                        sequenceOf(DelegateMethodImportCandidatesProvider(diagnostic.expectedFunctionSignature, positionContext))
-                    else -> 
-                        getCandidateProviders(positionContext)
-                }.flatMap { it.collectCandidates(indexProvider) }
-                    .toList()
-            }.mapNotNull { candidates ->
-                val data = createImportData(positionContext.nameExpression, candidates) ?: return@mapNotNull null
-                createImportFix(positionContext.nameExpression, data)
-            }.toList()
-    }
-
-    context(KaSession)
-    private fun getCandidateProviders(
-        positionContext: KotlinNameReferencePositionContext,
-    ): Sequence<AbstractImportCandidatesProvider> = when (positionContext) {
-        is KotlinSuperTypeCallNameReferencePositionContext,
-        is KotlinTypeNameReferencePositionContext -> sequenceOf(
-            ClassifierImportCandidatesProvider(positionContext),
+    fun getFixes(diagnostics: Set<KaDiagnosticWithPsi<*>>): List<ImportQuickFix> {
+        val factories = listOf(
+            UnresolvedNameReferenceImportQuickFixFactory,
+            MismatchedArgumentsImportQuickFixFactory,
+            DelegateMethodImportQuickFixFactory,
+            ArrayAccessorImportQuickFixFactory,
+            ComponentFunctionImportQuickFixFactory,
+            IteratorImportQuickFixFactory,
         )
 
-        is KotlinAnnotationTypeNameReferencePositionContext -> sequenceOf(
-            AnnotationImportCandidatesProvider(positionContext),
-        )
-
-        is KotlinWithSubjectEntryPositionContext,
-        is KotlinExpressionNameReferencePositionContext -> sequenceOf(
-            CallableImportCandidatesProvider(positionContext),
-            ClassifierImportCandidatesProvider(positionContext),
-            EnumEntryImportCandidatesProvider(positionContext),
-        )
-
-        is KotlinInfixCallPositionContext -> sequenceOf(
-            InfixCallableImportCandidatesProvider(positionContext),
-        )
-
-        is KDocLinkNamePositionContext -> sequenceOf(
-            // TODO
-        )
-
-        is KotlinCallableReferencePositionContext -> sequenceOf(
-            CallableImportCandidatesProvider(positionContext),
-            ConstructorReferenceImportCandidatesProvider(positionContext),
-        )
-
-        is KotlinImportDirectivePositionContext,
-        is KotlinPackageDirectivePositionContext,
-        is KotlinSuperReceiverNameReferencePositionContext,
-        is KotlinLabelReferencePositionContext,
-        is KDocParameterNamePositionContext -> sequenceOf()
+        return factories.flatMap { it.run { createQuickFixes(diagnostics) } }
     }
 
     @KaExperimentalApi
@@ -139,7 +86,7 @@ object ImportQuickFixProvider {
         }
     }
 
-    private fun KaSession.createImportFix(
+    internal fun KaSession.createImportFix(
         position: KtElement,
         data: ImportData,
     ): ImportQuickFix? {
@@ -235,9 +182,9 @@ object ImportQuickFixProvider {
             symbol is KaNamedFunctionSymbol && symbol.isExtension -> ImportFixHelper.ImportKind.EXTENSION_FUNCTION
             symbol is KaNamedFunctionSymbol && symbol.isInfix -> ImportFixHelper.ImportKind.INFIX_FUNCTION
             symbol is KaNamedFunctionSymbol -> ImportFixHelper.ImportKind.FUNCTION
-            
+
             symbol is KaEnumEntrySymbol -> ImportFixHelper.ImportKind.CLASS
-            
+
             else -> null
         }
 
@@ -245,7 +192,7 @@ object ImportQuickFixProvider {
             symbol is KaNamedClassSymbol && symbol.classKind.isObject -> ImportFixHelper.ImportKind.OBJECT
             symbol is KaNamedClassSymbol -> ImportFixHelper.ImportKind.CLASS
             symbol is KaTypeAliasSymbol -> ImportFixHelper.ImportKind.TYPE_ALIAS
-            
+
             else -> null
         }
     }

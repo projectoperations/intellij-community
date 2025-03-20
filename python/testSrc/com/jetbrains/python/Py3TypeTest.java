@@ -17,6 +17,33 @@ import java.util.Map;
 public class Py3TypeTest extends PyTestCase {
   public static final String TEST_DIRECTORY = "/types/";
 
+  // PY-21069
+  public void testDunderGetattr() {
+    doTest("MyClass", """
+      class MyClass:
+          def __getattr__(self, item) -> 'MyClass':
+              pass
+      
+      expr = MyClass().attr
+      """);
+  }
+
+  // PY-78964
+  public void testFunctionReturnTypeTryFinally() {
+    doTest("str",
+           """
+             def test():
+                 try:
+                     return 42
+                 finally:
+                     return "str"
+             
+                 return True
+             
+             expr = test()
+             """);
+  }
+
   // PY-20710
   public void testLambdaGenerator() {
     doTest("Generator[int, Any, Any]", """
@@ -590,7 +617,7 @@ public class Py3TypeTest extends PyTestCase {
              """);
   }
 
-  public void testLiteralTypeNarrowing() {
+  public void testLiteralTypeNarrowingEquals() {
     doTest("Literal[\"abba\"]",
            """
              from typing import Literal
@@ -611,6 +638,53 @@ public class Py3TypeTest extends PyTestCase {
              abc: Literal["abc"] = "abc"
              def foo(v: str):
                  if (v == abc):
+                     expr = v
+             """);
+  }
+
+  public void testLiteralTypeNarrowingIn() {
+    doTest("Literal[1, 2]",
+           """
+             def f(a: int):
+                 if a in (1, 2, ""):
+                     expr = a
+             """);
+    doTest("Literal[-10, \"a\"]",
+           """
+             from enum import Enum
+             class E(Enum):
+                 A = 1
+             def f(a: int | str):
+                 if a in (-10, E.A, "a"):
+                     expr = a
+             """);
+    doTest("Literal[\"abb\"]",
+           """
+             from typing import Literal
+             def f(a: Literal[3, "abb", "ab", False]):
+                 if a in ("abb", True):
+                     expr = a
+             """);
+    doTest("Literal[3, \"ab\"]",
+           """
+             from typing import Literal
+             def f(a: Literal[3, "abb", "ab", False]):
+                 if a not in ("abb", False):
+                     expr = a
+             """);
+    doTest("Literal[\"abb\", False]",
+           """
+             from typing import Literal
+             def f(a: Literal[10, "abb", "ab", False]):
+                 if a not in ("abb", False):
+                     pass
+                 else:
+                     expr = a
+             """);
+    doTest("Literal[-1] | None",
+           """
+             def f(v: object):
+                 if v in (-1, None):
                      expr = v
              """);
   }
@@ -3377,6 +3451,44 @@ public class Py3TypeTest extends PyTestCase {
       s1 = concat(MyStr('apple'), MyStr('pie'))
       s2 = concat(MyStr('apple'), 'pie')
       expr = (s1, s2)
+      """);
+  }
+
+  public void testShadowingReturnInsideFinally() {
+    doTest("str", """
+      def f():
+          try:
+              return 42
+          finally:
+              return "foo"
+      expr = f()
+      """);
+  }
+
+  public void testNonShadowingReturnInsideFinally() {
+    doTest("int | str", """
+      def f(p):
+          try:
+              return 42
+          finally:
+              if p:
+                  return "foo"
+      expr = f()
+      """);
+  }
+
+  public void testReturnInsideExceptElse() {
+    doTest("str | bool", """
+      def f(p):
+          try:
+              e1()
+          except Exception:
+              return "foo"
+          else:
+              return True
+          finally:
+              pass
+      expr = f()
       """);
   }
 

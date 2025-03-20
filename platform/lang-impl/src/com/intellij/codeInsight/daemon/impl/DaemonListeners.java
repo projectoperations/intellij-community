@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.daemon.impl;
 
 import com.intellij.codeInsight.daemon.LineMarkerInfo;
@@ -6,6 +6,7 @@ import com.intellij.codeInsight.daemon.LineMarkerProviders;
 import com.intellij.codeInsight.daemon.impl.analysis.FileHighlightingSettingListener;
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.codeInsight.intention.IntentionActionDelegate;
+import com.intellij.codeInsight.multiverse.CodeInsightContexts;
 import com.intellij.codeInspection.InspectionProfile;
 import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ex.QuickFixWrapper;
@@ -302,7 +303,11 @@ public final class DaemonListeners implements Disposable {
       private void fileRenamed(@NotNull VFilePropertyChangeEvent event) {
         stopDaemonAndRestartAllFiles("Virtual file name changed");
         VirtualFile virtualFile = event.getFile();
-        PsiFile psiFile = !virtualFile.isValid() ? null : ((FileManagerImpl)PsiManagerEx.getInstanceEx(myProject).getFileManager()).getFastCachedPsiFile(virtualFile);
+        if (!virtualFile.isValid()) {
+          return;
+        }
+        FileManagerImpl fileManager = (FileManagerImpl)PsiManagerEx.getInstanceEx(myProject).getFileManager();
+        PsiFile psiFile = fileManager.getFastCachedPsiFile(virtualFile, CodeInsightContexts.anyContext());
         if (psiFile == null || myDaemonCodeAnalyzer.isHighlightingAvailable(psiFile)) {
           return;
         }
@@ -603,7 +608,8 @@ public final class DaemonListeners implements Disposable {
       if (myEscPressed) {
         if (affectedDocument != null) {
           // prevent Esc key to leave the document in the not-highlighted state
-          if (!myDaemonCodeAnalyzer.getFileStatusMap().allDirtyScopesAreNull(affectedDocument)) {
+          // todo ijpl-339 investigate this place
+          if (!myDaemonCodeAnalyzer.getFileStatusMap().allDirtyScopesAreNull(affectedDocument, CodeInsightContexts.anyContext())) {
             stopDaemon(true, "Command finish");
           }
         }

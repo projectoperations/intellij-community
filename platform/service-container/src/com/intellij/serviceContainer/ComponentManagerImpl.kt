@@ -47,6 +47,7 @@ import com.intellij.util.messages.impl.MessageBusImpl
 import com.intellij.util.messages.impl.MessageDeliveryListener
 import com.intellij.util.runSuppressing
 import kotlinx.coroutines.*
+import kotlinx.coroutines.internal.intellij.IntellijCoroutines
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.TestOnly
 import org.picocontainer.ComponentAdapter
@@ -254,7 +255,8 @@ abstract class ComponentManagerImpl(
   }
 
   override val componentStore: IComponentStore
-    get() = getService(IComponentStore::class.java)!!
+    get() = getService(IComponentStore::class.java)
+            ?: error("Cannot get service: ${IComponentStore::class.java.name}")
 
   @Suppress("FunctionName")
   open suspend fun _getComponentStore(): IComponentStore = getServiceAsync(IComponentStore::class.java)
@@ -297,8 +299,10 @@ abstract class ComponentManagerImpl(
     }
 
     val messageBus = messageBus
-    if (messageBus == null || !isMessageBusSupported) {
+    if (!isMessageBusSupported) {
       LOG.error("Do not use module level message bus")
+    }
+    if (messageBus == null) {
       return getOrCreateMessageBusUnderLock()
     }
     return messageBus
@@ -331,7 +335,7 @@ abstract class ComponentManagerImpl(
         registerServices(containerDescriptor.services, module)
         registerComponents(pluginDescriptor = module, containerDescriptor = containerDescriptor, headless = isHeadless)
 
-        containerDescriptor.listeners?.let { listeners ->
+        containerDescriptor.listeners.let { listeners ->
           var m = map
           if (m == null) {
             m = ConcurrentHashMap()
@@ -351,8 +355,8 @@ abstract class ComponentManagerImpl(
           }
         }
 
-        if (extensionPoints != null) {
-          createExtensionPoints(points = containerDescriptor.extensionPoints ?: java.util.List.of(),
+        if (extensionPoints != null && containerDescriptor.extensionPoints.isNotEmpty()) {
+          createExtensionPoints(points = containerDescriptor.extensionPoints,
                                 componentManager = this,
                                 result = extensionPoints,
                                 pluginDescriptor = module)
@@ -1672,21 +1676,25 @@ private fun throwAlreadyDisposedIfNotUnderIndicatorOrJob(cause: Throwable) {
 
 private fun <X> runBlockingInitialization(action: suspend CoroutineScope.() -> X): X {
   return prepareThreadContext { ctx -> // reset thread context
+    val (lockPermitContext, cleanup) = getLockPermitContext(ctx, false)
     try {
       val contextForInitializer =
         (ctx.contextModality()?.asContextElement() ?: EmptyCoroutineContext) + // leak modality state into initialization coroutine
         (ctx[Job] ?: EmptyCoroutineContext) + // bind to caller Job
-        getLockPermitContext() + // capture whether the caller holds the read lock
+        lockPermitContext + // capture whether the caller holds the read lock
         (currentTemporaryThreadContextOrNull() ?: EmptyCoroutineContext) + // propagate modality state/CurrentlyInitializingInstance
         NestedBlockingEventLoop(Thread.currentThread()) // avoid processing events from outer runBlocking (if any)
-      @Suppress("RAW_RUN_BLOCKING")
-      runBlocking(contextForInitializer, action)
+      @OptIn(InternalCoroutinesApi::class)
+      IntellijCoroutines.runBlockingWithParallelismCompensation(contextForInitializer, action)
     }
     catch (e: ProcessCanceledException) {
       throw e
     }
     catch (e: CancellationException) {
       throw CeProcessCanceledException(e)
+    }
+    finally {
+      cleanup.finish()
     }
   }
 }

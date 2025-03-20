@@ -17,14 +17,14 @@ import com.intellij.ide.ui.UISettings
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.*
 import com.intellij.openapi.application.ex.ApplicationManagerEx
-import com.intellij.openapi.application.impl.AnyThreadWriteThreadingSupport
 import com.intellij.openapi.application.impl.InvocationUtil
+import com.intellij.openapi.application.impl.getGlobalThreadingSupport
 import com.intellij.openapi.components.serviceIfCreated
 import com.intellij.openapi.diagnostic.ControlFlowException
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.editor.impl.ad.ThreadLocalRhizomeDB
+import com.intellij.openapi.editor.impl.ad.util.ThreadLocalRhizomeDB
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.keymap.impl.IdeKeyEventDispatcher
 import com.intellij.openapi.keymap.impl.IdeMouseEventDispatcher
@@ -42,8 +42,8 @@ import com.intellij.openapi.wm.ex.WindowManagerEx
 import com.intellij.openapi.wm.impl.FocusManagerImpl
 import com.intellij.platform.ide.bootstrap.StartupErrorReporter
 import com.intellij.ui.ComponentUtil
+import com.intellij.ui.awt.RelativePoint
 import com.intellij.ui.speedSearch.SpeedSearchSupply
-import com.intellij.util.concurrency.ThreadingAssertions
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.concurrency.unwrapContextRunnable
 import com.intellij.util.containers.ContainerUtil
@@ -82,7 +82,7 @@ class IdeEventQueue private constructor() : EventQueue() {
   private val activityListeners = ContainerUtil.createLockFreeCopyOnWriteList<Runnable>()
 
   @Internal
-  val threadingSupport: ThreadingSupport = AnyThreadWriteThreadingSupport
+  val threadingSupport: ThreadingSupport = getGlobalThreadingSupport()
   val keyEventDispatcher: IdeKeyEventDispatcher = IdeKeyEventDispatcher(this)
   val mouseEventDispatcher: IdeMouseEventDispatcher = IdeMouseEventDispatcher()
   val popupManager: IdePopupManager = IdePopupManager()
@@ -299,7 +299,7 @@ class IdeEventQueue private constructor() : EventQueue() {
           val progressManager = ProgressManager.getInstanceOrNull()
           try {
             runCustomProcessors(finalEvent, preProcessors)
-            performActivity(finalEvent, !nakedRunnable && isCoroutineWILEnabled && !threadingSupport.isInsideUnlockedWriteIntentLock()) {
+            performActivity(finalEvent, !nakedRunnable && isPureSwingEventWilEnabled && !threadingSupport.isInsideUnlockedWriteIntentLock()) {
               if (progressManager == null) {
                 _dispatchEvent(finalEvent)
               }
@@ -450,7 +450,7 @@ class IdeEventQueue private constructor() : EventQueue() {
     if (isUserActivityEvent(e)) {
       ActivityTracker.getInstance().inc()
     }
-    if (popupManager.isPopupActive && popupManager.dispatch(e)) {
+    if (popupManager.isPopupActive && threadingSupport.runPreventiveWriteIntentReadAction { popupManager.dispatch(e) }) {
       if (keyEventDispatcher.isWaitingForSecondKeyStroke) {
         keyEventDispatcher.state = KeyState.STATE_INIT
       }
@@ -459,9 +459,11 @@ class IdeEventQueue private constructor() : EventQueue() {
 
     if (e is WindowEvent) {
       // app activation can call methods that need write intent (like project saving)
-      threadingSupport.runWriteIntentReadAction<Unit, Throwable> { processAppActivationEvent(e) }
+      threadingSupport.runPreventiveWriteIntentReadAction { processAppActivationEvent(e) }
     }
-    if (dispatchByCustomDispatchers(e)) {
+
+    // IJPL-177735 Remove Write-Intent lock from IdeEventQueue.EventDispatcher
+    if (threadingSupport.runPreventiveWriteIntentReadAction { dispatchByCustomDispatchers(e) }) {
       return
     }
     if (e is InputMethodEvent && SystemInfoRt.isMac && keyEventDispatcher.isWaitingForSecondKeyStroke) {
@@ -469,8 +471,8 @@ class IdeEventQueue private constructor() : EventQueue() {
     }
 
     when {
-      e is MouseEvent -> threadingSupport.runWriteIntentReadAction<Unit, Throwable> { dispatchMouseEvent(e) }
-      e is KeyEvent -> threadingSupport.runWriteIntentReadAction<Unit, Throwable> { dispatchKeyEvent(e) }
+      e is MouseEvent -> threadingSupport.runPreventiveWriteIntentReadAction { dispatchMouseEvent(e) }
+      e is KeyEvent -> threadingSupport.runPreventiveWriteIntentReadAction { dispatchKeyEvent(e) }
       appIsLoaded() -> {
         val app = ApplicationManagerEx.getApplicationEx()
         if (e is ComponentEvent) {
@@ -946,15 +948,9 @@ internal fun performActivity(e: AWTEvent, needWIL: Boolean, runnable: () -> Unit
     val runnableWithWIL =
       if (needWIL) {
         {
-            WriteIntentReadAction.run {
-              ThreadingAssertions.setImplicitLockOnEDT(true)
-              try {
-                runnable()
-              }
-              finally {
-                ThreadingAssertions.setImplicitLockOnEDT(false)
-              }
-            }
+          WriteIntentReadAction.run {
+            runnable()
+          }
         }
       }
       else {
@@ -990,7 +986,10 @@ private fun processMouseWheelEvent(e: MouseWheelEvent): Boolean {
   }
 
   e.consume()
-  (selectedPath[0].component as? JBPopupMenu)?.processMouseWheelEvent(e)
+
+  selectedPath.filterIsInstance<JBPopupMenu>()
+    .filter { it.contains(RelativePoint(e).getPoint(it)) }
+    .forEach { it.processMouseWheelEvent(e) }
   return true
 }
 

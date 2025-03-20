@@ -2,10 +2,15 @@
 package org.jetbrains.idea.maven.importing.workspaceModel
 
 import com.intellij.internal.statistic.StructuredIdeActivity
+import com.intellij.openapi.application.WriteIntentReadAction
+import com.intellij.openapi.components.Service
+import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.ControlFlowException
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.externalSystem.service.project.IdeModifiableModelsProvider
+import com.intellij.openapi.externalSystem.service.project.IdeUIModifiableModelsProvider
+import com.intellij.openapi.externalSystem.service.project.ProjectDataManager
 import com.intellij.openapi.externalSystem.service.project.manage.ExternalProjectsManagerImpl
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.impl.UnloadedModulesListStorage
@@ -32,7 +37,9 @@ import com.intellij.platform.workspace.storage.EntityStorage
 import com.intellij.platform.workspace.storage.MutableEntityStorage
 import com.intellij.platform.workspace.storage.WorkspaceEntity
 import com.intellij.util.ExceptionUtil
+import com.intellij.util.ui.EDT
 import com.intellij.workspaceModel.ide.impl.legacyBridge.module.findModule
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.TestOnly
@@ -42,7 +49,6 @@ import org.jetbrains.idea.maven.importing.tree.MavenTreeModuleImportData
 import org.jetbrains.idea.maven.project.*
 import org.jetbrains.idea.maven.statistics.MavenImportCollector
 import org.jetbrains.idea.maven.telemetry.tracer
-import org.jetbrains.idea.maven.utils.MavenCoroutineScopeProvider
 import org.jetbrains.idea.maven.utils.MavenLog
 import org.jetbrains.idea.maven.utils.MavenUtil
 import org.jetbrains.jps.model.serialization.SerializationConstants
@@ -114,6 +120,12 @@ internal open class WorkspaceProjectImporter(
     stats.recordPhase(MavenImportCollector.WORKSPACE_LEGACY_IMPORTERS_PHASE) { activity ->
       tracer.spanBuilder("configLegacyFacets").use {
         configLegacyFacets(appliedProjectsWithModules, mavenProjectToModuleName, postTasks, activity)
+      }
+    }
+
+    stats.recordPhase(MavenImportCollector.WORKSPACE_DEPENDENCY_SUBSTITUTION_PHASE) { activity ->
+      tracer.spanBuilder("updateLibrarySubstitutions").use {
+        updateLibrarySubstitutions()
       }
     }
 
@@ -542,6 +554,19 @@ internal open class WorkspaceProjectImporter(
     MavenProjectImporterUtil.importLegacyExtensions(myProject, myModifiableModelsProvider, legacyFacetImporters, postTasks, activity)
   }
 
+  private fun updateLibrarySubstitutions() {
+    if (Registry.`is`("external.system.substitute.library.dependencies")) {
+      // commit does nothing for this provider, so it should be reused
+      val provider = myModifiableModelsProvider as? IdeUIModifiableModelsProvider
+                     ?: ProjectDataManager.getInstance().createModifiableModelsProvider(myProject)
+      MavenUtil.invokeAndWaitWriteAction(myProject) {
+        // The ModifiableWorkspaceModel#updateLibrarySubstitutions function is automatically called
+        // inside the IdeModifiableModelsProviderImpl#commit function
+        provider.commit()
+      }
+    }
+  }
+
   override fun createdModules(): List<Module> {
     return createdModulesList
   }
@@ -578,7 +603,8 @@ internal open class WorkspaceProjectImporter(
                                              workspaceModel.getVirtualFileUrlManager(),
                                              mavenManager.importingSettings,
                                              folderImportingContext,
-                                             MavenWorkspaceConfigurator.EXTENSION_POINT_NAME.extensionList)
+                                             MavenWorkspaceConfigurator.EXTENSION_POINT_NAME.extensionList,
+                                             project)
 
       var numberOfModules = 0
       readMavenExternalSystemData(builder).forEach { data ->
@@ -681,7 +707,14 @@ internal open class WorkspaceProjectImporter(
         }
       }
       if (MavenUtil.isMavenUnitTestModeEnabled()) {
-        doRefreshFiles(files)
+        if (EDT.isCurrentThreadEdt()) {
+          WriteIntentReadAction.run {
+            doRefreshFiles(files)
+          }
+        }
+        else {
+          doRefreshFiles(files)
+        }
       }
       else {
         postTasks.add(RefreshingFilesTask(files))
@@ -689,12 +722,16 @@ internal open class WorkspaceProjectImporter(
     }
 
     private class RefreshingFilesTask(private val myFiles: Set<Path>) : MavenProjectsProcessorTask {
+
+      @Service(Service.Level.PROJECT)
+      private class CoroutineService(val coroutineScope: CoroutineScope)
+
       override fun perform(
         project: Project,
         embeddersManager: MavenEmbeddersManager,
         indicator: ProgressIndicator,
       ) {
-        val cs = MavenCoroutineScopeProvider.getCoroutineScope(project)
+        val cs = project.service<CoroutineService>().coroutineScope
         cs.launch {
           doRefreshFiles(myFiles)
         }

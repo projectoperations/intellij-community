@@ -6,25 +6,26 @@ import fleet.rpc.RemoteApiDescriptor
 import fleet.rpc.RemoteKind
 import fleet.rpc.core.*
 import fleet.rpc.serializer
-import fleet.tracing.TracingCoroutineElement
 import fleet.tracing.asContextElement
-import fleet.tracing.opentelemetry
 import fleet.tracing.tracer
 import fleet.util.UID
+import fleet.util.async.Resource
 import fleet.util.async.coroutineNameAppended
+import fleet.util.async.useOn
 import fleet.util.channels.isFull
 import fleet.util.logging.KLoggers
 import io.opentelemetry.api.trace.Span
 import io.opentelemetry.api.trace.SpanKind
 import io.opentelemetry.api.trace.StatusCode
-import io.opentelemetry.context.Context
+import kotlinx.collections.immutable.toPersistentSet
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.channels.consumeEach
 import kotlinx.serialization.json.Json
-import java.util.concurrent.ConcurrentHashMap
+import fleet.multiplatform.shims.ConcurrentHashMap
+import fleet.multiplatform.shims.ConcurrentHashSet
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.coroutines.coroutineContext
 
@@ -38,6 +39,9 @@ class RpcExecutor private constructor(
 ) {
 
   private val remoteObjects = ConcurrentHashMap<InstanceId, ServiceImplementation>()
+  private val resources = ConcurrentHashMap<InstanceId, Job>()
+  private val children: ConcurrentHashMap<InstanceId, Set<InstanceId>> = ConcurrentHashMap()
+  private val parents: ConcurrentHashMap<InstanceId, InstanceId> = ConcurrentHashMap()
 
   companion object {
     internal val logger = KLoggers.logger(RpcExecutor::class)
@@ -61,21 +65,15 @@ class RpcExecutor private constructor(
       coroutineScope {
         launch {
           receiveChannel.consumeEach { message ->
-            val otelContext = (message as? TransportMessage.Envelope)?.otelData()?.let { telemetryData ->
-              opentelemetry.propagators.textMapPropagator.extract(Context.current(), telemetryData, TelemetryData.otelGetter)
-            } ?: Context.current()
-
-            withContext(TracingCoroutineElement(otelContext)) {
-              logger.trace { "Received $message" }
-              when (message) {
-                is TransportMessage.Envelope -> {
-                  executor.processRpcMessage(message.origin, message.parseMessage())
-                }
-                is TransportMessage.RouteClosed -> {
-                  executor.cancelAllOngoingWork(message.address)
-                }
-                is TransportMessage.RouteOpened -> {
-                }
+            logger.trace { "Received $message" }
+            when (message) {
+              is TransportMessage.Envelope -> {
+                executor.processRpcMessage(message.origin, message.parseMessage())
+              }
+              is TransportMessage.RouteClosed -> {
+                executor.cancelAllOngoingWork(message.address)
+              }
+              is TransportMessage.RouteOpened -> {
               }
             }
           }
@@ -128,7 +126,7 @@ class RpcExecutor private constructor(
           logger.trace { "Failed to find rpc method for $message" }
           send(RpcMessage.CallFailure(message.requestId,
                                       FailureInfo(unresolvedService = "API for ${message.classMethodDisplayName()} could not be found"))
-                 .seal(destination = clientId, origin = route, otelData = null))
+                 .seal(destination = clientId, origin = route))
           return
         }
         val serviceScope = impl.serviceScope ?: fallbackCoroutineScope
@@ -155,7 +153,7 @@ class RpcExecutor private constructor(
           logger.trace(ex) { "Failed to build arguments for $message" }
           send(RpcMessage.CallFailure(message.requestId,
                                       FailureInfo(requestError = "Invalid arguments for ${message.classMethodDisplayName()}: ${ex}"))
-                 .seal(destination = clientId, origin = route, otelData = null))
+                 .seal(destination = clientId, origin = route))
           return
         }
 
@@ -178,12 +176,15 @@ class RpcExecutor private constructor(
               val result = (impl.remoteApiDescriptor as RemoteApiDescriptor<RemoteApi<*>>).call(impl.instance, message.method, args.toTypedArray())
               logger.trace { "Got result for request  ${message.requestId}" }
               val remoteObjectId = InstanceId(UID.random().toString())
+              val returnType = signature.returnType
+
               if (result is RemoteObject) {
                 registerRemoteObject(
                   path = remoteObjectId,
-                  remoteApiDescriptor = (signature.returnType as RemoteKind.RemoteObject).descriptor,
+                  remoteApiDescriptor = (returnType as RemoteKind.RemoteObject).descriptor,
                   inst = result,
                   serviceScope = serviceScope,
+                  parent = message.service
                 )
               }
 
@@ -191,25 +192,47 @@ class RpcExecutor private constructor(
                 unregisterRemoteObject(message.service)
               }
 
-              val (resultSerialized, streamDescriptors) = withSerializationContext("Result of ${message.requestId}", null, serviceScope) {
-                if (result is RemoteObject) {
-                  Json.encodeToJsonElement(InstanceId.serializer(), remoteObjectId)
+              val resultSerialized = if (result is RemoteObject) {
+                Json.encodeToJsonElement(InstanceId.serializer(), remoteObjectId)
+              }
+              else if (returnType is RemoteKind.Resource) {
+                val ready = CompletableDeferred<RemoteResource>()
+
+                val job = serviceScope.launch {
+                  val resource = (result as Resource<RemoteResource>).useOn(this).await()
+                  ready.complete(resource)
                 }
-                else {
-                  val kserializer = signature.returnType.serializer(message.classMethodDisplayName())
+
+                job.invokeOnCompletion { throwable ->
+                  if (throwable != null) ready.completeExceptionally(throwable)
+                }
+
+                registerResource(
+                  remoteObjectId, returnType.descriptor, ready.await(), job,
+                  parent = message.service,
+                  serviceScope = serviceScope,
+                )
+
+                Json.encodeToJsonElement(InstanceId.serializer(), remoteObjectId)
+              }
+              else {
+                val (resultSerialized, streamDescriptors) = withSerializationContext("Result of ${message.requestId}", null, serviceScope) {
+                  val kserializer = returnType.serializer(message.classMethodDisplayName())
                   json.encodeToJsonElement(kserializer, result)
                 }
-              }
 
-              streamDescriptors.forEach {
-                registeredStreams.add(registerStream(serviceScope, it, clientId))
+                streamDescriptors.forEach {
+                  registeredStreams.add(registerStream(serviceScope, it, clientId))
+                }
+
+                resultSerialized
               }
 
               logger.trace { "Sending result: requestId=${request.requestId}, result=$result" }
               RpcMessage.CallResult(requestId = request.requestId,
                                     result = resultSerialized)
             }
-            sendAsync(result.seal(destination = clientId, origin = route, otelData = null)) { ex ->
+            sendAsync(result.seal(destination = clientId, origin = route)) { ex ->
               if (ex == null) {
                 registeredStreams.forEach {
                   serveStream(serviceScope, it, clientId)
@@ -221,7 +244,7 @@ class RpcExecutor private constructor(
             logger.trace { "Sending call failure: requestId=${message.requestId}, error=${e.message}" }
             send(RpcMessage.CallFailure(requestId = message.requestId,
                                         error = e.toFailureInfo())
-                   .seal(destination = clientId, origin = route, otelData = null))
+                   .seal(destination = clientId, origin = route))
             spans[message.requestId]?.setStatus(StatusCode.ERROR, e.message)?.recordException(e)
             // todo removeREquest ... completeExceptionally()
           }
@@ -268,8 +291,11 @@ class RpcExecutor private constructor(
       is RpcMessage.StreamInit -> {
         if (channels[message.streamId] == null) {
           logger.trace("received StreamInit for unregistered stream ${message.streamId}, will respond with StreamClosed")
-          sendAsync(RpcMessage.StreamClosed(message.streamId).seal(clientId, route, null))
+          sendAsync(RpcMessage.StreamClosed(message.streamId).seal(clientId, route))
         }
+      }
+      is RpcMessage.ResourceConsumed -> {
+        unregisterResource(message.resourcePath)
       }
       else -> error("Unexpected message $message")
     }
@@ -311,7 +337,7 @@ class RpcExecutor private constructor(
     require(previous == null) {
       "There is no way you can use the same channel twice ${descriptor.displayName}"
     }
-    routeChannels.computeIfAbsent(route) { ConcurrentHashMap.newKeySet() }.add(descriptor.uid)
+    routeChannels.computeIfAbsent(route) { ConcurrentHashSet() }.add(descriptor.uid)
     return registeredStream
   }
 
@@ -323,7 +349,7 @@ class RpcExecutor private constructor(
   ) {
     requestJobs[requestId] = requestJob
     spans[requestId] = span
-    if (route != null) routeRequests.computeIfAbsent(route) { ConcurrentHashMap.newKeySet() }.add(requestId)
+    if (route != null) routeRequests.computeIfAbsent(route) { ConcurrentHashSet() }.add(requestId)
   }
 
   private fun removeRequest(requestId: UID, route: UID?, spanAction: Span.() -> Unit = {}, jobAction: CompletableJob.() -> Unit) {
@@ -355,6 +381,7 @@ class RpcExecutor private constructor(
     path: InstanceId,
     remoteApiDescriptor: RemoteApiDescriptor<*>,
     inst: RemoteApi<*>,
+    parent: InstanceId,
     serviceScope: CoroutineScope,
   ) {
     val impl = ServiceImplementation(remoteApiDescriptor, inst, serviceScope)
@@ -364,10 +391,39 @@ class RpcExecutor private constructor(
           "Path must be unique. Previously registered object: '${old.instance}' has same path '$path' as currently being registered '$inst'")
       }
     }
+
+    // Add dependency to the created remote object
+    children.compute(parent) { k, v -> v.orEmpty().toPersistentSet().add(path) }
+    parents[path] = parent
   }
 
-  private fun unregisterRemoteObject(path: InstanceId) {
+  private fun registerResource(
+    path: InstanceId,
+    remoteApiDescriptor: RemoteApiDescriptor<*>,
+    inst: RemoteApi<*>,
+    job: Job,
+    parent: InstanceId,
+    serviceScope: CoroutineScope,
+  ) {
+    registerRemoteObject(path, remoteApiDescriptor, inst, parent, serviceScope)
+    resources.putIfAbsent(path, job)?.let { error("cannot register two resource with the same path") }
+  }
+
+  private fun unregisterRemoteObject(path: InstanceId, additionalStep: ((InstanceId) -> Unit)? = null) {
     remoteObjects.remove(path)
+    additionalStep?.invoke(path)
+
+    // Remove from parent deps, and unregister children
+    parents.remove(path)?.let { parent -> children.computeIfPresent(parent) { _, deps -> deps.toPersistentSet().remove(path) } }
+    children.remove(path)?.forEach {
+      unregisterRemoteObject(it, additionalStep)
+    }
+  }
+
+  private fun unregisterResource(path: InstanceId) {
+    unregisterRemoteObject(path) {
+      resources.remove(path)?.cancel()
+    }
   }
 
   private fun proxyDesc(serviceId: InstanceId): ServiceImplementation? {

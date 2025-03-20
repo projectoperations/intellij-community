@@ -64,7 +64,7 @@
                     interface="com.intellij.openapi.fileEditor.TrailingSpacesOptionsProvider" dynamic="true"/>
 
     <extensionPoint name="fileTypeUsageSchemaDescriptor"
-                    beanClass="com.intellij.internal.statistic.collectors.fus.fileTypes.FileTypeUsageCounterCollector$FileTypeUsageSchemaDescriptorEP"
+                    beanClass="com.intellij.internal.statistic.collectors.fus.fileTypes.FileTypeUsageSchemaDescriptorEP"
                     dynamic="true">
       <with attribute="implementationClass" implements="com.intellij.internal.statistic.collectors.fus.fileTypes.FileTypeUsageSchemaDescriptor"/>
     </extensionPoint>
@@ -558,7 +558,6 @@
 
     <extensionPoint name="codeWithMe.authorizationProvider" interface="com.intellij.codeWithMe.CodeWithMeAuthorizationProvider" dynamic="true" />
     <extensionPoint name="codeWithMe.serverUrlProvider" interface="com.intellij.codeWithMe.CodeWithMeServerUrlProvider" dynamic="true" />
-    <extensionPoint name="emptyIntentionProvider" interface="com.intellij.codeInsight.daemon.impl.EmptyIntentionProvider" dynamic="true"/>
 
     <extensionPoint name="idePerformanceListener" interface="com.intellij.diagnostic.PerformanceListener" dynamic="true"/>
 
@@ -586,6 +585,10 @@
                     interface="com.intellij.ide.vcs.RecentProjectsBranchesProvider"
                     dynamic="true"/>
 
+    <extensionPoint name="recentProjectsProvider"
+                    interface="com.intellij.ide.RecentProjectProvider"
+                    dynamic="true"/>
+
     <extensionPoint name="applicationSettings"
                     beanClass="com.intellij.ide.settings.SettingsComponentDescriptor"
                     dynamic="true">
@@ -603,6 +606,15 @@
 
     <extensionPoint name="customTypeRpcSerializer" interface="com.intellij.ide.rpc.CustomTypeRpcSerializer" dynamic="true"/>
 
+    <extensionPoint name="frontendDocumentIdRegistry" interface="com.intellij.ide.rpc.FrontendDocumentIdRegistry"
+                    dynamic="true"/>
+
+    <extensionPoint name="frontendEditorBinder" interface="com.intellij.ide.rpc.FrontendEditorBinder"
+                    dynamic="true"/>
+
+    <extensionPoint name="backendDocumentBinder" interface="com.intellij.ide.rpc.BackendDocumentBinder"
+                    dynamic="true"/>
+
     <extensionPoint name="projectTaskManagerListener" interface="com.intellij.task.impl.ProjectTaskManagerListenerExtensionPoint" dynamic="true" />
 
     <extensionPoint name="logLevelConfigurationListener" interface="com.intellij.diagnostic.logs.LogLevelConfigurationManager$Listener" dynamic="true"/>
@@ -618,6 +630,10 @@
 
     <extensionPoint name="commandLineEnvCustomizer"
                     interface="com.intellij.execution.process.CommandLineEnvCustomizer"
+                    dynamic="true"/>
+
+    <extensionPoint name="adEntityProvider"
+                    interface="com.intellij.openapi.editor.impl.ad.document.AdEntityProvider"
                     dynamic="true"/>
 
   </extensionPoints>

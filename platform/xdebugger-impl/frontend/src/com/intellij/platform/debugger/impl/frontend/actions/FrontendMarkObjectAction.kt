@@ -6,12 +6,13 @@ import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.remoting.ActionRemoteBehaviorSpecification
-import com.intellij.platform.debugger.impl.frontend.FrontendXDebuggerManager
 import com.intellij.platform.debugger.impl.frontend.evaluate.quick.FrontendXValue
 import com.intellij.xdebugger.impl.actions.areFrontendDebuggerActionsEnabled
 import com.intellij.xdebugger.impl.actions.handlers.XMarkObjectActionHandler.Companion.performMarkObject
 import com.intellij.xdebugger.impl.frame.XValueMarkers
 import com.intellij.xdebugger.impl.rpc.XValueMarkerId
+import com.intellij.xdebugger.impl.ui.DebuggerUIUtil
+import com.intellij.xdebugger.impl.ui.tree.XDebuggerTreeState
 import com.intellij.xdebugger.impl.ui.tree.actions.XDebuggerTreeActionBase
 import org.jetbrains.annotations.ApiStatus
 
@@ -62,14 +63,17 @@ private class FrontendMarkObjectAction : AnAction(), ActionRemoteBehaviorSpecifi
       return
     }
 
+    val treeState = XDebuggerTreeState.saveState(node.tree)
+
     performMarkObject(e, node, markers, onSuccess = {
-      // TODO: should we update tree state here?
+      if (DebuggerUIUtil.isInDetachedTree(e)) {
+        node.tree.rebuildAndRestore(treeState)
+      }
     })
   }
 
   private fun getMarkers(e: AnActionEvent): XValueMarkers<FrontendXValue, XValueMarkerId>? {
-    val project = e.project ?: return null
-    return FrontendXDebuggerManager.getInstance(project).currentSession.value?.valueMarkers
+    return e.frontendDebuggerSession?.valueMarkers
   }
 
   override fun getActionUpdateThread(): ActionUpdateThread {

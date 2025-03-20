@@ -60,18 +60,18 @@ final class KJvmUtils {
         return f.getName();
       }
     }
-    for (KmProperty p : allKmProperties(cls)) {
-      JvmMethodSignature getterSig = JvmExtensionsKt.getGetterSignature(p);
-      if (sig.equals(getterSig)) {
-        return getterSig.getName();
-      }
-      if (p.getSetter() != null) {
-        JvmMethodSignature setterSig = JvmExtensionsKt.getSetterSignature(p);
-        if (sig.equals(setterSig)) {
-          return setterSig.getName();
+    if (method.isSynthetic()) {
+      for (KmProperty p : allKmProperties(cls)) {
+        if (sig.equals(JvmExtensionsKt.getSyntheticMethodForAnnotations(p))) {
+          return p.getName();
+        }
+        if (sig.equals(JvmExtensionsKt.getSyntheticMethodForDelegate(p))) {
+          return p.getName();
         }
       }
     }
+    // apart from lookups with actual property name, kotlinc generates lookups with getter/setter bytecode names
+    // these lookups, named after property bytecode getter and setter, allow to distinguish between property read and write access usages in .kt file
     return method.getName();
   }
 
@@ -90,6 +90,10 @@ final class KJvmUtils {
 
   static @Nullable KotlinMeta getKotlinMeta(Node<?, ?> node) {
     return node instanceof JVMClassNode? (KotlinMeta)find(((JVMClassNode<?, ?>)node).getMetadata(), mt -> mt instanceof KotlinMeta) : null;
+  }
+
+  static boolean isInlinable(KmProperty prop) {
+    return Attributes.isConst(prop) || Attributes.isInline(prop.getGetter()) || (prop.getSetter() != null && Attributes.isInline(prop.getSetter()));
   }
 
   static boolean isPrivate(KmProperty prop) {

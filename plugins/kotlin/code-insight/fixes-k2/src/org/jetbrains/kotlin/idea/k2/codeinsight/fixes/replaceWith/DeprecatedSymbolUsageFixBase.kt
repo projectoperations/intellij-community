@@ -41,7 +41,7 @@ import org.jetbrains.kotlin.idea.util.application.isDispatchThread
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.resolve.calls.util.getCalleeExpressionIfAny
 
-object DeprecationFixFactory {
+internal object DeprecationFixFactory {
     val deprecatedWarning = IntentionBased { diagnostics: KaFirDiagnostic.Deprecation ->
         val kaSymbol = diagnostics.reference as? KaDeclarationSymbol ?: return@IntentionBased emptyList()
         createDeprecation(kaSymbol, diagnostics.psi)
@@ -221,7 +221,7 @@ abstract class DeprecatedSymbolUsageFixBase(
 
             val expression = createReplacementExpression(project, replaceWith, context) ?: return null
 
-            return buildCodeToInline(target, expression, isUnitType != false, null, object : CodeToInlineBuilder(original = target) {
+            return buildCodeToInline(target, expression, isUnitType != false, null, object : CodeToInlineBuilder(original = target, replaceWith.imports) {
                 override fun saveComments(codeToInline: MutableCodeToInline, contextDeclaration: KtDeclaration) {}
             })
         }

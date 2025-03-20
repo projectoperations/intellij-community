@@ -30,6 +30,8 @@ internal fun loadDescriptorInTest(
         customBrokenPluginVersions = emptyMap(),
         productBuildNumber = { buildNumber },
         customDisabledPlugins = disabledPlugins.mapTo(LinkedHashSet(), PluginId::getId),
+        customEssentialPlugins = emptyList(),
+        customExpiredPlugins = emptySet()
       ),
       isBundled = isBundled,
     )
@@ -51,7 +53,7 @@ internal fun createPluginLoadingResult(checkModuleDependencies: Boolean = false)
 @JvmOverloads
 fun loadExtensionWithText(extensionTag: String, ns: String = "com.intellij"): Disposable {
   return loadPluginWithText(
-    pluginBuilder = PluginBuilder().extensions(extensionTag, ns),
+    pluginBuilder = PluginBuilder.withModulesLang().extensions(extensionTag, ns),
     path = FileUtil.createTempDirectory("test", "test", true).toPath(),
   ).also {
     IndexingTestUtil.waitUntilIndexesAreReadyInAllOpenedProjects()

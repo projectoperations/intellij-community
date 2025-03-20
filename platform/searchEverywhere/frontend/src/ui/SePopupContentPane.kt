@@ -7,8 +7,16 @@ import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ex.ApplicationManagerEx
 import com.intellij.openapi.project.DumbAwareAction
-import com.intellij.platform.searchEverywhere.frontend.vm.SeListItemData
+import com.intellij.platform.searchEverywhere.SeActionItemPresentation
+import com.intellij.platform.searchEverywhere.SeTargetItemPresentation
+import com.intellij.platform.searchEverywhere.SeTextItemPresentation
+import com.intellij.platform.searchEverywhere.frontend.providers.actions.SeActionItemPresentationRenderer
+import com.intellij.platform.searchEverywhere.frontend.providers.files.SeTargetItemPresentationRenderer
+import com.intellij.platform.searchEverywhere.frontend.resultsProcessing.SeSortedResultAddedEvent
+import com.intellij.platform.searchEverywhere.frontend.resultsProcessing.SeSortedResultReplacedEvent
 import com.intellij.platform.searchEverywhere.frontend.vm.SePopupVm
+import com.intellij.platform.searchEverywhere.frontend.vm.SeResultListStopEvent
+import com.intellij.platform.searchEverywhere.frontend.vm.SeResultListUpdateEvent
 import com.intellij.ui.ScrollingUtil
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
@@ -17,7 +25,7 @@ import com.intellij.ui.dsl.gridLayout.HorizontalAlign
 import com.intellij.ui.dsl.gridLayout.VerticalAlign
 import com.intellij.ui.dsl.gridLayout.builders.RowsGridBuilder
 import com.intellij.ui.dsl.listCellRenderer.listCellRenderer
-import com.intellij.util.bindTextIn
+import com.intellij.util.bindTextOnShow
 import com.intellij.util.containers.ContainerUtil
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.StartupUiUtil.isWaylandToolkit
@@ -32,7 +40,7 @@ import java.util.function.Supplier
 import javax.swing.*
 
 @Internal
-class SePopupContentPane(private val vm: SePopupVm, private val popupManager: SePopupManager): JPanel(), Disposable {
+class SePopupContentPane(private val vm: SePopupVm): JPanel(), Disposable {
   val preferableFocusedComponent: JComponent get() = textField
 
   private val headerPane: SePopupHeaderPane = SePopupHeaderPane(vm.tabVms.map { it.name }, vm.currentTabIndex, vm.coroutineScope)
@@ -45,10 +53,29 @@ class SePopupContentPane(private val vm: SePopupVm, private val popupManager: Se
   init {
     layout = GridLayout()
 
-    resultList.setCellRenderer(listCellRenderer {
+    val actionListCellRenderer = SeActionItemPresentationRenderer(resultList).get { textField.text ?: "" }
+    val fileListCellRenderer = SeTargetItemPresentationRenderer().get()
+    val defaultRenderer = listCellRenderer<SeResultListRow> {
       when (val value = value) {
-        is SeResultListItemRow -> text(value.item.presentation.text)
+        is SeResultListItemRow -> {
+          when (val presentation = value.item.presentation) {
+            is SeTextItemPresentation -> text(presentation.text)
+            else ->  throw IllegalStateException("Item is not handled: $presentation")
+          }
+        }
         is SeResultListMoreRow -> text(IdeBundle.message("search.everywhere.points.loading"))
+      }
+    }
+
+    resultList.setCellRenderer(ListCellRenderer { list, value, index, isSelected, cellHasFocus ->
+      if (value is SeResultListItemRow && value.item.presentation is SeActionItemPresentation) {
+        actionListCellRenderer.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus)
+      }
+      else if (value is SeResultListItemRow && value.item.presentation is SeTargetItemPresentation) {
+        fileListCellRenderer.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus)
+      }
+      else {
+        defaultRenderer.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus)
       }
     })
 
@@ -59,23 +86,37 @@ class SePopupContentPane(private val vm: SePopupVm, private val popupManager: Se
       .row().cell(textField, horizontalAlign = HorizontalAlign.FILL, resizableColumn = true)
       .row(resizable = true).cell(resultsScrollPane, horizontalAlign = HorizontalAlign.FILL, verticalAlign = VerticalAlign.FILL, resizableColumn = true)
 
-    textField.bindTextIn(vm.searchPattern, vm.coroutineScope)
+    textField.bindTextOnShow(vm.searchPattern, "Search Everywhere text field text binding")
 
     vm.coroutineScope.launch {
-      vm.searchResults.collectLatest { resultsFlow ->
+      vm.searchResults.collectLatest { listEventFlow ->
         withContext(Dispatchers.EDT) {
           resultListModel.removeAllElements()
+          if (vm.searchPattern.value.isNotEmpty()) {
+            resultListModel.addElement(SeResultListMoreRow)
+          }
         }
 
-        resultsFlow.collect { listItem ->
+        listEventFlow.collect { listEvent ->
           withContext(Dispatchers.EDT) {
-            if (!resultListModel.isEmpty && resultListModel.lastElement() is SeResultListMoreRow) {
-              resultListModel.removeElementAt(resultListModel.size() - 1)
-            }
+            when (listEvent) {
+              is SeResultListUpdateEvent -> {
+                when (val sortedEvent = listEvent.event) {
+                  is SeSortedResultAddedEvent -> {
+                    resultListModel.add(sortedEvent.index, SeResultListItemRow(sortedEvent.itemData))
+                  }
+                  is SeSortedResultReplacedEvent -> {
+                    resultListModel.removeElement(sortedEvent.indexToRemove)
+                    resultListModel.add(sortedEvent.index, SeResultListItemRow(sortedEvent.itemData))
+                  }
+                }
+              }
 
-            (listItem as? SeListItemData)?.let {
-              resultListModel.addElement(SeResultListItemRow(it.value))
-              resultListModel.addElement(SeResultListMoreRow)
+              SeResultListStopEvent -> {
+                if (!resultListModel.isEmpty && resultListModel.lastElement() is SeResultListMoreRow) {
+                  resultListModel.removeElementAt(resultListModel.size() - 1)
+                }
+              }
             }
           }
         }
@@ -159,15 +200,11 @@ class SePopupContentPane(private val vm: SePopupVm, private val popupManager: Se
       }
       if (newShortcuts.isEmpty()) continue
 
-
-
       val newShortcutSet: ShortcutSet = CustomShortcutSet(*newShortcuts.toTypedArray())
       DumbAwareAction.create { _: AnActionEvent? ->
         val indices: IntArray = resultList.selectedIndices
-        vm.coroutineScope.launch {
-          withContext(Dispatchers.EDT) {
-            elementsSelected(indices, modifiers)
-          }
+        vm.coroutineScope.launch(Dispatchers.EDT) {
+          elementsSelected(indices, modifiers)
         }
       }.registerCustomShortcutSet(newShortcutSet, this, this)
     }
@@ -195,9 +232,7 @@ class SePopupContentPane(private val vm: SePopupVm, private val popupManager: Se
       closePopup()
     }
     else {
-      withContext(Dispatchers.EDT) {
-        resultList.repaint()
-      }
+      resultList.repaint()
     }
   }
 
@@ -335,15 +370,8 @@ class SePopupContentPane(private val vm: SePopupVm, private val popupManager: Se
   }
 
   private fun closePopup() {
-    popupManager.closePopup()
+    vm.closePopup()
   }
 
-  override fun dispose() {
-    vm.dispose()
-  }
-}
-
-@Internal
-interface SePopupManager {
-  fun closePopup()
+  override fun dispose() { }
 }

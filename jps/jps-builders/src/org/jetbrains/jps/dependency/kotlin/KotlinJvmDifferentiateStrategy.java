@@ -9,10 +9,7 @@ import kotlin.metadata.jvm.JvmExtensionsKt;
 import kotlin.metadata.jvm.JvmMethodSignature;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.jps.dependency.DifferentiateContext;
-import org.jetbrains.jps.dependency.Node;
-import org.jetbrains.jps.dependency.NodeSource;
-import org.jetbrains.jps.dependency.ReferenceID;
+import org.jetbrains.jps.dependency.*;
 import org.jetbrains.jps.dependency.diff.Difference;
 import org.jetbrains.jps.dependency.java.*;
 
@@ -26,10 +23,86 @@ import static org.jetbrains.jps.javac.Iterators.*;
  */
 public final class KotlinJvmDifferentiateStrategy extends JvmDifferentiateStrategyImpl {
   private static final TypeRepr.ClassType JVM_OVERLOADS_ANNOTATION = new TypeRepr.ClassType("kotlin/jvm/JvmOverloads");
+  private static final Set<TypeRepr.ClassType> ourDeprecationAnnotations = Set.of(
+    new TypeRepr.ClassType("kotlin/Deprecated"),
+    new TypeRepr.ClassType("kotlin/DeprecatedSinceKotlin")
+  );
+  private static final Set<String> ourNullabilityAnnotations = Set.of(
+    "org/jetbrains/annotations/Nullable",
+    "androidx/annotation/Nullable",
+    "android/support/annotation/Nullable",
+    "android/annotation/Nullable",
+    "com/android/annotations/Nullable",
+    "org/eclipse/jdt/annotation/Nullable",
+    "org/checkerframework/checker/nullness/qual/Nullable",
+    "javax/annotation/Nullable",
+    "javax/annotation/CheckForNull",
+    "edu/umd/cs/findbugs/annotations/CheckForNull",
+    "edu/umd/cs/findbugs/annotations/Nullable",
+    "edu/umd/cs/findbugs/annotations/PossiblyNull",
+    "io/reactivex/annotations/Nullable",
+    "io/reactivex/rxjava3/annotations/Nullable",
+
+    "javax/annotation/Nonnull",
+    "org/jetbrains/annotations/NotNull",
+    "edu/umd/cs/findbugs/annotations/NonNull",
+    "androidx/annotation/NonNull",
+    "android/support/annotation/NonNull",
+    "android/annotation/NonNull",
+    "com/android/annotations/NonNull",
+    "org/eclipse/jdt/annotation/NonNull",
+    "org/checkerframework/checker/nullness/qual/NonNull",
+    "lombok/NonNull",
+    "io/reactivex/annotations/NonNull",
+    "io/reactivex/rxjava3/annotations/NonNull"
+  );
+
+  @Override
+  public boolean isAnnotationTracked(TypeRepr.@NotNull ClassType annotationType) {
+    return ourNullabilityAnnotations.contains(annotationType.getJvmName()) || ourDeprecationAnnotations.contains(annotationType);
+  }
+
+  @Override
+  public boolean processClassAnnotations(DifferentiateContext context, Difference.Change<JvmClass, JvmClass.Diff> change, Difference.Specifier<ElementAnnotation, ElementAnnotation.Diff> annotationDiff, Utils future, Utils present) {
+    JvmClass changedClass = change.getPast();
+    if (isAffectedByAnnotations(changedClass, annotationDiff, EnumSet.of(AnnotationAffectionKind.added, AnnotationAffectionKind.changed), ourDeprecationAnnotations::contains)) {
+      debug("Deprecation annotations changed for ", changedClass.getName(), " --- affecting class usages");
+      affectClassAnnotationUsages(context, EnumSet.of(AnnotationAffectionScope.usages), change, future, present);
+    }
+    return super.processClassAnnotations(context, change, annotationDiff, future, present);
+  }
+
+  @Override
+  public boolean processFieldAnnotations(DifferentiateContext context, Difference.Change<JvmClass, JvmClass.Diff> clsChange, Difference.Change<JvmField, JvmField.Diff> fieldChange, Difference.Specifier<ElementAnnotation, ElementAnnotation.Diff> annotationDiff, Utils future, Utils present) {
+    JvmField changedField = fieldChange.getPast();
+    if (
+      isAffectedByAnnotations(changedField, annotationDiff, EnumSet.of(AnnotationAffectionKind.added, AnnotationAffectionKind.removed), t -> ourNullabilityAnnotations.contains(t.getJvmName())) ||
+      isAffectedByAnnotations(changedField, annotationDiff, EnumSet.of(AnnotationAffectionKind.added, AnnotationAffectionKind.changed), ourDeprecationAnnotations::contains)
+    ) {
+      debug("Nullability or Deprecation annotations changed for field ", changedField, " --- affecting field usages");
+      affectFieldAnnotationUsages(context, EnumSet.of(AnnotationAffectionScope.usages), clsChange, changedField, future, present);
+    }
+    return super.processFieldAnnotations(context, clsChange, fieldChange, annotationDiff, future, present);
+  }
+
+  @Override
+  public boolean processMethodAnnotations(DifferentiateContext context, Difference.Change<JvmClass, JvmClass.Diff> clsChange, Difference.Change<JvmMethod, JvmMethod.Diff> methodChange, Difference.Specifier<ElementAnnotation, ElementAnnotation.Diff> annotationsDiff, Difference.Specifier<ParamAnnotation, ParamAnnotation.Diff> paramAnnotationsDiff, Utils future, Utils present) {
+    JvmMethod changedMethod = methodChange.getPast();
+    if (
+      isAffectedByAnnotations(changedMethod, annotationsDiff, EnumSet.of(AnnotationAffectionKind.added, AnnotationAffectionKind.removed), t -> ourNullabilityAnnotations.contains(t.getJvmName()))      ||
+      isAffectedByAnnotations(changedMethod, paramAnnotationsDiff, EnumSet.of(AnnotationAffectionKind.added, AnnotationAffectionKind.removed), t -> ourNullabilityAnnotations.contains(t.getJvmName())) ||
+      isAffectedByAnnotations(changedMethod, annotationsDiff, EnumSet.of(AnnotationAffectionKind.added, AnnotationAffectionKind.changed), ourDeprecationAnnotations::contains)
+    ) {
+      debug("Nullability annotations/parameter annotations or Deprecation annotations changed for method ", changedMethod, " --- affecting method usages");
+      EnumSet<AnnotationAffectionScope> affection = changedMethod.isFinal()? EnumSet.of(AnnotationAffectionScope.usages) : EnumSet.of(AnnotationAffectionScope.usages, AnnotationAffectionScope.subclasses);
+      affectMethodAnnotationUsages(context, affection, clsChange, changedMethod, future, present);
+    }
+    return super.processMethodAnnotations(context, clsChange, methodChange, annotationsDiff, paramAnnotationsDiff, future, present);
+  }
 
   @Override
   public boolean processAddedClasses(DifferentiateContext context, Iterable<JvmClass> addedClasses, Utils future, Utils present) {
-    for (JvmNodeReferenceID sealedSuperClass : unique(map(filter(flat(map(addedClasses, added -> future.allDirectSupertypes(added))), KJvmUtils::isSealed), JVMClassNode::getReferenceID))) {
+    for (JvmNodeReferenceID sealedSuperClass : unique(map(filter(flat(map(filter(addedClasses, cl -> !cl.isLibrary()), future::allDirectSupertypes)), KJvmUtils::isSealed), JVMClassNode::getReferenceID))) {
       affectSealedClass(context, sealedSuperClass, "Subclass of a sealed class was added, affecting ", future, true /*affectUsages*/);
     }
     return super.processAddedClasses(context, addedClasses, future, present);
@@ -62,8 +135,10 @@ public final class KotlinJvmDifferentiateStrategy extends JvmDifferentiateStrate
 
   @Override
   public boolean processRemovedClass(DifferentiateContext context, JvmClass removedClass, Utils future, Utils present) {
-    for (JvmClass superClass : filter(future.allDirectSupertypes(removedClass), KJvmUtils::isSealed)) {
-      affectSealedClass(context, superClass.getReferenceID(), "Subclass of a sealed class was removed, affecting ", future, true /*affectUsages*/);
+    if (!removedClass.isLibrary()) {
+      for (JvmClass superClass : filter(future.allDirectSupertypes(removedClass), KJvmUtils::isSealed)) {
+        affectSealedClass(context, superClass.getReferenceID(), "Subclass of a sealed class was removed, affecting ", future, true /*affectUsages*/);
+      }
     }
 
     if (!removedClass.isInnerClass()) {
@@ -84,7 +159,7 @@ public final class KotlinJvmDifferentiateStrategy extends JvmDifferentiateStrate
       }
 
       for (KmProperty prop : filter(KJvmUtils.allKmProperties(removedClass), p -> !KJvmUtils.isPrivate(p))) {
-        if (Attributes.isConst(prop) || Attributes.isInline(prop.getGetter()) || (prop.getSetter() != null && Attributes.isInline(prop.getSetter()))) {
+        if (KJvmUtils.isInlinable(prop)) {
           debug("Property in a removed class was a constant or had inlineable accessors, affecting property usages ", prop.getName());
           affectMemberLookupUsages(context, removedClass, prop.getName(), present);
         }
@@ -113,7 +188,7 @@ public final class KotlinJvmDifferentiateStrategy extends JvmDifferentiateStrate
     }
     
     if (KJvmUtils.isKotlinNode(changedClass)) {
-      if (hierarchyChanged) {
+      if (hierarchyChanged && !changedClass.isLibrary()) {
         Difference.Specifier<JvmNodeReferenceID, ?> sealedDiff = Difference.diff(
           map(filter(present.allDirectSupertypes(change.getPast()), KJvmUtils::isSealed), JVMClassNode::getReferenceID),
           map(filter(future.allDirectSupertypes(change.getNow()), KJvmUtils::isSealed), JVMClassNode::getReferenceID)
@@ -287,7 +362,7 @@ public final class KotlinJvmDifferentiateStrategy extends JvmDifferentiateStrate
         if (KJvmUtils.isPrivate(removedProp)) {
           continue;
         }
-        if (Attributes.isInline(removedProp.getGetter()) || (removedProp.getSetter() != null && Attributes.isInline(removedProp.getSetter()))) {
+        if (KJvmUtils.isInlinable(removedProp)) {
           debug("Removed property was inlineable, affecting property usages ", removedProp.getName());
           affectMemberLookupUsages(context, changedClass, removedProp.getName(), present);
         }
@@ -352,7 +427,7 @@ public final class KotlinJvmDifferentiateStrategy extends JvmDifferentiateStrate
 
     }
 
-    return true;
+    return super.processChangedClass(context, change, future, present);
   }
 
   @Override
@@ -385,7 +460,7 @@ public final class KotlinJvmDifferentiateStrategy extends JvmDifferentiateStrate
       debug("Function was inlineable, or has become inlineable or a body of inline method has changed; affecting method usages ", name);
       affectMemberLookupUsages(context, changedClass, name, future);
     }
-    return true;
+    return super.processChangedMethod(context, clsChange, methodChange, future, present);
   }
 
   @Override
@@ -423,7 +498,73 @@ public final class KotlinJvmDifferentiateStrategy extends JvmDifferentiateStrate
       }
     }
 
+    return super.processChangedField(context, clsChange, fieldChange, future, present);
+  }
+
+  @Override
+  public boolean processNodesWithErrors(DifferentiateContext context, Iterable<JVMClassNode<?, ?>> nodes, Utils present) {
+    for (JvmClass jvmClass : Graph.getNodesOfType(nodes, JvmClass.class)) {
+
+      // affect lookups on field constants
+      for (JvmField field : filter(jvmClass.getFields(), f -> !f.isPrivate() && f.isInlinable() && f.getValue() != null)) {
+        debug("Potentially inlined field is contained in a source compiled with errors; affecting lookup usages in Kotlin sources ");
+        affectLookupUsages(
+          context,
+          flat(asIterable(jvmClass.getReferenceID()), present.collectSubclassesWithoutField(jvmClass.getReferenceID(), field)),
+          field.getName(),
+          present,
+          null
+        );
+      }
+      
+      // affect lookups on methods
+      for (JvmMethod method : filter(jvmClass.getMethods(), m -> !m.isPrivate() && m.getValue() != null)) {
+        String name = KJvmUtils.getMethodKotlinName(jvmClass, method);
+        debug("Inlinable function is contained in a source compiled with errors; affecting lookup usages in Kotlin sources ", name);
+        affectMemberLookupUsages(context, jvmClass, name, present);
+      }
+
+      // in case this is a Kotlin container, affect lookups in Kotlin terms
+      
+      for (KmFunction kmFunction : filter(KJvmUtils.allKmFunctions(jvmClass), f -> !KJvmUtils.isPrivate(f))) {
+        if (Attributes.isInline(kmFunction)) {
+          debug("Inlinable function is contained in a source compiled with errors; affecting lookup usages ", kmFunction.getName());
+          affectMemberLookupUsages(context, jvmClass, kmFunction.getName(), present);
+        }
+      }
+
+      for (KmProperty prop : filter(KJvmUtils.allKmProperties(jvmClass), p -> !KJvmUtils.isPrivate(p))) {
+        if (KJvmUtils.isInlinable(prop)) {
+          debug("Inlinable property or its accessors is contained in a source compiled with errors; affecting property lookup usages ", prop.getName());
+          affectMemberLookupUsages(context, jvmClass, prop.getName(), present);
+        }
+      }
+
+      KotlinMeta meta = KJvmUtils.getKotlinMeta(jvmClass);
+      for (KmTypeAlias alias : filter(meta != null? meta.getKmTypeAliases() : List.of(), a -> !KJvmUtils.isPrivate(Attributes.getVisibility(a)))) {
+        debug("A type alias declaration is contained in a source compiled with errors; affecting lookup usages ", alias.getName());
+        affectMemberLookupUsages(context, jvmClass, alias.getName(), present);
+      }
+    }
+    
     return true;
+  }
+
+  @Override
+  protected void affectMethodAnnotationUsages(DifferentiateContext context, Set<AnnotationAffectionScope> toRecompile, Difference.Change<JvmClass, JvmClass.Diff> clsChange, JvmMethod changedMethod, Utils future, Utils present) {
+    super.affectMethodAnnotationUsages(context, toRecompile, clsChange, changedMethod, future, present);
+    if (toRecompile.contains(AnnotationAffectionScope.usages)) {
+      JvmClass changedClass = clsChange.getPast();
+      affectMemberLookupUsages(context, changedClass, KJvmUtils.getMethodKotlinName(changedClass, changedMethod), present);
+    }
+  }
+
+  @Override
+  protected void affectClassAnnotationUsages(DifferentiateContext context, Set<AnnotationAffectionScope> toRecompile, Difference.Change<JvmClass, JvmClass.Diff> change, Utils future, Utils present) {
+    super.affectClassAnnotationUsages(context, toRecompile, change, future, present);
+    if (toRecompile.contains(AnnotationAffectionScope.usages)) {
+      affectClassLookupUsages(context, change.getPast());
+    }
   }
 
   private void affectConflictingCallExpressions(DifferentiateContext context, JvmClass cls, JvmMethod clsMethod, Utils utils, @Nullable Predicate<Node<?, ?>> constraint) {
@@ -578,7 +719,7 @@ public final class KotlinJvmDifferentiateStrategy extends JvmDifferentiateStrate
   private static Iterable<JvmMethod> withJvmOverloads(JvmClass cls, JvmMethod method) {
     return unique(flat(
       asIterable(method),
-      filter(cls.getMethods(), m -> Objects.equals(m.getName(), method.getName()) && Objects.equals(m.getType(), method.getType()) && find(m.getAnnotations(), a -> JVM_OVERLOADS_ANNOTATION.equals(a.getAnnotationClass())) != null)
+      filter(cls.getMethods(), m -> Objects.equals(m.getName(), method.getName()) && Objects.equals(m.getType(), method.getType()) && contains(map(m.getAnnotations(), AnnotationInstance::getAnnotationClass), JVM_OVERLOADS_ANNOTATION))
     ));
   }
 

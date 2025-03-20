@@ -19,6 +19,7 @@ import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.terminal.block.TerminalUsageLocalStorage;
+import org.jetbrains.plugins.terminal.fus.ReworkedTerminalUsageCollector;
 import org.jetbrains.plugins.terminal.fus.TerminalUsageTriggerCollector;
 import org.jetbrains.plugins.terminal.runner.LocalOptionsConfigurer;
 import org.jetbrains.plugins.terminal.runner.LocalShellIntegrationInjector;
@@ -60,8 +61,8 @@ public class LocalTerminalDirectRunner extends AbstractTerminalRunner<PtyProcess
     ShellStartupOptions updatedOptions = LocalOptionsConfigurer.configureStartupOptions(baseOptions, myProject);
     if (enableShellIntegration()) {
       updatedOptions = LocalShellIntegrationInjector.injectShellIntegration(updatedOptions,
-                                                                            isBlockTerminalEnabled(),
-                                                                            isBlockTerminalReworked());
+                                                                            isGenOneTerminalEnabled(),
+                                                                            isGenTwoTerminalEnabled());
     }
     return applyTerminalCustomizers(updatedOptions);
   }
@@ -95,11 +96,15 @@ public class LocalTerminalDirectRunner extends AbstractTerminalRunner<PtyProcess
     }
 
     var shellIntegration = options.getShellIntegration();
-    boolean isBlockTerminal = isBlockTerminalEnabled() &&
-                              (isBlockTerminalReworked() ||
-                               shellIntegration != null &&
-                               shellIntegration.getCommandBlockIntegration() != null);
-    TerminalUsageTriggerCollector.triggerLocalShellStarted(myProject, command, isBlockTerminal);
+    boolean isBlockTerminal =
+      (isGenOneTerminalEnabled() && shellIntegration != null && shellIntegration.getCommandBlockIntegration() != null);
+
+    if (isGenTwoTerminalEnabled()) {
+      ReworkedTerminalUsageCollector.logLocalShellStarted(myProject, command);
+    }
+    else {
+      TerminalUsageTriggerCollector.triggerLocalShellStarted(myProject, command, isBlockTerminal);
+    }
 
     if (isBlockTerminal) {
       TerminalUsageLocalStorage.getInstance().recordBlockTerminalUsed();
@@ -217,15 +222,7 @@ public class LocalTerminalDirectRunner extends AbstractTerminalRunner<PtyProcess
   }
 
   @ApiStatus.Internal
-  protected boolean isBlockTerminalEnabled() {
-    return false;
-  }
-
-  /**
-   * @return true if reworked block terminal (gen2) should be used instead of gen1 new terminal.
-   */
-  @ApiStatus.Internal
-  protected boolean isBlockTerminalReworked() {
+  protected boolean isGenOneTerminalEnabled() {
     return false;
   }
 
@@ -250,7 +247,7 @@ public class LocalTerminalDirectRunner extends AbstractTerminalRunner<PtyProcess
   @NotNull ShellStartupOptions injectShellIntegration(@NotNull List<String> shellCommand,
                                                              @NotNull Map<String, String> envs) {
     ShellStartupOptions options = new ShellStartupOptions.Builder().shellCommand(shellCommand).envVariables(envs).build();
-    return LocalShellIntegrationInjector.injectShellIntegration(options, isBlockTerminalEnabled(), isBlockTerminalReworked());
+    return LocalShellIntegrationInjector.injectShellIntegration(options, isGenOneTerminalEnabled(), isGenTwoTerminalEnabled());
   }
 
   /**

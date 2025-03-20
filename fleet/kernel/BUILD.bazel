@@ -4,7 +4,6 @@ load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 create_kotlinc_options(
   name = "custom",
-  jvm_target = 17,
   opt_in = [
     "kotlinx.coroutines.ExperimentalCoroutinesApi",
     "kotlin.ExperimentalStdlibApi",
@@ -15,7 +14,7 @@ jvm_library(
   name = "kernel",
   module_name = "fleet.kernel",
   visibility = ["//visibility:public"],
-  srcs = glob(["src/**/*.kt", "src/**/*.java"], allow_empty = True, exclude = ["**/module-info.java"]),
+  srcs = glob(["src/**/*.kt", "src/**/*.java", "srcJvmMain/**/*.kt", "srcJvmMain/**/*.java"], allow_empty = True, exclude = ["**/module-info.java"]),
   kotlinc_opts = ":custom",
   deps = [
     "@lib//:kotlin-stdlib",
@@ -25,8 +24,9 @@ jvm_library(
     "//fleet/util/core:fleet-util-core",
     "//fleet/rpc",
     "@lib//:kotlinx-coroutines-core",
-    "//fleet/preferences",
     "//fleet/reporting/api:fleet-reporting-api",
+    "//fleet/reporting/shared:fleet-reporting-shared",
+    "//fleet/multiplatform.shims:multiplatform-shims",
     "@lib//:fastutil-min",
   ],
   exports = [

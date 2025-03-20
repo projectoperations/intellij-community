@@ -7,6 +7,7 @@ import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.util.text.Strings;
+import com.intellij.platform.plugins.parser.impl.*;
 import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.testFramework.UsefulTestCase;
 import com.intellij.testFramework.rules.TempDirectory;
@@ -239,7 +240,7 @@ public class PluginManagerTest {
     }
     text.append("\n\n");
     for (var html : PluginManagerCore.INSTANCE.getAndClearPluginLoadingErrors()) {
-      text.append(html.toString().replace("<br/>", "\n").replace("&#39;", "")).append('\n');
+      text.append(html.get().toString().replace("<br/>", "\n").replace("&#39;", "")).append('\n');
     }
     UsefulTestCase.assertSameLinesWithFile(new File(getTestDataPath(), testDataName + ".txt").getPath(), text.toString());
   }
@@ -283,7 +284,7 @@ public class PluginManagerTest {
   private static PluginManagerState loadAndInitializeDescriptors(String testDataName, boolean isBundled) throws IOException, XMLStreamException {
     var file = Path.of(getTestDataPath(), testDataName);
     var buildNumber = BuildNumber.fromString("2042.42");
-    var parentContext = new DescriptorListLoadingContext(Set.of(), Set.of(), Map.of(), () -> buildNumber, false, false, false, false);
+    var parentContext = new DescriptorListLoadingContext(Set.of(), Set.of(), Map.of(), List.of(), () -> buildNumber, false, false, false);
 
     var root = XmlDomReader.readXmlAsModel(Files.newInputStream(file));
     var autoGenerateModuleDescriptor = new Ref<>(false);
@@ -295,25 +296,22 @@ public class PluginManagerTest {
       }
 
       @Override
-      public boolean loadXIncludeReference(@NotNull RawPluginDescriptor readInto,
-                                           @NotNull ReadModuleContext readContext,
-                                           @NotNull DataLoader dataLoader,
-                                           @Nullable String base,
-                                           @NotNull String relativePath) {
+      public @Nullable XIncludeLoader.LoadedXIncludeReference loadXIncludeReference(@NotNull DataLoader dataLoader, @NotNull String path) {
         throw new UnsupportedOperationException();
       }
 
       @Override
-      public @NotNull RawPluginDescriptor resolvePath(@NotNull ReadModuleContext readContext,
-                                                      @NotNull DataLoader dataLoader,
-                                                      @NotNull String relativePath,
-                                                      @Nullable RawPluginDescriptor readInto) {
+      public PluginDescriptorBuilder resolvePath(@NotNull ReadModuleContext readContext,
+                                                 @NotNull DataLoader dataLoader,
+                                                 @NotNull String relativePath) {
         for (var child : root.children) {
           if (child.name.equals("config-file-idea-plugin")) {
             var url = Objects.requireNonNull(child.getAttributeValue("url"));
             if (url.endsWith("/" + relativePath)) {
               try {
-                return XmlReader.readModuleDescriptor(elementAsBytes(child), readContext, this, dataLoader, null, readInto, null);
+                var reader = new PluginDescriptorFromXmlStreamConsumer(readContext, PathResolverKt.toXIncludeLoader(this, dataLoader));
+                PluginXmlStreamConsumerKt.consume(reader, elementAsBytes(child), null);
+                return reader.getBuilder();
               }
               catch (XMLStreamException e) {
                 throw new RuntimeException(e);
@@ -325,10 +323,9 @@ public class PluginManagerTest {
       }
 
       @Override
-      public @NotNull RawPluginDescriptor resolveModuleFile(@NotNull ReadModuleContext readContext,
-                                                                              @NotNull DataLoader dataLoader,
-                                                                              @NotNull String path,
-                                                                              @Nullable RawPluginDescriptor readInto) {
+      public @NotNull PluginDescriptorBuilder resolveModuleFile(@NotNull ReadModuleContext readContext,
+                                                                @NotNull DataLoader dataLoader,
+                                                                @NotNull String path) {
         if (autoGenerateModuleDescriptor.get() && path.startsWith("intellij.")) {
           var element = moduleMap.get(path);
           if (element != null) {
@@ -339,12 +336,10 @@ public class PluginManagerTest {
               throw new RuntimeException(e);
             }
           }
-
-          assert readInto == null;
           // auto-generate empty descriptor
           return PluginBuilderKt.readModuleDescriptorForTest(("<idea-plugin package=\"" + path + "\"></idea-plugin>").getBytes(StandardCharsets.UTF_8));
         }
-        return resolvePath(readContext, dataLoader, path, readInto);
+        return resolvePath(readContext, dataLoader, path);
       }
     };
 
@@ -376,7 +371,7 @@ public class PluginManagerTest {
       else {
         pluginPath = Path.of(Strings.trimStart(Objects.requireNonNull(url), "file://"));
       }
-      var descriptor = PluginDescriptorTestKt.createFromDescriptor(
+      var descriptor = PluginDescriptorLoadUtilsKt.createFromDescriptor(
         pluginPath, isBundled, elementAsBytes(element), parentContext, pathResolver, new LocalFsDataLoader(pluginPath));
       list.add(descriptor);
       descriptor.jarFiles = List.of();

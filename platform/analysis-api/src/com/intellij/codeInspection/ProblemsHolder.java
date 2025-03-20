@@ -17,10 +17,7 @@ import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiReference;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.xml.util.XmlStringUtil;
-import org.jetbrains.annotations.CheckReturnValue;
-import org.jetbrains.annotations.Contract;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.*;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -32,13 +29,13 @@ public class ProblemsHolder {
   private static final Logger LOG = Logger.getInstance(ProblemsHolder.class);
 
   private final InspectionManager myManager;
-  private final PsiFile myFile;
+  private final PsiFile myPsiFile;
   private final boolean myOnTheFly;
   private final List<ProblemDescriptor> myProblems = new ArrayList<>();
 
-  public ProblemsHolder(@NotNull InspectionManager manager, @NotNull PsiFile file, boolean onTheFly) {
+  public ProblemsHolder(@NotNull InspectionManager manager, @NotNull PsiFile psiFile, boolean onTheFly) {
     myManager = manager;
-    myFile = file;
+    myPsiFile = psiFile;
     myOnTheFly = onTheFly;
   }
 
@@ -56,15 +53,20 @@ public class ProblemsHolder {
   }
 
   public void registerProblem(@NotNull ProblemDescriptor problemDescriptor) {
-    PsiElement element = problemDescriptor.getPsiElement();
-    if (element != null && !isInPsiFile(element)) {
-      ExternallyDefinedPsiElement external = PsiTreeUtil.getParentOfType(element, ExternallyDefinedPsiElement.class, false);
+    PsiElement psiElement = problemDescriptor.getPsiElement();
+    if (psiElement != null && !isInPsiFile(psiElement)) {
+      ExternallyDefinedPsiElement external = PsiTreeUtil.getParentOfType(psiElement, ExternallyDefinedPsiElement.class, false);
       if (external != null) {
         PsiElement newTarget = external.getProblemTarget();
         if (newTarget != null) {
           redirectProblem(problemDescriptor, newTarget);
           return;
         }
+      }
+      if (isOnTheFly()) {
+        LOG.error("Inspection generated invalid ProblemDescriptor '" + problemDescriptor + "'." +
+                  " It contains PsiElement with getContainingFile(): '" + psiElement.getContainingFile() + "' (" + psiElement.getContainingFile().getClass() + ")" +
+                  "; but expected: '" + getFile() + "' (" + getFile().getClass() + ")");
       }
     }
 
@@ -75,12 +77,14 @@ public class ProblemsHolder {
     myProblems.add(problemDescriptor);
   }
 
-  private boolean isInPsiFile(@NotNull PsiElement element) {
+  @ApiStatus.Internal
+  protected boolean isInPsiFile(@NotNull PsiElement element) {
     PsiFile file = element.getContainingFile();
-    return file != null && myFile.getViewProvider() == file.getViewProvider();
+    return file != null && myPsiFile.getViewProvider() == file.getViewProvider();
   }
 
-  private void redirectProblem(@NotNull ProblemDescriptor problem, @NotNull PsiElement target) {
+  @ApiStatus.Internal
+  protected void redirectProblem(@NotNull ProblemDescriptor problem, @NotNull PsiElement target) {
     PsiElement original = problem.getPsiElement();
     VirtualFile vFile = original.getContainingFile().getVirtualFile();
     assert vFile != null;
@@ -131,6 +135,11 @@ public class ProblemsHolder {
   @SuppressWarnings({"HardCodedStringLiteral", "DialogTitleCapitalization"})
   public void registerPossibleProblem(PsiElement identifier) {
     registerProblem(identifier, "possible problem", ProblemHighlightType.POSSIBLE_PROBLEM);
+  }
+
+  @ApiStatus.Internal
+  public void clearResults() {
+    myProblems.clear();
   }
 
   /**
@@ -207,7 +216,7 @@ public class ProblemsHolder {
   }
 
   public @NotNull PsiFile getFile() {
-    return myFile;
+    return myPsiFile;
   }
 
   public final @NotNull Project getProject() {

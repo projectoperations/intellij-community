@@ -18,16 +18,14 @@ import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.util.ProperTextRange;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.registry.Registry;
-import com.intellij.psi.PsiDocumentManager;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiFile;
-import com.intellij.psi.PsiLanguageInjectionHost;
+import com.intellij.psi.*;
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageManagerImpl;
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil;
 import com.intellij.util.CommonProcessors;
 import com.intellij.util.Processor;
 import com.intellij.util.containers.ContainerUtil;
 import it.unimi.dsi.fastutil.longs.LongList;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -36,7 +34,8 @@ import java.util.*;
 /**
  * Perform injections, run highlight visitors and annotators on discovered injected files
  */
-final class InjectedGeneralHighlightingPass extends ProgressableTextEditorHighlightingPass {
+@ApiStatus.Internal
+public final class InjectedGeneralHighlightingPass extends ProgressableTextEditorHighlightingPass {
   private final @Nullable List<? extends @NotNull TextRange> myReducedRanges;
   private final boolean myUpdateAll;
   private final ProperTextRange myPriorityRange;
@@ -79,7 +78,7 @@ final class InjectedGeneralHighlightingPass extends ProgressableTextEditorHighli
 
     InjectedLanguageManager injectedLanguageManager = InjectedLanguageManager.getInstance(myProject);
     TextAttributesKey fragmentKey = EditorColors.createInjectedLanguageFragmentKey(myFile.getLanguage());
-    Set<@NotNull PsiFile> injected = ConcurrentCollectionFactory.createConcurrentSet();  // in case of concatenation, multiple hosts can return the same injected fragment. have to visit it only once
+    Set<@NotNull FileViewProvider> injected = ConcurrentCollectionFactory.createConcurrentSet();  // in case of concatenation, multiple hosts can return the same injected fragment. have to visit it only once
     ManagedHighlighterRecycler.runWithRecycler(getHighlightingSession(), recycler -> {
       processInjectedPsiFiles(allInsideElements, allOutsideElements, progress, injected,
                               (injectedPsi, places) ->
@@ -103,7 +102,7 @@ final class InjectedGeneralHighlightingPass extends ProgressableTextEditorHighli
   private void processInjectedPsiFiles(@NotNull List<? extends PsiElement> elements1,
                                        @NotNull List<? extends PsiElement> elements2,
                                        @NotNull ProgressIndicator progress,
-                                       @NotNull Set<? super PsiFile> visitedInjected,
+                                       @NotNull Set<? super FileViewProvider> visitedInjected,
                                        @NotNull PsiLanguageInjectionHost.InjectedPsiVisitor visitor) {
     ApplicationManager.getApplication().assertReadAccessAllowed();
 
@@ -151,7 +150,7 @@ final class InjectedGeneralHighlightingPass extends ProgressableTextEditorHighli
     if (!JobLauncher.getInstance().invokeConcurrentlyUnderProgress(new ArrayList<>(hosts), progress, element -> {
         ApplicationManager.getApplication().assertReadAccessAllowed();
         injectedLanguageManager.enumerateEx(element, myFile, false, (injectedPsi, places) -> {
-          if (visitedInjected.add(injectedPsi)) {
+          if (visitedInjected.add(injectedPsi.getViewProvider())) {
             visitor.visit(injectedPsi, places);
           }
         });
@@ -186,7 +185,7 @@ final class InjectedGeneralHighlightingPass extends ProgressableTextEditorHighli
     GeneralHighlightingPass.setupAnnotationSession(session, myPriorityRange, myRestrictRange,
                                                    ((HighlightingSessionImpl)getHighlightingSession()).getMinimumSeverity());
 
-    AnnotatorRunner annotatorRunner = myRunAnnotators ? new AnnotatorRunner(injectedPsi, false, session) : null;
+    AnnotatorRunner annotatorRunner = myRunAnnotators ? new AnnotatorRunner(session, false) : null;
     Divider.divideInsideAndOutsideAllRoots(injectedPsi, injectedPsi.getTextRange(), injectedPsi.getTextRange(), GeneralHighlightingPass.SHOULD_HIGHLIGHT_FILTER, dividedElements -> {
       List<? extends @NotNull PsiElement> inside = dividedElements.inside();
       LongList insideRanges = dividedElements.insideRanges();
@@ -281,7 +280,7 @@ final class InjectedGeneralHighlightingPass extends ProgressableTextEditorHighli
             TextRange patchedFixRange = documentWindow.injectedToHost(editableRange);
             return descriptor.withFixRange(patchedFixRange);
           });
-        patched.registerFixes(fixes);
+        patched.registerFixes(fixes, documentWindow.getDelegate());
         return null;
       });
       patched.markFromInjection();

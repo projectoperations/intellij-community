@@ -48,16 +48,8 @@ object JavaPluginLayout {
         "intellij.java.uast.ide",
       ))
 
-      for (moduleName in listOf(
-        "intellij.java.frontback.impl",
-        "intellij.java.frontback.psi",
-        "intellij.java.frontback.psi.impl",
-        "intellij.java.debugger.impl.shared",
-      )) {
-        spec.withModule(moduleName, "java-frontback.jar")
-      }
-
       spec.withModules(listOf(
+        "intellij.java.codeserver.core",
         "intellij.java.codeserver.highlighting",
         "intellij.java.compiler.impl",
         "intellij.java.debugger.impl",
@@ -97,7 +89,6 @@ object JavaPluginLayout {
       // explicitly pack jshell-frontend and sa-jdwp as a separate JARs
       spec.withModuleLibrary("jshell-frontend", "intellij.java.execution.impl", "jshell-frontend.jar")
       spec.withModuleLibrary("sa-jdwp", "intellij.java.debugger.impl", "sa-jdwp.jar")
-      spec.withModule("intellij.java.compiler.charts.jps", "jps/java-compiler-charts-jps.jar")
 
       spec.withResourceArchive("../jdkAnnotations", "lib/resources/jdkAnnotations.jar")
 

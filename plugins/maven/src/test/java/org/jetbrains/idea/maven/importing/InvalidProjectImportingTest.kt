@@ -16,7 +16,7 @@
 package org.jetbrains.idea.maven.importing
 
 import com.intellij.maven.testFramework.MavenMultiVersionImportingTestCase
-import com.intellij.openapi.application.writeAction
+import com.intellij.openapi.application.edtWriteAction
 import com.intellij.testFramework.UsefulTestCase
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.idea.maven.MavenCustomRepositoryHelper
@@ -50,10 +50,12 @@ class InvalidProjectImportingTest : MavenMultiVersionImportingTestCase() {
     }
 
     forMaven4 {
-      assertProblems(projectsManager.findProject(projectPom)!!, "'dependencies.dependency.scope' for junit:junit:jar declares usage of deprecated 'system' scope ", "'dependencies.dependency.systemPath' for junit:junit:jar is missing.")
+      val expected = arrayOf(
+        "'dependencies.dependency.systemPath' for junit:junit:jar is missing.",
+        "'dependencies.dependency.scope' for junit:junit:jar declares usage of deprecated 'system' scope ",
+      )
+      assertProblems(projectsManager.findProject(projectPom)!!, *expected)
     }
-
-
   }
 
   @Test
@@ -171,7 +173,7 @@ class InvalidProjectImportingTest : MavenMultiVersionImportingTestCase() {
   @Test
   fun testUnknownProblemWithEmptyFile() = runBlocking {
     createProjectPom("")
-    writeAction { projectPom.setBinaryContent(ByteArray(0)) }
+    edtWriteAction { projectPom.setBinaryContent(ByteArray(0)) }
 
     importProjectAsync()
 
@@ -192,7 +194,10 @@ class InvalidProjectImportingTest : MavenMultiVersionImportingTestCase() {
     assertModules("project")
     val root = rootProjects[0]
     val problems = if (isMaven4)
-      arrayOf("'artifactId' contains an expression but should be a constant.", "'artifactId' with value '\${undefined}' does not match a valid coordinate id pattern.")
+      arrayOf(
+        "'artifactId' with value '\${undefined}' does not match a valid coordinate id pattern.",
+        "'artifactId' contains an expression but should be a constant.",
+      )
     else
       arrayOf("'artifactId' with value '\${undefined}' does not match a valid id pattern.")
     assertProblems(root, *problems)
@@ -832,9 +837,9 @@ class InvalidProjectImportingTest : MavenMultiVersionImportingTestCase() {
 
   @Test
   fun testDoNotReportResolvedPlugins() = runBlocking {
-    val helper = MavenCustomRepositoryHelper(dir.toFile(), "plugins")
+    val helper = MavenCustomRepositoryHelper(dir, "plugins")
 
-    repositoryPath = helper.getTestDataPath("plugins")
+    repositoryPath = helper.getTestData("plugins")
 
     importProjectAsync("""
                               <groupId>test</groupId>
@@ -910,21 +915,6 @@ class InvalidProjectImportingTest : MavenMultiVersionImportingTestCase() {
 
     val root = rootProjects[0]
     assertProblems(root, "'settings.xml' has syntax errors")
-  }
-
-  @Test
-  fun testInvalidProfilesXml() = runBlocking {
-    createProfilesXml("<prof<<")
-
-    importProjectAsync("""
-                              <groupId>test</groupId>
-                              <artifactId>project</artifactId>
-                              <version>1</version>
-                              """.trimIndent())
-    assertModules("project")
-
-    val root = rootProjects[0]
-    assertProblems(root, "'profiles.xml' has syntax errors")
   }
 
   private val rootProjects: List<MavenProject>

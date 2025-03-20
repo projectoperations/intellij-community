@@ -2,13 +2,16 @@
 package com.intellij.codeInsight.daemon.impl.analysis;
 
 import com.intellij.codeInsight.daemon.QuickFixBundle;
-import com.intellij.codeInsight.daemon.impl.HighlightInfo;
 import com.intellij.codeInsight.daemon.impl.quickfix.*;
 import com.intellij.codeInsight.intention.CommonIntentionAction;
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.codeInsight.intention.QuickFixFactory;
 import com.intellij.codeInsight.intention.impl.PriorityIntentionActionWrapper;
 import com.intellij.codeInsight.quickfix.ChangeVariableTypeQuickFixProvider;
+import com.intellij.java.codeserver.core.JavaPatternExhaustivenessUtil;
+import com.intellij.java.codeserver.core.JavaPsiModifierUtil;
+import com.intellij.java.codeserver.core.JavaPsiSealedUtil;
+import com.intellij.java.codeserver.core.JavaPsiSwitchUtil;
 import com.intellij.lang.jvm.JvmModifier;
 import com.intellij.lang.jvm.actions.JvmElementActionFactories;
 import com.intellij.lang.jvm.actions.MemberRequestsKt;
@@ -17,7 +20,9 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.JavaSdkVersion;
-import com.intellij.openapi.projectRoots.JavaVersionService;
+import com.intellij.openapi.projectRoots.JavaSdkVersionUtil;
+import com.intellij.pom.java.JavaFeature;
+import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
 import com.intellij.psi.controlFlow.*;
 import com.intellij.psi.infos.CandidateInfo;
@@ -25,15 +30,15 @@ import com.intellij.psi.infos.MethodCandidateInfo;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.PsiShortNamesCache;
 import com.intellij.psi.util.*;
+import com.intellij.psi.util.InheritanceUtil;
 import com.intellij.refactoring.util.RefactoringChangeUtil;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.JavaPsiConstructorUtil;
-import com.intellij.util.ObjectUtils;
+import com.intellij.util.containers.ContainerUtil;
 import com.siyeh.ig.callMatcher.CallMatcher;
-import com.siyeh.ig.psiutils.ExpressionUtils;
-import com.siyeh.ig.psiutils.SwitchUtils;
-import com.siyeh.ig.psiutils.VariableAccessUtils;
+import com.siyeh.ig.psiutils.*;
+import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -41,7 +46,11 @@ import org.jetbrains.annotations.Nullable;
 import java.util.*;
 import java.util.function.Consumer;
 
-import static java.util.Objects.*;
+import static com.intellij.java.codeserver.core.JavaPatternExhaustivenessUtil.checkRecordExhaustiveness;
+import static com.intellij.java.codeserver.core.JavaPatternExhaustivenessUtil.findMissedClasses;
+import static com.intellij.util.ObjectUtils.tryCast;
+import static java.util.Objects.requireNonNull;
+import static java.util.Objects.requireNonNullElse;
 
 public final class HighlightFixUtil {
   private static final Logger LOG = Logger.getInstance(HighlightFixUtil.class);
@@ -135,13 +144,13 @@ public final class HighlightFixUtil {
     }
   }
 
-  static void registerChangeVariableTypeFixes(@NotNull PsiExpression expression,
-                                              @NotNull PsiType type,
-                                              @NotNull Consumer<? super CommonIntentionAction> info) {
+  static void registerChangeVariableTypeFixes(@NotNull Consumer<? super CommonIntentionAction> info,
+                                              @NotNull PsiExpression expression,
+                                              @NotNull PsiType type) {
     if (!(expression instanceof PsiReferenceExpression ref)) return;
     if (!(ref.resolve() instanceof PsiVariable variable)) return;
 
-    registerChangeVariableTypeFixes(variable, type, info);
+    registerChangeVariableTypeFixes(info, variable, type);
   }
 
   static void registerUnhandledExceptionFixes(@NotNull PsiElement element, @NotNull Consumer<? super CommonIntentionAction> info) {
@@ -153,12 +162,13 @@ public final class HighlightFixUtil {
     info.accept(quickFixFactory.createSurroundWithTryCatchFix(element));
   }
 
-  static void registerStaticProblemQuickFixAction(@NotNull Consumer<? super CommonIntentionAction> info, @NotNull PsiElement refElement, 
+  static void registerStaticProblemQuickFixAction(@NotNull Consumer<? super CommonIntentionAction> info,
+                                                  @NotNull PsiElement refElement,
                                                   @NotNull PsiJavaCodeReferenceElement place) {
     if (place instanceof PsiReferenceExpression && place.getParent() instanceof PsiMethodCallExpression) {
       ReplaceGetClassWithClassLiteralFix.registerFix((PsiMethodCallExpression)place.getParent(), info);
     }
-    if (refElement instanceof PsiJvmModifiersOwner) {
+    if (refElement instanceof PsiJvmModifiersOwner && !(refElement instanceof PsiParameter)) {
       List<IntentionAction> fixes =
         JvmElementActionFactories.createModifierActions((PsiJvmModifiersOwner)refElement, MemberRequestsKt.modifierRequest(JvmModifier.STATIC, true));
       fixes.forEach(info);
@@ -184,15 +194,9 @@ public final class HighlightFixUtil {
     return qname == null || !Character.isLowerCase(qname.charAt(0));
   }
 
-  static void registerChangeVariableTypeFixes(@NotNull PsiVariable parameter,
-                                              @Nullable PsiType itemType,
-                                              @Nullable HighlightInfo.Builder highlightInfo) {
-    registerChangeVariableTypeFixes(parameter, itemType, HighlightUtil.asConsumer(highlightInfo));
-  }
-
-  static void registerChangeVariableTypeFixes(@NotNull PsiVariable parameter,
-                                              @Nullable PsiType itemType,
-                                              @NotNull Consumer<? super CommonIntentionAction> info) {
+  static void registerChangeVariableTypeFixes(@NotNull Consumer<? super CommonIntentionAction> info,
+                                              @NotNull PsiVariable parameter,
+                                              @Nullable PsiType itemType) {
     for (IntentionAction action : getChangeVariableTypeFixes(parameter, itemType)) {
       info.accept(action);
     }
@@ -291,9 +295,9 @@ public final class HighlightFixUtil {
     }
   }
 
-  static void registerChangeParameterClassFix(@NotNull PsiType lType,
-                                              @Nullable PsiType rType,
-                                              @NotNull Consumer<? super CommonIntentionAction> info) {
+  static void registerChangeParameterClassFix(@NotNull Consumer<? super CommonIntentionAction> info,
+                                              @NotNull PsiType lType,
+                                              @Nullable PsiType rType) {
     if (rType == null) return;
     IntentionAction action = getChangeParameterClassFix(lType, rType);
     if (action != null) {
@@ -301,9 +305,9 @@ public final class HighlightFixUtil {
     }
   }
 
-  private static PsiSwitchStatement findInitializingSwitch(@NotNull PsiVariable variable,
-                                                           @NotNull PsiElement topBlock,
-                                                           @NotNull PsiElement readPoint) {
+  private static @Nullable PsiSwitchStatement findInitializingSwitch(@NotNull PsiVariable variable,
+                                                                     @NotNull PsiElement topBlock,
+                                                                     @NotNull PsiElement readPoint) {
     PsiSwitchStatement switchForAll = null;
     for (PsiReferenceExpression reference : VariableAccessUtils.getVariableReferences(variable, topBlock)) {
       if (PsiUtil.isAccessedForWriting(reference)) {
@@ -351,25 +355,10 @@ public final class HighlightFixUtil {
     return null;
   }
 
-  static void registerMakeNotFinalAction(@NotNull PsiVariable var, @Nullable HighlightInfo.Builder highlightInfo) {
-    if (var instanceof PsiField) {
-      QuickFixAction.registerQuickFixActions(
-        highlightInfo, null,
-        JvmElementActionFactories.createModifierActions((PsiField)var, MemberRequestsKt.modifierRequest(JvmModifier.FINAL, false))
-      );
-    }
-    else {
-      IntentionAction action = QuickFixFactory.getInstance().createModifierListFix(var, PsiModifier.FINAL, false, false);
-      if (highlightInfo != null) {
-        highlightInfo.registerFix(action, null, null, null, null);
-      }
-    }
-  }
-
-  public static void registerFixesForExpressionStatement(@NotNull PsiElement statement, @NotNull Consumer<? super CommonIntentionAction> info) {
+  public static void registerFixesForExpressionStatement(@NotNull Consumer<? super CommonIntentionAction> info,
+                                                         @NotNull PsiElement statement) {
     if (!(statement instanceof PsiExpressionStatement)) return;
-    PsiCodeBlock block = ObjectUtils.tryCast(statement.getParent(), PsiCodeBlock.class);
-    if (block == null) return;
+    if (!(statement.getParent() instanceof PsiCodeBlock block)) return; 
     PsiExpression expression = ((PsiExpressionStatement)statement).getExpression();
     if (expression instanceof PsiAssignmentExpression) return;
     PsiType type = expression.getType();
@@ -399,25 +388,22 @@ public final class HighlightFixUtil {
     PsiElement block = PsiUtil.getVariableCodeBlock(variable, null);
     if (block == null) return;
     PsiTreeUtil.processElements(block, PsiReferenceExpression.class, ref -> {
-      if (ref.isReferenceTo(variable)) {
-        PsiAssignmentExpression assignment = ObjectUtils.tryCast(ref.getParent(), PsiAssignmentExpression.class);
-        if (assignment != null) {
-          if (assignment.getLExpression() == ref &&
-              assignment.getOperationTokenType() == JavaTokenType.EQ) {
-            PsiExpression rExpression = assignment.getRExpression();
-            if (rExpression != null) {
-              PsiType type = rExpression.getType();
-              if (type instanceof PsiPrimitiveType && !PsiTypes.voidType().equals(type) && variable.getInitializer() != null) {
-                type = ((PsiPrimitiveType)type).getBoxedType(variable);
-              }
-              if (type != null) {
-                type = GenericsUtil.getVariableTypeByExpressionType(type);
-                if (PsiTypesUtil.isDenotableType(type, variable) && !PsiTypes.voidType().equals(type)) {
-                  info.accept(QuickFixFactory.getInstance().createSetVariableTypeFix(variable, type));
-                }
-                return false;
-              }
+      if (ref.isReferenceTo(variable) &&
+          ref.getParent() instanceof PsiAssignmentExpression assignment &&
+          assignment.getLExpression() == ref &&
+          assignment.getOperationTokenType() == JavaTokenType.EQ) {
+        PsiExpression rExpression = assignment.getRExpression();
+        if (rExpression != null) {
+          PsiType type = rExpression.getType();
+          if (type instanceof PsiPrimitiveType primitiveType && !PsiTypes.voidType().equals(type) && variable.getInitializer() != null) {
+            type = primitiveType.getBoxedType(variable);
+          }
+          if (type != null) {
+            type = GenericsUtil.getVariableTypeByExpressionType(type);
+            if (PsiTypesUtil.isDenotableType(type, variable) && !PsiTypes.voidType().equals(type)) {
+              info.accept(QuickFixFactory.getInstance().createSetVariableTypeFix(variable, type));
             }
+            return false;
           }
         }
       }
@@ -425,10 +411,10 @@ public final class HighlightFixUtil {
     });
   }
 
-  static void registerQualifyMethodCallFix(CandidateInfo @NotNull [] methodCandidates,
+  static void registerQualifyMethodCallFix(@NotNull Consumer<? super CommonIntentionAction> info,
+                                           CandidateInfo @NotNull [] methodCandidates,
                                            @NotNull PsiMethodCallExpression methodCall,
-                                           @NotNull PsiExpressionList exprList,
-                                           @NotNull Consumer<? super CommonIntentionAction> info) {
+                                           @NotNull PsiExpressionList exprList) {
     if (methodCall.getMethodExpression().getQualifierExpression() != null) return;
     for (CandidateInfo methodCandidate : methodCandidates) {
       PsiMethod method = (PsiMethod)methodCandidate.getElement();
@@ -440,20 +426,20 @@ public final class HighlightFixUtil {
     }
   }
 
-  private static void registerStaticMethodQualifierFixes(@NotNull PsiMethodCallExpression methodCall,
-                                                         @NotNull Consumer<? super CommonIntentionAction> info) {
+  private static void registerStaticMethodQualifierFixes(@NotNull Consumer<? super CommonIntentionAction> info,
+                                                         @NotNull PsiMethodCallExpression methodCall) {
     info.accept(QuickFixFactory.getInstance().createStaticImportMethodFix(methodCall));
     info.accept(QuickFixFactory.getInstance().createQualifyStaticMethodCallFix(methodCall));
     info.accept(QuickFixFactory.getInstance().addMethodQualifierFix(methodCall));
   }
 
-  private static void registerUsageFixes(@NotNull PsiMethodCallExpression methodCall,
-                                         @NotNull Consumer<? super CommonIntentionAction> info) {
+  private static void registerUsageFixes(@NotNull Consumer<? super CommonIntentionAction> info,
+                                         @NotNull PsiMethodCallExpression methodCall) {
     QuickFixFactory.getInstance().createCreateMethodFromUsageFixes(methodCall).forEach(info);
   }
 
-  private static void registerThisSuperFixes(@NotNull PsiMethodCallExpression methodCall,
-                                             @NotNull Consumer<? super CommonIntentionAction> info) {
+  private static void registerThisSuperFixes(@NotNull Consumer<? super CommonIntentionAction> info,
+                                             @NotNull PsiMethodCallExpression methodCall) {
     QuickFixFactory.getInstance().createCreateConstructorFromCallExpressionFixes(methodCall).forEach(info);
   }
 
@@ -493,31 +479,31 @@ public final class HighlightFixUtil {
     MethodReturnFixFactory.INSTANCE.registerCastActions(methodCandidates, methodCall, info);
     WrapExpressionFix.registerWrapAction(methodCandidates, list.getExpressions(), info);
     QualifyThisArgumentFix.registerQuickFixAction(methodCandidates, methodCall, info);
-    registerMethodAccessLevelIntentions(methodCandidates, methodCall, list, info);
+    registerMethodAccessLevelIntentions(info, methodCandidates, methodCall, list);
 
     if (!PermuteArgumentsFix.registerFix(info, methodCall, methodCandidates) &&
         !MoveParenthesisFix.registerFix(info, methodCall, methodCandidates)) {
-      registerChangeMethodSignatureFromUsageIntentions(methodCandidates, list, info);
+      registerChangeMethodSignatureFromUsageIntentions(info, methodCandidates, list);
     }
 
     QuickFixFactory.getInstance().getVariableTypeFromCallFixes(methodCall, list).forEach(info);
 
     if (methodCandidates.length == 0) {
-      registerStaticMethodQualifierFixes(methodCall, info);
+      registerStaticMethodQualifierFixes(info, methodCall);
     }
 
-    registerThisSuperFixes(methodCall, info);
-    registerUsageFixes(methodCall, info);
+    registerThisSuperFixes(info, methodCall);
+    registerUsageFixes(info, methodCall);
 
     RemoveRedundantArgumentsFix.registerIntentions(methodCandidates, list, info);
     info.accept(RemoveRepeatingCallFix.createFix(methodCall));
-    registerChangeParameterClassFix(methodCall, list, info);
+    registerChangeParameterClassFix(info, methodCall, list);
   }
 
-  private static void registerMethodAccessLevelIntentions(CandidateInfo @NotNull [] methodCandidates,
+  private static void registerMethodAccessLevelIntentions(@NotNull Consumer<? super CommonIntentionAction> info,
+                                                          CandidateInfo @NotNull [] methodCandidates,
                                                           @NotNull PsiMethodCallExpression methodCall,
-                                                          @NotNull PsiExpressionList exprList,
-                                                          @NotNull Consumer<? super CommonIntentionAction> info) {
+                                                          @NotNull PsiExpressionList exprList) {
     for (CandidateInfo methodCandidate : methodCandidates) {
       PsiMethod method = (PsiMethod)methodCandidate.getElement();
       if (!methodCandidate.isAccessible() && PsiUtil.isApplicable(method, methodCandidate.getSubstitutor(), exprList)) {
@@ -526,9 +512,9 @@ public final class HighlightFixUtil {
     }
   }
 
-  static void registerChangeParameterClassFix(@NotNull PsiCall methodCall,
-                                              @NotNull PsiExpressionList list,
-                                              @NotNull Consumer<? super CommonIntentionAction> info) {
+  static void registerChangeParameterClassFix(@NotNull Consumer<? super CommonIntentionAction> info,
+                                              @NotNull PsiCall methodCall,
+                                              @NotNull PsiExpressionList list) {
     JavaResolveResult result = methodCall.resolveMethodGenerics();
     PsiMethod method = (PsiMethod)result.getElement();
     PsiSubstitutor substitutor = result.getSubstitutor();
@@ -563,18 +549,18 @@ public final class HighlightFixUtil {
     }
   }
 
-  static void registerChangeMethodSignatureFromUsageIntentions(JavaResolveResult @NotNull [] candidates,
-                                                               @NotNull PsiExpressionList list,
-                                                               @NotNull Consumer<? super CommonIntentionAction> info) {
+  static void registerChangeMethodSignatureFromUsageIntentions(@NotNull Consumer<? super CommonIntentionAction> info,
+                                                               JavaResolveResult @NotNull [] candidates,
+                                                               @NotNull PsiExpressionList list) {
     if (candidates.length == 0) return;
     PsiExpression[] expressions = list.getExpressions();
     for (JavaResolveResult candidate : candidates) {
-      registerChangeMethodSignatureFromUsageIntention(expressions, info, candidate, list);
+      registerChangeMethodSignatureFromUsageIntention(info, expressions, candidate, list);
     }
   }
 
-  private static void registerChangeMethodSignatureFromUsageIntention(PsiExpression @NotNull [] expressions,
-                                                                      @NotNull Consumer<? super CommonIntentionAction> info,
+  private static void registerChangeMethodSignatureFromUsageIntention(@NotNull Consumer<? super CommonIntentionAction> info,
+                                                                      PsiExpression @NotNull [] expressions,
                                                                       @NotNull JavaResolveResult candidate,
                                                                       @NotNull PsiElement context) {
     if (!candidate.isStaticsScopeCorrect()) return;
@@ -632,17 +618,17 @@ public final class HighlightFixUtil {
     PsiExpressionList list = constructorCall.getArgumentList();
     if (list == null) return;
     if (!PermuteArgumentsFix.registerFix(info, constructorCall, toMethodCandidates(results))) {
-      registerChangeMethodSignatureFromUsageIntentions(results, list, info);
+      registerChangeMethodSignatureFromUsageIntentions(info, results, list);
     }
     QuickFixFactory.getInstance().createCreateConstructorFromUsageFixes(constructorCall).forEach(info);
-    registerChangeParameterClassFix(constructorCall, list, info);
+    registerChangeParameterClassFix(info, constructorCall, list);
     RemoveRedundantArgumentsFix.registerIntentions(results, list, info);
   }
 
-  static void registerTargetTypeFixesBasedOnApplicabilityInference(@NotNull PsiMethodCallExpression methodCall,
+  static void registerTargetTypeFixesBasedOnApplicabilityInference(@NotNull Consumer<? super CommonIntentionAction> info,
+                                                                   @NotNull PsiMethodCallExpression methodCall,
                                                                    @NotNull MethodCandidateInfo resolveResult,
-                                                                   @NotNull PsiMethod resolved,
-                                                                   @NotNull Consumer<? super CommonIntentionAction> info) {
+                                                                   @NotNull PsiMethod resolved) {
     PsiElement parent = PsiUtil.skipParenthesizedExprUp(methodCall.getParent());
     PsiVariable variable = null;
     if (parent instanceof PsiVariable) {
@@ -664,13 +650,14 @@ public final class HighlightFixUtil {
         PsiType expectedTypeByApplicabilityConstraints = resolveResult.getSubstitutor(false).substitute(resolved.getReturnType());
         if (expectedTypeByApplicabilityConstraints != null && !variable.getType().isAssignableFrom(expectedTypeByApplicabilityConstraints) &&
             PsiTypesUtil.allTypeParametersResolved(variable, expectedTypeByApplicabilityConstraints)) {
-          registerChangeVariableTypeFixes(variable, expectedTypeByApplicabilityConstraints, info);
+          registerChangeVariableTypeFixes(info, variable, expectedTypeByApplicabilityConstraints);
         }
       }
     }
   }
 
-  static void registerCallInferenceFixes(@NotNull PsiMethodCallExpression callExpression, @NotNull Consumer<? super CommonIntentionAction> info) {
+  static void registerCallInferenceFixes(@NotNull Consumer<? super CommonIntentionAction> info,
+                                         @NotNull PsiMethodCallExpression callExpression) {
     JavaResolveResult result = callExpression.getMethodExpression().advancedResolve(true);
     if (!(result instanceof MethodCandidateInfo resolveResult)) return;
     PsiMethod method = resolveResult.getElement();
@@ -679,7 +666,7 @@ public final class HighlightFixUtil {
     if (!PsiTypesUtil.mentionsTypeParameters(actualType, Set.of(method.getTypeParameters()))) {
       registerMethodReturnFixAction(info, resolveResult, callExpression);
     }
-    registerTargetTypeFixesBasedOnApplicabilityInference(callExpression, resolveResult, method, info);
+    registerTargetTypeFixesBasedOnApplicabilityInference(info, callExpression, resolveResult, method);
   }
 
   static void registerImplementsExtendsFix(@NotNull Consumer<? super CommonIntentionAction> info,
@@ -722,13 +709,9 @@ public final class HighlightFixUtil {
     PsiShortNamesCache shortNamesCache = PsiShortNamesCache.getInstance(project);
     PsiClass[] classes = shortNamesCache.getClassesByName(shortName, GlobalSearchScope.allScope(project));
     PsiElementFactory factory = facade.getElementFactory();
-    JavaSdkVersion version = requireNonNullElse(JavaVersionService.getInstance().getJavaSdkVersion(file),
-                                                        JavaSdkVersion.fromLanguageLevel(PsiUtil.getLanguageLevel(file)));
     for (PsiClass aClass : classes) {
-      if (aClass == null) {
-        continue;
-      }
-      if (!GenericsHighlightUtil.hasReferenceTypeProblem(aClass, parameterList, version)) {
+      if (aClass == null) continue;
+      if (isPotentiallyCompatible(aClass, parameterList)) {
         PsiType[] actualTypeParameters = parameterList.getTypeArguments();
         PsiTypeParameter[] classTypeParameters = aClass.getTypeParameters();
         Map<PsiTypeParameter, PsiType> map = new HashMap<>();
@@ -739,7 +722,7 @@ public final class HighlightFixUtil {
         }
         PsiSubstitutor substitutor = factory.createSubstitutor(map);
         PsiType suggestedType = factory.createType(aClass, substitutor);
-        registerChangeVariableTypeFixes(variable, suggestedType, info);
+        registerChangeVariableTypeFixes(info, variable, suggestedType);
       }
     }
   }
@@ -797,7 +780,7 @@ public final class HighlightFixUtil {
     WrapObjectWithOptionalOfNullableFix.REGISTAR.registerCastActions(candidates, methodCall, sink);
     WrapExpressionFix.registerWrapAction(candidates, list.getExpressions(), sink);
     PermuteArgumentsFix.registerFix(sink, methodCall, candidates);
-    registerChangeParameterClassFix(methodCall, list, sink);
+    registerChangeParameterClassFix(sink, methodCall, list);
     registerMethodCallIntentions(sink, methodCall, list);
   }
 
@@ -823,7 +806,7 @@ public final class HighlightFixUtil {
         sink.accept(factory.createAssignmentToComparisonFix(assignment));
       }
       else if (expression instanceof PsiMethodCallExpression callExpression) {
-        registerCallInferenceFixes(callExpression, sink);
+        registerCallInferenceFixes(sink, callExpression);
       }
       if (parent instanceof PsiArrayInitializerExpression initializerList) {
         PsiType sameType = JavaHighlightUtil.sameType(initializerList.getInitializers());
@@ -858,7 +841,7 @@ public final class HighlightFixUtil {
       }
       else if (parent instanceof PsiVariable var &&
                PsiUtil.skipParenthesizedExprDown(var.getInitializer()) == expression && rType != null) {
-        registerChangeVariableTypeFixes(var, rType, sink);
+        registerChangeVariableTypeFixes(sink, var, rType);
       }
       else if (parent instanceof PsiAssignmentExpression assignment &&
                PsiUtil.skipParenthesizedExprDown(assignment.getRExpression()) == expression) {
@@ -866,7 +849,7 @@ public final class HighlightFixUtil {
 
         sink.accept(factory.createChangeToAppendFix(assignment.getOperationTokenType(), lType, assignment));
         if (rType != null) {
-          registerChangeVariableTypeFixes(lExpr, rType, sink);
+          registerChangeVariableTypeFixes(sink, lExpr, rType);
           if (expression instanceof PsiMethodCallExpression call && assignment.getParent() instanceof PsiStatement &&
               PsiTypes.voidType().equals(rType)) {
             sink.accept(new ReplaceAssignmentFromVoidWithStatementIntentionAction(assignment, call));
@@ -875,7 +858,7 @@ public final class HighlightFixUtil {
       }
     }
     if (anchor instanceof PsiParameter parameter && parent instanceof PsiForeachStatement forEach) {
-      registerChangeVariableTypeFixes(parameter, lType, sink);
+      registerChangeVariableTypeFixes(sink, parameter, lType);
       PsiExpression iteratedValue = forEach.getIteratedValue();
       if (iteratedValue != null && rType != null) {
         PsiType type = iteratedValue.getType();
@@ -884,7 +867,275 @@ public final class HighlightFixUtil {
         }
       }
     }
-    registerChangeParameterClassFix(lType, rType, sink);
+    registerChangeParameterClassFix(sink, lType, rType);
+  }
+
+  private static @NotNull LanguageLevel getApplicableLevel(@NotNull PsiFile file, @NotNull JavaFeature feature) {
+    LanguageLevel standardLevel = feature.getStandardLevel();
+    LanguageLevel featureLevel = feature.getMinimumLevel();
+    if (featureLevel.isPreview()) {
+      JavaSdkVersion sdkVersion = JavaSdkVersionUtil.getJavaSdkVersion(file);
+      if (sdkVersion != null) {
+        if (standardLevel != null && sdkVersion.isAtLeast(JavaSdkVersion.fromLanguageLevel(standardLevel))) {
+          return standardLevel;
+        }
+        LanguageLevel previewLevel = sdkVersion.getMaxLanguageLevel().getPreviewLevel();
+        if (previewLevel != null && previewLevel.isAtLeast(featureLevel)) {
+          return previewLevel;
+        }
+      }
+    }
+    return featureLevel;
+  }
+
+  public static @NotNull List<CommonIntentionAction> getIncreaseLanguageLevelFixes(
+    @NotNull PsiElement element, @NotNull JavaFeature feature) {
+    if (PsiUtil.isAvailable(feature, element)) return List.of();
+    if (feature.isLimited()) return List.of(); //no reason for applying it because it can be outdated
+    LanguageLevel applicableLevel = getApplicableLevel(element.getContainingFile(), feature);
+    if (applicableLevel == LanguageLevel.JDK_X) return List.of(); // do not suggest to use experimental level
+    QuickFixFactory factory = QuickFixFactory.getInstance();
+    return List.of(factory.createIncreaseLanguageLevelFix(applicableLevel),
+                   factory.createUpgradeSdkFor(applicableLevel),
+                   factory.createShowModulePropertiesFix(element));
+  }
+
+  static void registerFixesOnInvalidSelector(@NotNull Consumer<? super @Nullable CommonIntentionAction> sink,
+                                             @NotNull PsiExpression selector) {
+    QuickFixFactory factory = QuickFixFactory.getInstance();
+    if (selector.getParent() instanceof PsiSwitchStatement switchStatement) {
+      sink.accept(factory.createConvertSwitchToIfIntention(switchStatement));
+    }
+    PsiType selectorType = selector.getType();
+    if (PsiTypes.longType().equals(selectorType) ||
+        PsiTypes.floatType().equals(selectorType) ||
+        PsiTypes.doubleType().equals(selectorType)) {
+      sink.accept(factory.createAddTypeCastFix(PsiTypes.intType(), selector));
+      sink.accept(factory.createWrapWithAdapterFix(PsiTypes.intType(), selector));
+    }
+  }
+
+  static @Nullable IntentionAction createPrimitiveToBoxedPatternFix(@NotNull PsiElement anchor) {
+    PsiTypeElement element = null;
+    PsiType operandType = null;
+    if (anchor instanceof PsiInstanceOfExpression instanceOfExpression) {
+      element = InstanceOfUtils.findCheckTypeElement(instanceOfExpression);
+      operandType = instanceOfExpression.getOperand().getType();
+    }
+    else if (anchor instanceof PsiPattern pattern) {
+      element = JavaPsiPatternUtil.getPatternTypeElement(pattern);
+      PsiSwitchBlock block = PsiTreeUtil.getParentOfType(element, PsiSwitchBlock.class);
+      if (block != null) {
+        PsiExpression selector = block.getExpression();
+        if (selector != null) {
+          operandType = selector.getType();
+        }
+      }
+    }
+    if (element != null && operandType != null && TypeConversionUtil.isPrimitiveAndNotNull(element.getType())) {
+      return QuickFixFactory.getInstance().createReplacePrimitiveWithBoxedTypeAction(operandType, requireNonNull(element));
+    }
+    return null;
+  }
+
+  /**
+   * Checks if the specified element is possibly a reference to a static member of a class,
+   * when the {@code new} keyword is removed.
+   * The element is split into two parts: the qualifier and the reference element.
+   * If they both exist and the qualifier references a class and the reference element text matches either
+   * the name of a static field or the name of a static method of the class
+   * then the method returns true
+   *
+   * @param element an element to examine
+   * @return true if the new expression can actually be a call to a class member (field or method), false otherwise.
+   */
+  @Contract(value = "null -> false", pure = true)
+  private static boolean isCallToStaticMember(@Nullable PsiElement element) {
+    if (!(element instanceof PsiNewExpression newExpression)) return false;
+
+    PsiJavaCodeReferenceElement reference = newExpression.getClassOrAnonymousClassReference();
+    if (reference == null) return false;
+
+    PsiElement qualifier = reference.getQualifier();
+    PsiElement memberName = reference.getReferenceNameElement();
+    if (!(qualifier instanceof PsiJavaCodeReferenceElement referenceElement) || memberName == null) return false;
+
+    PsiClass clazz = tryCast(referenceElement.resolve(), PsiClass.class);
+    if (clazz == null) return false;
+
+    if (newExpression.getArgumentList() == null) {
+      PsiField field = clazz.findFieldByName(memberName.getText(), true);
+      return field != null && field.hasModifierProperty(PsiModifier.STATIC);
+    }
+    PsiMethod[] methods = clazz.findMethodsByName(memberName.getText(), true);
+    for (PsiMethod method : methods) {
+      if (method.hasModifierProperty(PsiModifier.STATIC)) {
+        PsiClass containingClass = method.getContainingClass();
+        assert containingClass != null;
+        if (!containingClass.isInterface() || containingClass == clazz) {
+          // a static method in an interface is not resolvable from its subclasses
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  static @Nullable CommonIntentionAction createUnresolvedReferenceFix(PsiJavaCodeReferenceElement psi) {
+    return PsiTreeUtil.skipParentsOfType(psi, PsiJavaCodeReferenceElement.class) instanceof PsiNewExpression newExpression &&
+           isCallToStaticMember(newExpression) ? new RemoveNewKeywordFix(newExpression) : null;
+  }
+
+  /**
+   * @return true if type parameters of a class are potentially compatible with type arguments in the list
+   * (that is: number of parameters is the same, and argument types are within bounds)
+   */
+  private static boolean isPotentiallyCompatible(@NotNull PsiClass psiClass, @NotNull PsiReferenceParameterList referenceParameterList) {
+    PsiTypeElement[] referenceElements = referenceParameterList.getTypeParameterElements();
+
+    PsiTypeParameter[] typeParameters = psiClass.getTypeParameters();
+    int targetParametersNum = typeParameters.length;
+    int refParametersNum = referenceParameterList.getTypeArguments().length;
+    if (targetParametersNum != refParametersNum) return false;
+
+    // bounds check
+    for (int i = 0; i < targetParametersNum; i++) {
+      PsiType type = referenceElements[i].getType();
+      if (ContainerUtil.exists(
+        typeParameters[i].getSuperTypes(),
+        bound -> !bound.equalsToText(CommonClassNames.JAVA_LANG_OBJECT) &&
+                 GenericsUtil.checkNotInBounds(type, bound, referenceParameterList))) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Registers actions to fix switch block completeness (exhaustiveness)
+   *
+   * @param info  sink
+   * @param block switch block which is not exhaustive
+   */
+  static void addCompletenessFixes(@NotNull Consumer<? super CommonIntentionAction> info, @NotNull PsiSwitchBlock block) {
+    List<? extends PsiCaseLabelElement> elements = JavaPsiSwitchUtil.getCaseLabelElements(block);
+    PsiExpression selector = block.getExpression();
+    if (selector == null) return;
+    PsiType selectorType = selector.getType();
+    if (selectorType == null) return;
+    PsiClass selectorClass = PsiUtil.resolveClassInClassTypeOnly(TypeConversionUtil.erasure(selectorType));
+    JavaPsiSwitchUtil.SelectorKind kind = JavaPsiSwitchUtil.getSwitchSelectorKind(selectorType);
+    if (selectorClass != null && kind == JavaPsiSwitchUtil.SelectorKind.ENUM) {
+      Set<PsiEnumConstant> enumElements = StreamEx.of(elements)
+        .select(PsiReferenceExpression.class)
+        .map(PsiReferenceExpression::resolve)
+        .select(PsiEnumConstant.class)
+        .toSet();
+      addEnumCompletenessFixes(info, block, selectorClass, enumElements);
+      return;
+    }
+    List<PsiType> sealedTypes = getAbstractSealedTypes(JavaPsiPatternUtil.deconstructSelectorType(selectorType));
+    if (!sealedTypes.isEmpty()) {
+      addSealedClassCompletenessFixes(info, block, selectorType, elements);
+      return;
+    }
+    //records are final; checking intersections are not needed
+    if (selectorClass != null && selectorClass.isRecord()) {
+      if (checkRecordCaseSetNotEmpty(elements)) {
+        addRecordExhaustivenessFixes(info, block, elements, selectorType, selectorClass);
+      }
+    }
+    else {
+      if (kind == JavaPsiSwitchUtil.SelectorKind.BOOLEAN) {
+        QuickFixFactory factory = QuickFixFactory.getInstance();
+        info.accept(factory.createAddMissingBooleanPrimitiveBranchesFix(block));
+        info.accept(factory.createAddMissingBooleanPrimitiveBranchesFixWithNull(block));
+      }
+    }
+  }
+
+  private static void addEnumCompletenessFixes(@NotNull Consumer<? super CommonIntentionAction> info,
+                                               @NotNull PsiSwitchBlock block,
+                                               @NotNull PsiClass selectorClass,
+                                               @NotNull Set<PsiEnumConstant> enumElements) {
+    LinkedHashSet<String> missingConstants =
+      StreamEx.of(selectorClass.getFields()).select(PsiEnumConstant.class).remove(enumElements::contains)
+        .map(PsiField::getName)
+        .toCollection(LinkedHashSet::new);
+    if (!missingConstants.isEmpty()) {
+      IntentionAction enumBranchesFix = QuickFixFactory.getInstance().createAddMissingEnumBranchesFix(block, missingConstants);
+      info.accept(PriorityIntentionActionWrapper.highPriority(enumBranchesFix));
+    }
+  }
+
+  private static @NotNull List<PsiType> getAbstractSealedTypes(@NotNull List<PsiType> selectorTypes) {
+    return selectorTypes.stream()
+      .filter(type -> {
+        PsiClass psiClass = PsiUtil.resolveClassInClassTypeOnly(TypeConversionUtil.erasure(type));
+        return psiClass != null && (JavaPsiSealedUtil.isAbstractSealed(psiClass));
+      })
+      .toList();
+  }
+
+  private static void addRecordExhaustivenessFixes(@NotNull Consumer<? super CommonIntentionAction> info,
+                                                   @NotNull PsiSwitchBlock block,
+                                                   @NotNull List<? extends PsiCaseLabelElement> elements,
+                                                   @NotNull PsiType selectorClassType,
+                                                   @NotNull PsiClass selectorClass) {
+    JavaPatternExhaustivenessUtil.RecordExhaustivenessResult
+      exhaustivenessResult = checkRecordExhaustiveness(elements, selectorClassType, block);
+
+    if (!exhaustivenessResult.isExhaustive() && exhaustivenessResult.canBeAdded()) {
+      IntentionAction fix =
+        QuickFixFactory.getInstance().createAddMissingRecordClassBranchesFix(
+          block, selectorClass, exhaustivenessResult.getMissedBranchesByType(), elements);
+      info.accept(fix);
+    }
+  }
+
+  private static boolean checkRecordCaseSetNotEmpty(@NotNull List<? extends PsiCaseLabelElement> elements) {
+    return ContainerUtil.exists(elements, element -> element instanceof PsiPattern pattern && !JavaPsiPatternUtil.isGuarded(pattern));
+  }
+
+  private static @NotNull Set<PsiClass> getMissedClassesInSealedHierarchy(@NotNull PsiType selectorType,
+                                                                          @NotNull List<? extends PsiCaseLabelElement> elements,
+                                                                          @NotNull PsiSwitchBlock block) {
+    Set<PsiClass> classes = findMissedClasses(block, selectorType, elements);
+    List<PsiClass> missedSealedClasses = StreamEx.of(classes).sortedBy(t -> t.getQualifiedName()).toList();
+    Set<PsiClass> missedClasses = new LinkedHashSet<>();
+    //if T is intersection types, it is allowed to choose any of them to cover
+    PsiExpression selector = requireNonNull(block.getExpression());
+    for (PsiClass missedClass : missedSealedClasses) {
+      PsiClassType missedClassType = TypeUtils.getType(missedClass);
+      if (JavaPsiPatternUtil.covers(selector, missedClassType, selectorType)) {
+        missedClasses.clear();
+        missedClasses.add(missedClass);
+        break;
+      }
+      else {
+        missedClasses.add(missedClass);
+      }
+    }
+    return missedClasses;
+  }
+
+  private static void addSealedClassCompletenessFixes(@NotNull Consumer<? super CommonIntentionAction> info,
+                                                      @NotNull PsiSwitchBlock block, @NotNull PsiType selectorType,
+                                                      @NotNull List<? extends PsiCaseLabelElement> elements) {
+    Set<PsiClass> missedClasses = getMissedClassesInSealedHierarchy(selectorType, elements, block);
+    List<String> allNames = collectLabelElementNames(elements, missedClasses);
+    Set<String> missingCases = ContainerUtil.map2LinkedSet(missedClasses, PsiClass::getQualifiedName);
+    QuickFixFactory factory = QuickFixFactory.getInstance();
+    info.accept(factory.createAddMissingSealedClassBranchesFix(block, missingCases, allNames));
+    info.accept(factory.createAddMissingSealedClassBranchesFixWithNull(block, missingCases, allNames));
+  }
+
+  private static @NotNull List<String> collectLabelElementNames(@NotNull List<? extends PsiCaseLabelElement> elements,
+                                                                @NotNull Set<? extends PsiClass> missingClasses) {
+    return StreamEx.of(elements).map(PsiElement::getText)
+      .append(StreamEx.of(missingClasses).map(PsiClass::getQualifiedName))
+      .distinct()
+      .toList();
   }
 
   private static final class ReturnModel {

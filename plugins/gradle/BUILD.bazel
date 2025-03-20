@@ -41,7 +41,7 @@ jvm_library(
     "//platform/inspect",
     "@lib//:fastutil-min",
     "@lib//:commons-cli",
-    "//plugins/properties/properties-psi-impl:psi-impl",
+    "//plugins/properties/properties-psi-impl:backend-psi",
     "//platform/core-ui",
     "//platform/util-class-loader:util-classLoader",
     "//platform/platform-util-io:ide-util-io",
@@ -90,7 +90,13 @@ java_library(
 
 ### auto-generated section `build intellij.gradle.tests` start
 load("@rules_java//java:defs.bzl", "java_library")
-load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_test")
+load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources", "jvm_test")
+
+jvm_resources(
+  name = "gradle-tests_test_resources",
+  files = glob(["testData/**/*"]),
+  strip_prefix = "testData"
+)
 
 java_library(
   name = "gradle-tests",
@@ -140,8 +146,14 @@ jvm_library(
     "//platform/backend/observation",
     "//platform/backend/observation:observation_test_lib",
     "//android/gradle-dsl-groovy",
+    "//platform/xdebugger-api:debugger",
+    "//platform/smRunner",
+    "//platform/smRunner:smRunner_test_lib",
   ],
-  runtime_deps = ["//platform/execution.dashboard:execution-dashboard"]
+  runtime_deps = [
+    ":gradle-tests_test_resources",
+    "//platform/execution.dashboard:execution-dashboard",
+  ]
 )
 
 jvm_test(

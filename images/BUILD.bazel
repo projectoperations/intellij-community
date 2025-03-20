@@ -24,9 +24,10 @@ jvm_library(
     "@lib//:jcef",
     "@lib//:kotlinx-serialization-core",
     "@lib//:kotlinx-serialization-json",
-    "//xml/xml-frontback:frontback",
+    "//xml/xml-parser:parser",
     "//platform/ui.jcef:ui-jcef",
     "@lib//:kotlin-stdlib",
+    "//platform/statistics",
   ],
   runtime_deps = [":images_resources"]
 )
@@ -52,9 +53,11 @@ jvm_library(
     "@lib//:junit4",
     "@lib//:kotlinx-serialization-core",
     "@lib//:kotlinx-serialization-json",
-    "//xml/xml-frontback:frontback",
+    "//xml/xml-parser:parser",
     "//platform/ui.jcef:ui-jcef",
     "@lib//:kotlin-stdlib",
+    "//platform/statistics",
+    "//platform/statistics:statistics_test_lib",
   ],
   runtime_deps = [":images_resources"]
 )

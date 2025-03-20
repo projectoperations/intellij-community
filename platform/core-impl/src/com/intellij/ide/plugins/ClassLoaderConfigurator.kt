@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("ReplaceGetOrSet", "ReplacePutWithAssignment")
 package com.intellij.ide.plugins
 
@@ -112,7 +112,12 @@ class ClassLoaderConfigurator(
         return true
       }
       if (module.pluginId == PluginManagerCore.CORE_ID) {
-        configureCorePluginModuleClassLoader(module, dependencies)
+        if (module.moduleLoadingRule == ModuleLoadingRule.EMBEDDED) {
+          module.pluginClassLoader = coreLoader
+        }
+        else {
+          configureCorePluginModuleClassLoader(module, dependencies)
+        }
         return true
       }
 
@@ -140,6 +145,12 @@ class ClassLoaderConfigurator(
         else {
           val mimicJarUrlConnection = module.vendor == PluginManagerCore.VENDOR_JETBRAINS
                                       && (module.moduleName == "intellij.rider.test.cases"
+                                          || module.moduleName == "intellij.rider.plugins.efCore.test.cases"
+                                          || module.moduleName == "intellij.rider.plugins.for.tea.test.cases"
+                                          || module.moduleName == "intellij.rider.plugins.fsharp.test.cases"
+                                          || module.moduleName == "intellij.rider.plugins.godot.test.cases"
+                                          || module.moduleName == "intellij.rider.plugins.unity.test.cases"
+                                          || module.moduleName == "intellij.rider.plugins.unreal.link.test.cases"
                                           || module.moduleName == "intellij.rider.test.cases.qodana"
                                           || module.moduleName == "intellij.rider.test.cases.supplementary")
           module.pluginClassLoader = PluginClassLoader(

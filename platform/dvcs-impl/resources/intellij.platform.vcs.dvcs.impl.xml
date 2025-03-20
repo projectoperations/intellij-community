@@ -3,6 +3,7 @@
     <module name="intellij.platform.vcs.log.impl"/>
     <module name="intellij.platform.vcs.impl.backend"/>
     <module name="intellij.platform.vcs.impl.shared"/>
+    <module name="intellij.platform.vcs.dvcs.impl.shared"/>
   </dependencies>
   <extensionPoints>
     <extensionPoint name="pushSupport"
@@ -37,6 +38,9 @@
                     dynamic="true"/>
   </extensionPoints>
   <actions>
+    <action id="Vcs.CopyCurrentBranchName"
+            class="com.intellij.dvcs.actions.CopyCurrentBranchNameAction"
+            icon="AllIcons.Actions.Copy"/>
     <action id="Vcs.CherryPick" class="com.intellij.dvcs.cherrypick.VcsCherryPickAction" icon="DvcsImplIcons.CherryPick"/>
     <action id="Vcs.Push" class="com.intellij.dvcs.push.VcsPushAction" icon="AllIcons.Vcs.Push">
       <keyboard-shortcut first-keystroke="control shift K" keymap="$default"/>
@@ -104,4 +108,3 @@
     <vcs.impl.backend.treeNodeConverter implementation="com.intellij.dvcs.repo.rhizome.RepositoryNodeToEntityConverter"/>
   </extensions>
 </idea-plugin>
-

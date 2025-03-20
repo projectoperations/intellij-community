@@ -9,8 +9,8 @@ import kotlinx.collections.immutable.persistentListOf
 import org.jetbrains.intellij.build.BuildOptions
 import org.jetbrains.intellij.build.ProductProperties
 import org.jetbrains.intellij.build.createBuildTasks
-import org.jetbrains.intellij.build.dependencies.TeamCityHelper
 import org.jetbrains.intellij.build.impl.*
+import org.jetbrains.intellij.build.impl.BuildUtils.checkedReplace
 import org.jetbrains.jps.model.library.JpsOrderRootType
 import java.nio.file.Path
 
@@ -55,7 +55,9 @@ object KotlinPluginBuilder {
     "kotlin.ide",
     "kotlin.idea",
     "kotlin.fir.frontend-independent",
-    "kotlin.jvm",
+    "kotlin.jvm.shared",
+    "kotlin.jvm.k2",
+    "kotlin.jvm.k1",
     "kotlin.compiler-reference-index",
     "kotlin.compiler-plugins.parcelize.common",
     "kotlin.compiler-plugins.parcelize.k1",
@@ -97,6 +99,9 @@ object KotlinPluginBuilder {
     "kotlin.gradle.gradle-java",
     "kotlin.gradle.gradle-java.k1",
     "kotlin.gradle.gradle-java.k2",
+    "kotlin.gradle.scripting.k1",
+    "kotlin.gradle.scripting.k2",
+    "kotlin.gradle.scripting.shared",
     "kotlin.gradle.code-insight-groovy",
     "kotlin.gradle.code-insight-toml",
     "kotlin.native",
@@ -324,7 +329,9 @@ object KotlinPluginBuilder {
       spec.withProjectLibrary("javax-inject")
       spec.withProjectLibrary("jackson-dataformat-toml")
 
-      withKotlincInPluginDirectory(spec)
+      withKotlincInPluginDirectory(spec = spec)
+      // TODO: KTIJ-32993
+      withKotlincInPluginDirectory(libName = "kotlin-ide-dist", target = "kotlinc.ide", spec = spec)
 
       spec.withCustomVersion(PluginVersionEvaluator { _, ideBuildVersion, _ ->
         // in kt-branches we have own since and until versions
@@ -349,14 +356,14 @@ object KotlinPluginBuilder {
         when (kind) {
           KotlinPluginKind.IJ, KotlinPluginKind.Fleet ->
             //noinspection SpellCheckingInspection
-            replace(
+            checkedReplace(
               oldText = text,
               regex = "<!-- IJ/AS-INCOMPATIBLE-PLACEHOLDER -->",
               newText = "<incompatible-with>com.intellij.modules.androidstudio</incompatible-with>",
             )
           KotlinPluginKind.AS ->
             //noinspection SpellCheckingInspection
-            replace(
+            checkedReplace(
               oldText = text,
               regex = "<!-- IJ/AS-DEPENDENCY-PLACEHOLDER -->",
               newText = """<plugin id="com.intellij.modules.androidstudio"/>""",
@@ -430,24 +437,13 @@ object KotlinPluginBuilder {
       }
       withKotlincKotlinCompilerCommonLibrary(spec, mainModuleName)
       spec.withProjectLibrary("kotlinc.kotlin-compiler-fe10")
-      withKotlincInPluginDirectory(spec)
+      withKotlincInPluginDirectory(spec = spec)
+      // TODO: KTIJ-32993
+      withKotlincInPluginDirectory(libName = "kotlin-ide-dist", target = "kotlinc.ide", spec = spec)
 
       addition?.invoke(spec)
     }
   }
-}
-
-private fun replace(oldText: String, regex: String, newText: String): String {
-  val result = oldText.replaceFirst(Regex(regex), newText)
-  if (result == oldText) {
-    if (oldText.contains(newText) && !TeamCityHelper.isUnderTeamCity) {
-      // Locally, e.g., in 'Update IDE from Sources' allow data to be already present
-      return result
-    }
-
-    throw IllegalStateException("Cannot find '$regex' in '$oldText'")
-  }
-  return result
 }
 
 private fun withKotlincKotlinCompilerCommonLibrary(spec: PluginLayout.PluginLayoutSpec, mainPluginModule: String) {
@@ -467,14 +463,14 @@ private fun withKotlincKotlinCompilerCommonLibrary(spec: PluginLayout.PluginLayo
   }
 }
 
-private fun withKotlincInPluginDirectory(spec: PluginLayout.PluginLayoutSpec) {
+private fun withKotlincInPluginDirectory(libName: String = "kotlin-dist", target: String = "kotlinc", spec: PluginLayout.PluginLayoutSpec) {
   spec.withGeneratedResources { targetDir, context ->
-    val distLibName = "kotlinc.kotlin-dist"
+    val distLibName = "kotlinc.$libName"
     val library = context.project.libraryCollection.findLibrary(distLibName)!!
     val jars = library.getPaths(JpsOrderRootType.COMPILED)
     if (jars.size != 1) {
       throw IllegalStateException("$distLibName is expected to have only one jar")
     }
-    Decompressor.Zip(jars[0]).extract(targetDir.resolve("kotlinc"))
+    Decompressor.Zip(jars[0]).extract(targetDir.resolve(target))
   }
 }

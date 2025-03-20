@@ -1,12 +1,12 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.java.codeserver.highlighting;
 
+import com.intellij.java.codeserver.core.JavaPsiModifierUtil;
 import com.intellij.java.codeserver.highlighting.errors.JavaErrorKinds;
 import com.intellij.pom.java.JavaFeature;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
 import com.intellij.psi.util.FileTypeUtils;
-import com.intellij.psi.util.JavaPsiModifierUtil;
 import com.intellij.psi.util.JavaPsiRecordUtil;
 import com.intellij.psi.util.PsiUtil;
 import org.jetbrains.annotations.NotNull;
@@ -178,9 +178,7 @@ final class ModifierChecker {
     }
   }
 
-  void reportAccessProblem(@NotNull PsiJavaCodeReferenceElement ref,
-                           @NotNull PsiModifierListOwner resolved,
-                           @NotNull JavaResolveResult result) {
+  void reportAccessProblem(@NotNull PsiElement ref, @NotNull PsiModifierListOwner resolved, @NotNull JavaResolveResult result) {
     result = withElement(result, resolved);
     if (resolved.hasModifierProperty(PsiModifier.PRIVATE)) {
       myVisitor.report(JavaErrorKinds.ACCESS_PRIVATE.create(ref, result));
@@ -202,13 +200,9 @@ final class ModifierChecker {
       return;
     }
 
-    checkModuleAccess(resolved, ref);
+    myVisitor.myModuleChecker.checkModuleAccess(resolved, ref);
     if (myVisitor.hasErrorResults()) return;
     myVisitor.report(JavaErrorKinds.ACCESS_GENERIC_PROBLEM.create(ref, result));
-  }
-
-  private void checkModuleAccess(@NotNull PsiModifierListOwner resolved, @NotNull PsiElement ref) {
-    // TODO: JPMS
   }
 
   private static @NotNull JavaResolveResult withElement(@NotNull JavaResolveResult original, @NotNull PsiElement newElement) {

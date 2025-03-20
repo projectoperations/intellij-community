@@ -65,11 +65,14 @@ open class IdeaCommunityProperties(private val communityHomeDir: Path) : BaseIde
       layout.withModule("intellij.platform.duplicates.analysis")
       layout.withModule("intellij.platform.structuralSearch")
     }
+    
+    productLayout.skipUnresolvedContentModules = true
 
     mavenArtifacts.forIdeModules = true
     mavenArtifacts.additionalModules = mavenArtifacts.additionalModules.addAll(MAVEN_ARTIFACTS_ADDITIONAL_MODULES)
     mavenArtifacts.squashedModules = mavenArtifacts.squashedModules.addAll(persistentListOf(
       "intellij.platform.util.base",
+      "intellij.platform.util.base.kmp",
       "intellij.platform.util.zip",
     ))
 

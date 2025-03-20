@@ -7,9 +7,7 @@ import com.intellij.openapi.util.text.HtmlChunk;
 import com.intellij.psi.PsiElement;
 import org.jetbrains.annotations.*;
 
-import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
-import java.util.function.Consumer;
 import java.util.function.Function;
 
 /**
@@ -27,14 +25,16 @@ public sealed interface JavaErrorKind<Psi extends PsiElement, Context> {
   /**
    * @param psi PSI element associated with an error
    * @param context a context in which the error should be rendered
-   * @return rendered localized error description
+   * @return user-readable localized error description (plain text)
    */
-  @NotNull HtmlChunk description(@NotNull Psi psi, Context context);
+  default @NotNull @Nls String description(@NotNull Psi psi, Context context) {
+    return JavaCompilationErrorBundle.message(key());
+  }
 
   /**
    * @param psi PSI element associated with an error
    * @param context a context in which the error should be rendered
-   * @return rendered localized error tooltip
+   * @return rendered localized error tooltip; empty chunk if description could be reused
    */
   default @NotNull HtmlChunk tooltip(@NotNull Psi psi, Context context) {
     return HtmlChunk.empty();
@@ -43,19 +43,10 @@ public sealed interface JavaErrorKind<Psi extends PsiElement, Context> {
   /**
    * @param psi PSI element associated with an error
    * @param context a context in which the error should be rendered
-   * @return error message anchor (must be within the psi)
+   * @return range within the file to highlight
    */
-  default @NotNull PsiElement anchor(@NotNull Psi psi, Context context) {
-    return psi;
-  }
-
-  /**
-   * @param psi PSI element associated with an error
-   * @param context a context in which the error should be rendered
-   * @return range within anchor to highlight; or null if the whole anchor should be highlighted
-   */
-  default @Nullable TextRange range(@NotNull Psi psi, Context context) {
-    return null;
+  default @NotNull TextRange range(@NotNull Psi psi, Context context) {
+    return psi.getTextRange();
   }
   
   /**
@@ -68,50 +59,30 @@ public sealed interface JavaErrorKind<Psi extends PsiElement, Context> {
   }
 
   /**
-   * @param psi PSI element associated with an error
-   * @param context a context in which the error should be rendered
-   * @throws IllegalArgumentException if the context or PSI element are not applicable to this error kind
-   */
-  default void validate(@NotNull Psi psi, Context context) throws IllegalArgumentException {
-  }
-
-  /**
    * Simple kind of error without context
    * @param <Psi> type of PSI element where the error could be attached
    */
   final class Simple<Psi extends PsiElement> implements JavaErrorKind<Psi, Void> {
     private final @NotNull @PropertyKey(resourceBundle = JavaCompilationErrorBundle.BUNDLE) String myKey;
-    private final @NotNull Function<? super Psi, ? extends HtmlChunk> myDescription;
-    private final @NotNull Function<? super Psi, ? extends HtmlChunk> myTooltip;
-    private final @NotNull Function<? super Psi, ? extends PsiElement> myAnchor;
-    private final @NotNull Function<? super Psi, ? extends TextRange> myRange;
-    private final @NotNull Function<? super Psi, JavaErrorHighlightType> myHighlightType;
-    private final @NotNull Consumer<? super Psi> myValidator;
+    private final @Nullable Function<? super Psi, @Nls String> myDescription;
+    private final @Nullable Function<? super Psi, ? extends HtmlChunk> myTooltip;
+    private final @Nullable Function<? super Psi, ? extends @NotNull TextRange> myRange;
+    private final @Nullable Function<? super Psi, JavaErrorHighlightType> myHighlightType;
 
     private Simple(@NotNull @PropertyKey(resourceBundle = JavaCompilationErrorBundle.BUNDLE) String key,
-                   @NotNull Function<? super Psi, ? extends HtmlChunk> description,
-                   @NotNull Function<? super Psi, ? extends HtmlChunk> tooltip,
-                   @NotNull Function<? super Psi, ? extends PsiElement> anchor,
-                   @NotNull Function<? super Psi, ? extends TextRange> range,
-                   @NotNull Function<? super Psi, JavaErrorHighlightType> type,
-                   @NotNull Consumer<? super Psi> validator) {
+                   @Nullable Function<? super Psi, @Nls String> description,
+                   @Nullable Function<? super Psi, ? extends HtmlChunk> tooltip,
+                   @Nullable Function<? super Psi, ? extends TextRange> range,
+                   @Nullable Function<? super Psi, JavaErrorHighlightType> type) {
       myKey = key;
       myDescription = description;
       myTooltip = tooltip;
-      myAnchor = anchor;
       myRange = range;
       myHighlightType = type;
-      myValidator = validator;
     }
 
     Simple(@NotNull @PropertyKey(resourceBundle = JavaCompilationErrorBundle.BUNDLE) String key) {
-      this(key,
-           psi -> HtmlChunk.raw(JavaCompilationErrorBundle.message(key)),
-           psi -> HtmlChunk.empty(),
-           Function.identity(),
-           psi -> null,
-           psi -> JavaErrorHighlightType.ERROR,
-           psi -> { });
+      this(key, null, null, null, null);
     }
 
     private <T> @NotNull T checkNotNull(T val, String name) {
@@ -127,33 +98,35 @@ public sealed interface JavaErrorKind<Psi extends PsiElement, Context> {
     }
 
     @Override
-    public @NotNull HtmlChunk description(@NotNull Psi psi, Void unused) {
+    public @NotNull String description(@NotNull Psi psi, Void unused) {
+      if (myDescription == null) {
+        return JavaErrorKind.super.description(psi, null);
+      }
       return checkNotNull(myDescription.apply(psi), "description");
     }
 
     @Override
     public @NotNull HtmlChunk tooltip(@NotNull Psi psi, Void unused) {
+      if (myTooltip == null) {
+        return JavaErrorKind.super.tooltip(psi, null);
+      }
       return checkNotNull(myTooltip.apply(psi), "tooltip");
     }
 
     @Override
-    public @NotNull PsiElement anchor(@NotNull Psi psi, Void unused) {
-      return checkNotNull(myAnchor.apply(psi), "anchor");
-    }
-
-    @Override
-    public @Nullable TextRange range(@NotNull Psi psi, Void unused) {
+    public @NotNull TextRange range(@NotNull Psi psi, Void unused) {
+      if (myRange == null) {
+        return JavaErrorKind.super.range(psi, null);
+      }
       return myRange.apply(psi);
     }
 
     @Override
     public @NotNull JavaErrorHighlightType highlightType(@NotNull Psi psi, Void unused) {
+      if (myHighlightType == null) {
+        return JavaErrorKind.super.highlightType(psi, null);
+      }
       return checkNotNull(myHighlightType.apply(psi), "highlightType");
-    }
-
-    @Override
-    public void validate(@NotNull Psi psi, Void unused) throws IllegalArgumentException {
-      myValidator.accept(psi);
     }
 
     /**
@@ -161,21 +134,40 @@ public sealed interface JavaErrorKind<Psi extends PsiElement, Context> {
      *
      * @param anchor a function that determines the {@link PsiElement} to be used 
      *               as an anchor for a given Psi object.
+     *               Anchor can be used as a more convenient way to define a reporting range.
      * @return a new Simple instance with the updated anchor function.
      */
     Simple<Psi> withAnchor(@NotNull Function<? super Psi, ? extends PsiElement> anchor) {
-      return new Simple<>(myKey, myDescription, myTooltip, anchor, myRange, myHighlightType, myValidator);
+      return withAbsoluteRange(psi -> anchor.apply(psi).getTextRange());
     }
 
     /**
      * Creates a new instance of Simple with the specified range function.
      *
      * @param range a function that determines the {@link TextRange} for a given Psi object.
-     *              The range is relative to anchor returned from {@link #anchor(PsiElement, Void)}
+     *              The range is absolute in the current file.
      * @return a new Simple instance with the updated range function.
      */
-    Simple<Psi> withRange(@NotNull Function<? super Psi, ? extends TextRange> range) {
-      return new Simple<>(myKey, myDescription, myTooltip, myAnchor, range, myHighlightType, myValidator);
+    Simple<Psi> withAbsoluteRange(@NotNull Function<? super Psi, ? extends TextRange> range) {
+      if (myRange != null) {
+        throw new IllegalStateException("Range function is already set for " + key());
+      }
+      return new Simple<>(myKey, myDescription, myTooltip, range, myHighlightType);
+    }
+
+    /**
+     * Creates a new instance of Simple with the specified range function.
+     *
+     * @param range a function that determines the {@link TextRange} for a given Psi object.
+     *              The range is relative to the input PSI element.
+     *              Returning null assumes that the whole range of the PSI element should be used.
+     * @return a new Simple instance with the updated range function.
+     */
+    Simple<Psi> withRange(@NotNull Function<? super Psi, ? extends @Nullable TextRange> range) {
+      return withAbsoluteRange(psi -> {
+        TextRange res = range.apply(psi);
+        return res == null ? psi.getTextRange() : res.shiftRight(psi.getTextRange().getStartOffset());
+      });
     }
 
     /**
@@ -185,29 +177,20 @@ public sealed interface JavaErrorKind<Psi extends PsiElement, Context> {
      * @return a new Simple instance with the updated highlight type function.
      */
     Simple<Psi> withHighlightType(@NotNull Function<? super Psi, JavaErrorHighlightType> type) {
-      return new Simple<>(myKey, myDescription, myTooltip, myAnchor, myRange, type, myValidator);
+      if (myHighlightType != null) {
+        throw new IllegalStateException("Highlight type function is already set for " + key());
+      }
+      return new Simple<>(myKey, myDescription, myTooltip, myRange, type);
     }
 
     /**
-     * Creates a new instance of Simple with the specified validator function.
+     * Creates a new instance of Simple with the specified constant highlight type.
      *
-     * @param validator a consumer that performs validation on a given Psi object
-     *                  and potentially throws an {@link IllegalArgumentException} if validation fails.
-     * @return a new Simple instance with the updated validator function.
+     * @param type a {@link JavaErrorHighlightType} for this error kind.
+     * @return a new Simple instance with the updated highlight type function.
      */
-    Simple<Psi> withValidator(@NotNull Consumer<? super Psi> validator) {
-      return new Simple<>(myKey, myDescription, myTooltip, myAnchor, myRange, myHighlightType, validator);
-    }
-
-    /**
-     * Creates a new instance of Simple with the specified description function.
-     *
-     * @param description a Function that generates a description as an HtmlChunk 
-     *                    based on the provided Psi object.
-     * @return a new Simple instance with the updated description function.
-     */
-    Simple<Psi> withDescription(@NotNull Function<? super Psi, ? extends HtmlChunk> description) {
-      return new Simple<>(myKey, description, myTooltip, myAnchor, myRange, myHighlightType, myValidator);
+    Simple<Psi> withHighlightType(@NotNull JavaErrorHighlightType type) {
+      return withHighlightType(psi -> type);
     }
 
     /**
@@ -216,17 +199,18 @@ public sealed interface JavaErrorKind<Psi extends PsiElement, Context> {
      * @param description a Function that computes a description based on the given Psi and Context.
      * @return a new Simple instance with the specified description function.
      */
-    Simple<Psi> withRawDescription(@NotNull Function<? super Psi, @Nls String> description) {
-      return withDescription(psi -> HtmlChunk.raw(description.apply(psi)));
+    Simple<Psi> withDescription(@NotNull Function<? super Psi, @Nls String> description) {
+      if (myDescription != null) {
+        throw new IllegalStateException("Description function is already set for " + key());
+      }
+      return new Simple<>(myKey, description, myTooltip, myRange, myHighlightType);
     }
 
     <Context> Parameterized<Psi, Context> parameterized() {
-      return new Parameterized<>(myKey, (psi, ctx) -> myDescription.apply(psi),
-                                 (psi, ctx) -> myTooltip.apply(psi),
-                                 (psi, ctx) -> myAnchor.apply(psi),
-                                 (psi, ctx) -> myRange.apply(psi),
-                                 (psi, ctx) -> myHighlightType.apply(psi),
-                                 (psi, ctx) -> myValidator.accept(psi));
+      return new Parameterized<>(myKey, myDescription == null ? null : (psi, ctx) -> myDescription.apply(psi),
+                                 myTooltip == null ? null : (psi, ctx) -> myTooltip.apply(psi),
+                                 myRange == null ? null : (psi, ctx) -> myRange.apply(psi),
+                                 myHighlightType == null ? null : (psi, ctx) -> myHighlightType.apply(psi));
     }
 
     /**
@@ -251,44 +235,32 @@ public sealed interface JavaErrorKind<Psi extends PsiElement, Context> {
    */
   final class Parameterized<Psi extends PsiElement, Context> implements JavaErrorKind<Psi, Context> {
     private final @NotNull @PropertyKey(resourceBundle = JavaCompilationErrorBundle.BUNDLE) String myKey;
-    private final @NotNull BiFunction<? super Psi, ? super Context, ? extends HtmlChunk> myDescription;
-    private final @NotNull BiFunction<? super Psi, ? super Context, ? extends HtmlChunk> myTooltip;
-    private final @NotNull BiFunction<? super Psi, ? super Context, ? extends PsiElement> myAnchor;
-    private final @NotNull BiFunction<? super Psi, ? super Context, ? extends TextRange> myRange;
-    private final @NotNull BiFunction<? super Psi, ? super Context, JavaErrorHighlightType> myHighlightType;
-    private final @NotNull BiConsumer<? super Psi, ? super Context> myValidator;
+    private final @Nullable BiFunction<? super Psi, ? super Context, @Nls String> myDescription;
+    private final @Nullable BiFunction<? super Psi, ? super Context, ? extends HtmlChunk> myTooltip;
+    private final @Nullable BiFunction<? super Psi, ? super Context, ? extends TextRange> myRange;
+    private final @Nullable BiFunction<? super Psi, ? super Context, JavaErrorHighlightType> myHighlightType;
 
     private Parameterized(@NotNull @PropertyKey(resourceBundle = JavaCompilationErrorBundle.BUNDLE) String key,
-                          @NotNull BiFunction<? super Psi, ? super Context, ? extends HtmlChunk> description,
-                          @NotNull BiFunction<? super Psi, ? super Context, ? extends HtmlChunk> tooltip,
-                          @NotNull BiFunction<? super Psi, ? super Context, ? extends PsiElement> anchor,
-                          @NotNull BiFunction<? super Psi, ? super Context, ? extends TextRange> range,
-                          @NotNull BiFunction<? super Psi, ? super Context, JavaErrorHighlightType> type,
-                          @NotNull BiConsumer<? super Psi, ? super Context> validator) {
+                          @Nullable BiFunction<? super Psi, ? super Context, @Nls String> description,
+                          @Nullable BiFunction<? super Psi, ? super Context, ? extends HtmlChunk> tooltip,
+                          @Nullable BiFunction<? super Psi, ? super Context, ? extends TextRange> range,
+                          @Nullable BiFunction<? super Psi, ? super Context, JavaErrorHighlightType> type) {
       myKey = key;
       myDescription = description;
       myTooltip = tooltip;
-      myAnchor = anchor;
       myRange = range;
       myHighlightType = type;
-      myValidator = validator;
     }
 
+    Parameterized(@NotNull @PropertyKey(resourceBundle = JavaCompilationErrorBundle.BUNDLE) String key) {
+      this(key, null, null, null, null);
+    }
+    
     private <T> @NotNull T checkNotNull(T val, String name) {
       if (val == null) {
         throw new NullPointerException("Function '" + name + "' returns null for key " + key());
       }
       return val;
-    }
-    
-    Parameterized(@NotNull @PropertyKey(resourceBundle = JavaCompilationErrorBundle.BUNDLE) String key) {
-      this(key,
-           (psi, ctx) -> HtmlChunk.raw(JavaCompilationErrorBundle.message(key)),
-           (psi, ctx) -> HtmlChunk.empty(),
-           (psi, ctx) -> psi,
-           (psi, ctx) -> null,
-           (psi, ctx) -> JavaErrorHighlightType.ERROR,
-           (psi, ctx) -> { });
     }
 
     @Override
@@ -297,33 +269,35 @@ public sealed interface JavaErrorKind<Psi extends PsiElement, Context> {
     }
 
     @Override
-    public @NotNull HtmlChunk description(@NotNull Psi psi, Context context) {
+    public @NotNull String description(@NotNull Psi psi, Context context) {
+      if (myDescription == null) {
+        return JavaErrorKind.super.description(psi, context);
+      }
       return checkNotNull(myDescription.apply(psi, context), "description");
     }
 
     @Override
     public @NotNull HtmlChunk tooltip(@NotNull Psi psi, Context context) {
-        return checkNotNull(myTooltip.apply(psi, context), "tooltip");
+      if (myTooltip == null) {
+        return JavaErrorKind.super.tooltip(psi, context);
+      }
+      return checkNotNull(myTooltip.apply(psi, context), "tooltip");
     }
 
     @Override
-    public @NotNull PsiElement anchor(@NotNull Psi psi, Context context) {
-      return checkNotNull(myAnchor.apply(psi, context), "anchor");
-    }
-
-    @Override
-    public @Nullable TextRange range(@NotNull Psi psi, Context context) {
+    public @NotNull TextRange range(@NotNull Psi psi, Context context) {
+      if (myRange == null) {
+        return JavaErrorKind.super.range(psi, context);
+      }
       return myRange.apply(psi, context);
     }
 
     @Override
     public @NotNull JavaErrorHighlightType highlightType(@NotNull Psi psi, Context context) {
+      if (myHighlightType == null) {
+        return JavaErrorKind.super.highlightType(psi, context);
+      }
       return checkNotNull(myHighlightType.apply(psi, context), "highlightType");
-    }
-
-    @Override
-    public void validate(@NotNull Psi psi, Context context) throws IllegalArgumentException {
-      myValidator.accept(psi, context);
     }
 
     /**
@@ -339,33 +313,41 @@ public sealed interface JavaErrorKind<Psi extends PsiElement, Context> {
     /**
      * Creates a new instance of Parameterized with a specified anchor function.
      *
-     * @param anchor a BiFunction that computes an anchor based on the given Psi and Context
+     * @param anchor a Function that computes an anchor based on the given Psi and Context.
+     *               Anchor can be used as a more convenient way to define a reporting range.
      * @return a new Parameterized instance with the specified anchor function
      */
-    Parameterized<Psi, Context> withAnchor(@NotNull BiFunction<? super Psi, ? super Context, ? extends PsiElement> anchor) {
-      return new Parameterized<>(myKey, myDescription, myTooltip, anchor, myRange, myHighlightType, myValidator);
+    Parameterized<Psi, Context> withAnchor(@NotNull Function<? super Psi, ? extends PsiElement> anchor) {
+      return withAbsoluteRange((psi, ctx) -> anchor.apply(psi).getTextRange());
     }
 
     /**
      * Creates a new instance of Parameterized with the specified range function.
      *
      * @param range a BiFunction that determines the {@link TextRange} for a given Psi object.
-     *              The range is relative to anchor returned from {@link #anchor(PsiElement, Object)}
+     *              The range is absolute in the current file.
      * @return a new Parameterized instance with the updated range function.
      */
-    Parameterized<Psi, Context> withRange(@NotNull BiFunction<? super Psi, ? super Context, ? extends TextRange> range) {
-      return new Parameterized<>(myKey, myDescription, myTooltip, myAnchor, range, myHighlightType, myValidator);
+    Parameterized<Psi, Context> withAbsoluteRange(@NotNull BiFunction<? super Psi, ? super Context, ? extends @NotNull TextRange> range) {
+      if (myRange != null) {
+        throw new IllegalStateException("Range function is already set for " + key());
+      }
+      return new Parameterized<>(myKey, myDescription, myTooltip, range, myHighlightType);
     }
 
     /**
-     * Creates a new instance of Parameterized with a specified validator function.
+     * Creates a new instance of Parameterized with the specified range function.
      *
-     * @param validator a BiConsumer that performs validation based on the given Psi and Context
-     *                  and potentially throws {@link IllegalArgumentException} if validation fails.
-     * @return a new Parameterized instance with the specified validator function.
+     * @param range a BiFunction that determines the {@link TextRange} for a given Psi object.
+     *              The range is relative to the input PSI element.
+     *              Returning null assumes that the whole range of the PSI element should be used.
+     * @return a new Parameterized instance with the updated range function.
      */
-    Parameterized<Psi, Context> withValidator(@NotNull BiConsumer<? super Psi, ? super Context> validator) {
-      return new Parameterized<>(myKey, myDescription, myTooltip, myAnchor, myRange, myHighlightType, validator);
+    Parameterized<Psi, Context> withRange(@NotNull BiFunction<? super Psi, ? super Context, ? extends TextRange> range) {
+      return withAbsoluteRange((psi, ctx) -> {
+        TextRange res = range.apply(psi, ctx);
+        return res == null ? psi.getTextRange() : res.shiftRight(psi.getTextRange().getStartOffset());
+      });
     }
 
     /**
@@ -375,17 +357,20 @@ public sealed interface JavaErrorKind<Psi extends PsiElement, Context> {
      * @return a new Parameterized instance with the updated highlight type function.
      */
     Parameterized<Psi, Context> withHighlightType(@NotNull BiFunction<? super Psi, ? super Context, JavaErrorHighlightType> type) {
-      return new Parameterized<>(myKey, myDescription, myTooltip, myAnchor, myRange, type, myValidator);
+      if (myHighlightType != null) {
+        throw new IllegalStateException("Highlight type function is already set for " + key());
+      }
+      return new Parameterized<>(myKey, myDescription, myTooltip, myRange, type);
     }
 
     /**
-     * Creates a new instance of Parameterized with a specified description function.
+     * Creates a new instance of Parameterized with the specified constant highlight type.
      *
-     * @param description a BiFunction that computes a description based on the given Psi and Context.
-     * @return a new Parameterized instance with the specified description function.
+     * @param type a {@link JavaErrorHighlightType} for a given error kind.
+     * @return a new Parameterized instance with the updated highlight type function.
      */
-    Parameterized<Psi, Context> withDescription(@NotNull BiFunction<? super Psi, ? super Context, ? extends HtmlChunk> description) {
-      return new Parameterized<>(myKey, description, myTooltip, myAnchor, myRange, myHighlightType, myValidator);
+    Parameterized<Psi, Context> withHighlightType(@SuppressWarnings("SameParameterValue") @NotNull JavaErrorHighlightType type) {
+      return withHighlightType((psi, ctx) -> type);
     }
 
     /**
@@ -395,7 +380,10 @@ public sealed interface JavaErrorKind<Psi extends PsiElement, Context> {
      * @return a new Parameterized instance with the specified tooltip function.
      */
     Parameterized<Psi, Context> withTooltip(@NotNull BiFunction<? super Psi, ? super Context, ? extends HtmlChunk> tooltip) {
-      return new Parameterized<>(myKey, myDescription, tooltip, myAnchor, myRange, myHighlightType, myValidator);
+      if (myTooltip != null) {
+        throw new IllegalStateException("Tooltip function is already set for " + key());
+      }
+      return new Parameterized<>(myKey, myDescription, tooltip, myRange, myHighlightType);
     }
 
     /**
@@ -405,8 +393,11 @@ public sealed interface JavaErrorKind<Psi extends PsiElement, Context> {
      *                    based on the given Psi and Context.
      * @return a new Parameterized instance with the specified raw description function.
      */
-    Parameterized<Psi, Context> withRawDescription(@NotNull BiFunction<? super Psi, ? super Context, @Nls String> description) {
-      return withDescription((psi, context) -> HtmlChunk.raw(description.apply(psi, context)));
+    Parameterized<Psi, Context> withDescription(@NotNull BiFunction<? super Psi, ? super Context, @Nls String> description) {
+      if (myDescription != null) {
+        throw new IllegalStateException("Description function is already set for " + key());
+      }
+      return new Parameterized<>(myKey, description, myTooltip, myRange, myHighlightType);
     }
 
     @Override

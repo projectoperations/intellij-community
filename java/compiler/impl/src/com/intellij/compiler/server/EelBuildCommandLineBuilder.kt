@@ -3,10 +3,13 @@ package com.intellij.compiler.server
 
 import com.intellij.compiler.YourKitProfilerService
 import com.intellij.execution.configurations.GeneralCommandLine
+import com.intellij.openapi.application.ApplicationInfo
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.getProjectCacheFileName
 import com.intellij.platform.eel.*
 import com.intellij.platform.eel.provider.*
 import com.intellij.platform.eel.provider.utils.EelPathUtils
@@ -20,13 +23,15 @@ import kotlin.io.path.isDirectory
 import kotlin.io.path.name
 
 class EelBuildCommandLineBuilder(val project: Project, exePath: Path) : BuildCommandLineBuilder {
-  private val eel: EelApi = exePath.getEelDescriptor().upgradeBlocking()
-  private val commandLine = GeneralCommandLine().withExePath(exePath.asEelPath().toString())
-
-  private val workingDirectory: Path = run {
-    val selector = PathManager.getPathsSelector() ?: "IJ-Platform"
-    PathManager.getDefaultSystemPathFor(eel.platform.asPathManagerOs(), eel.userInfo.home.asNioPath().toString(), selector)
+  companion object {
+    private val logger = logger<EelBuildCommandLineBuilder>()
   }
+
+  private val eel: EelApi = exePath.getEelDescriptor().upgradeBlocking()
+  private val commandLine = GeneralCommandLine().withExePath(exePath.toString())
+
+  private val workingDirectory: Path = getSystemSubfolder(BuildManager.SYSTEM_ROOT)
+  private val cacheDirectory: Path = getSystemSubfolder("jps-${ApplicationInfo.getInstance().getBuild()}")
 
   override fun addParameter(parameter: String) {
     commandLine.addParameter(parameter)
@@ -41,9 +46,11 @@ class EelBuildCommandLineBuilder(val project: Project, exePath: Path) : BuildCom
   }
 
   override fun addClasspathParameter(classpathInHost: List<String>, classpathInTarget: List<String>) {
-    val mappedClasspath = classpathInHost.joinToString(eel.platform.pathSeparator) { hostLocation ->
-      copyPathToHostIfRequired(Path.of(hostLocation))
-    }
+    val mappedClasspath = classpathInHost.mapNotNull { hostLocation ->
+      runCatching {
+        copyProjectAgnosticPathToTargetIfRequired(Path.of(hostLocation)).asEelPath()
+      }.onFailure { error -> logger.warn("Can't map classpath parameter: $hostLocation", error) }.getOrNull()
+    }.joinToString(eel.platform.pathSeparator)
     require(classpathInTarget.isEmpty()) {
       "Target classpath is not supported"
     }
@@ -59,20 +66,21 @@ class EelBuildCommandLineBuilder(val project: Project, exePath: Path) : BuildCom
     return workingDirectory
   }
 
-  override fun copyPathToTargetIfRequired(path: Path): Path {
-    if (path.getEelDescriptor() != LocalEelDescriptor) return path
-    val remotePath = workingDirectory.resolve("build-cache").resolve(path.name)
-    if (path.isDirectory()) {
-      EelPathUtils.transferContentsIfNonLocal(eel, path, remotePath)
+  override fun copyProjectAgnosticPathToTargetIfRequired(path: Path): Path {
+    if (path.getEelDescriptor() != LocalEelDescriptor) {
+      return path
     }
-    else if (path.getEelDescriptor() == LocalEelDescriptor) {
-      EelPathUtils.transferLocalContentToRemotePathIfNeeded(path, remotePath)
-    }
-    return remotePath
+    val remotePath = workingDirectory.resolve(path.name)
+    return transferPathToRemoteIfRequired(path, remotePath)
   }
 
-  override fun copyPathToHostIfRequired(path: Path): String {
-    return copyPathToTargetIfRequired(path).asEelPath().toString()
+  override fun copyProjectSpecificPathToTargetIfRequired(project: Project, path: Path): Path {
+    if (path.getEelDescriptor() != LocalEelDescriptor) {
+      return path
+    }
+    val cacheFileName = project.getProjectCacheFileName()
+    val target = cacheDirectory.resolve(cacheFileName).resolve(path.name)
+    return transferPathToRemoteIfRequired(path, target)
   }
 
   override fun getYjpAgentPath(yourKitProfilerService: YourKitProfilerService?): String? {
@@ -93,8 +101,18 @@ class EelBuildCommandLineBuilder(val project: Project, exePath: Path) : BuildCom
     // todo IJPL-173737
   }
 
-  fun pathPrefix(): String {
-    return eel.descriptor.routingPrefix().toString().removeSuffix(FileSystems.getDefault().separator)
+  fun pathPrefixes(): Set<String> {
+    return eel.descriptor.routingPrefixes().map { it.toString().removeSuffix(FileSystems.getDefault().separator) }.toSet()
+  }
+
+  private fun transferPathToRemoteIfRequired(source: Path, target: Path): Path {
+    if (source.isDirectory()) {
+      EelPathUtils.transferContentsIfNonLocal(eel, source, target)
+    }
+    else {
+      EelPathUtils.transferFileIfNonLocal(source, target)
+    }
+    return target
   }
 
   /**
@@ -115,6 +133,16 @@ class EelBuildCommandLineBuilder(val project: Project, exePath: Path) : BuildCom
       is EelPlatform.Darwin -> PathManager.OS.MACOS
       is EelPlatform.Linux, is EelPlatform.FreeBSD -> PathManager.OS.LINUX
     }
+
+  private fun getSystemSubfolder(subfolder: String): Path {
+    return getSystemFolderRoot().resolve(subfolder)
+  }
+
+  private fun getSystemFolderRoot(): Path {
+    val selector = PathManager.getPathsSelector() ?: "IJ-Platform"
+    val userHomeFolder = eel.userInfo.home.asNioPath().toString()
+    return PathManager.getDefaultSystemPathFor(eel.platform.asPathManagerOs(), userHomeFolder, selector)
+  }
 }
 
 @Service(Service.Level.PROJECT)

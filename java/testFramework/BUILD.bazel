@@ -1,5 +1,11 @@
 ### auto-generated section `build intellij.java.testFramework` start
-load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources")
+
+jvm_resources(
+  name = "testFramework_resources",
+  files = glob(["resources/**/*"]),
+  strip_prefix = "resources"
+)
 
 jvm_library(
   name = "testFramework",
@@ -8,8 +14,9 @@ jvm_library(
   srcs = glob(["src/**/*.kt", "src/**/*.java"], allow_empty = True),
   deps = [
     "//java/openapi:java",
+    "//java/testFramework/shared:java-testFramework-shared",
     "//platform/util",
-    "@lib//:junit4",
+    "//libraries/junit4",
     "//platform/util/jdom",
     "//platform/lang-api:lang",
     "//platform/backend/workspace",
@@ -39,11 +46,13 @@ jvm_library(
     "//platform/xdebugger-testFramework:debugger-testFramework",
   ],
   exports = [
+    "//java/testFramework/shared:java-testFramework-shared",
     "//platform/util",
     "//platform/lang-api:lang",
     "//java/java-impl:impl",
   ],
   runtime_deps = [
+    ":testFramework_resources",
     "//java/plugin",
     "//platform/external-system-impl:externalSystem-impl",
   ]

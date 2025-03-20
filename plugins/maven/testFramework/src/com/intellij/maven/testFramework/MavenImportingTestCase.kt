@@ -27,7 +27,6 @@ import com.intellij.openapi.ui.TestDialog
 import com.intellij.openapi.ui.TestDialogManager
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.io.FileUtil
-import com.intellij.openapi.util.io.toCanonicalPath
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
@@ -64,7 +63,6 @@ import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
-import kotlin.Throws
 
 /**
  * This test case uses the NIO API for handling file operations.
@@ -542,7 +540,7 @@ abstract class MavenImportingTestCase : MavenTestCase() {
     if (SystemInfo.isWindows) {
       MavenServerManager.getInstance().closeAllConnectorsAndWait()
     }
-    FileUtil.delete(repositoryFile.resolve(relativePath))
+    FileUtil.delete(repositoryPath.resolve(relativePath))
   }
 
   protected fun setupJdkForModules(vararg moduleNames: String) {
@@ -578,7 +576,7 @@ abstract class MavenImportingTestCase : MavenTestCase() {
     catch (e: ModuleWithNameAlreadyExists) {
       throw RuntimeException(e)
     }
-    writeAction {
+    edtWriteAction {
       modifiableModel.commit()
       project.getMessageBus().syncPublisher(ModuleListener.TOPIC).modulesRenamed(project, listOf(module)) { oldName }
     }

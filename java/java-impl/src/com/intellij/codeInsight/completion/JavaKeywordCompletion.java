@@ -7,6 +7,7 @@ import com.intellij.codeInsight.completion.util.ParenthesesInsertHandler;
 import com.intellij.codeInsight.daemon.impl.quickfix.CreateClassKind;
 import com.intellij.codeInsight.lookup.*;
 import com.intellij.ide.highlighter.JavaFileType;
+import com.intellij.java.codeserver.core.JavaPsiSwitchUtil;
 import com.intellij.openapi.editor.CaretModel;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.util.Conditions;
@@ -29,7 +30,6 @@ import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
 import com.siyeh.ig.psiutils.ExpressionUtils;
 import com.siyeh.ig.psiutils.SealedUtils;
-import com.siyeh.ig.psiutils.SwitchUtils;
 import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
@@ -345,7 +345,7 @@ public class JavaKeywordCompletion {
     if (allBranches.isEmpty() || allBranches.get(allBranches.size() - 1).getCaseLabelElementList() != labels) {
       return;
     }
-    if (SwitchUtils.findDefaultElement(switchBlock) != null) {
+    if (JavaPsiSwitchUtil.findDefaultElement(switchBlock) != null) {
       return;
     }
 
@@ -525,7 +525,7 @@ public class JavaKeywordCompletion {
   private void addCaseDefault() {
     PsiSwitchBlock switchBlock = getSwitchFromLabelPosition(myPosition);
     if (switchBlock == null) return;
-    PsiElement defaultElement = SwitchUtils.findDefaultElement(switchBlock);
+    PsiElement defaultElement = JavaPsiSwitchUtil.findDefaultElement(switchBlock);
     if (defaultElement != null && defaultElement.getTextRange().getStartOffset() < myPosition.getTextRange().getStartOffset()) return;
     addKeyword(new OverridableSpace(createKeyword(PsiKeyword.CASE), TailTypes.insertSpaceType()));
     if (defaultElement != null) {
@@ -545,7 +545,7 @@ public class JavaKeywordCompletion {
     final PsiType selectorType = getSelectorType(switchBlock);
     if (selectorType == null || selectorType instanceof PsiPrimitiveType) return;
 
-    PsiElement defaultElement = SwitchUtils.findDefaultElement(switchBlock);
+    PsiElement defaultElement = JavaPsiSwitchUtil.findDefaultElement(switchBlock);
     if (defaultElement != null && defaultElement.getTextRange().getStartOffset() < myPosition.getTextRange().getStartOffset()) return;
 
     final TailType caseRuleTail = JavaTailTypes.forSwitchLabel(switchBlock);
@@ -1197,7 +1197,7 @@ public class JavaKeywordCompletion {
       if (switchBlock != null && switchBlock.getExpression() != null) {
         PsiType type = switchBlock.getExpression().getType();
         if (PsiTypes.booleanType().equals(PsiPrimitiveType.getOptionallyUnboxedType(type))) {
-          Set<String> branches = SwitchUtils.getSwitchBranches(switchBlock).stream()
+          Set<String> branches = JavaPsiSwitchUtil.getSwitchBranches(switchBlock).stream()
             .map(branch -> branch instanceof PsiExpression expression ? ExpressionUtils.computeConstantExpression(expression) : null)
             .filter(constant -> constant instanceof Boolean)
             .map(branch -> branch.toString())

@@ -15,7 +15,6 @@
  */
 package com.jetbrains.python.codeInsight.controlflow;
 
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.intellij.codeInsight.controlflow.ControlFlow;
 import com.intellij.codeInsight.controlflow.ControlFlowBuilder;
@@ -28,6 +27,7 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiNamedElement;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.QualifiedName;
+import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.python.PyNames;
 import com.jetbrains.python.PyTokenTypes;
 import com.jetbrains.python.psi.*;
@@ -39,11 +39,8 @@ import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.Set;
 
 public class PyControlFlowBuilder extends PyRecursiveElementVisitor {
-
-  private static final @NotNull Set<String> EXCEPTION_SUPPRESSORS = ImmutableSet.of("suppress", "assertRaises", "assertRaisesRegex");
 
   private final ControlFlowBuilder myBuilder = new ControlFlowBuilder();
 
@@ -312,6 +309,7 @@ public class PyControlFlowBuilder extends PyRecursiveElementVisitor {
     myBuilder.startNode(node);
     TransparentInstruction trueNode = addTransparentInstruction();
     TransparentInstruction falseNode = addTransparentInstruction();
+    TransparentInstruction exitNode = addTransparentInstruction();
     final PyExpression condition = node.getCondition();
     if (condition != null) {
       visitCondition(condition, trueNode, falseNode);
@@ -321,18 +319,146 @@ public class PyControlFlowBuilder extends PyRecursiveElementVisitor {
     if (truePart != null) {
       myBuilder.prevInstruction = trueNode;
       truePart.accept(this);
-      myBuilder.addPendingEdge(node, myBuilder.prevInstruction);
+      myBuilder.addEdge(myBuilder.prevInstruction, exitNode);
     }
     if (falsePart != null) {
       myBuilder.prevInstruction = falseNode;
       falsePart.accept(this);
-      myBuilder.addPendingEdge(node, myBuilder.prevInstruction);
+      myBuilder.addEdge(myBuilder.prevInstruction, exitNode);
     }
+    myBuilder.prevInstruction = exitNode;
   }
 
   @Override
   public void visitPyMatchStatement(@NotNull PyMatchStatement matchStatement) {
-    new PyMatchStatementControlFlowBuilder(myBuilder, this).build(matchStatement);
+    myBuilder.startNode(matchStatement);
+    PyExpression subject = matchStatement.getSubject();
+    if (subject != null) {
+      subject.accept(this);
+    }
+    for (PyCaseClause caseClause : matchStatement.getCaseClauses()) {
+      visitPyCaseClause(caseClause);
+    }
+    myBuilder.addNodeAndCheckPending(new TransparentInstructionImpl(myBuilder, matchStatement, ""));
+    if (!myBuilder.prevInstruction.allPred().isEmpty()) {
+      addTypeAssertionNodes(matchStatement, false);
+    }
+    myBuilder.addPendingEdge(matchStatement, myBuilder.prevInstruction);
+    myBuilder.prevInstruction = null;
+  }
+
+  @Override
+  public void visitPyCaseClause(@NotNull PyCaseClause clause) {
+    PyPattern pattern = clause.getPattern();
+    if (pattern != null) {
+      pattern.accept(this);
+      addTypeAssertionNodes(pattern, true);
+    }
+
+    TransparentInstruction trueNode = addTransparentInstruction();
+    TransparentInstruction falseNode = addTransparentInstruction();
+    PyExpression guard = clause.getGuardCondition();
+    if (guard != null) {
+      visitCondition(guard, trueNode, falseNode);
+      addTypeAssertionNodes(guard, true);
+    }
+    else {
+      myBuilder.addEdge(myBuilder.prevInstruction, trueNode);
+    }
+    myBuilder.addPendingEdge(clause, falseNode);
+    myBuilder.prevInstruction = trueNode;
+
+    clause.getStatementList().accept(this);
+
+    if (clause.getParent() instanceof PyMatchStatement matchStatement) {
+      myBuilder.addPendingEdge(matchStatement, myBuilder.prevInstruction);
+      myBuilder.updatePendingElementScope(clause.getStatementList(), matchStatement);
+    }
+    myBuilder.prevInstruction = null;
+  }
+
+  @Override
+  public void visitWildcardPattern(@NotNull PyWildcardPattern node) {
+    myBuilder.startNode(node);
+  }
+
+  @Override
+  public void visitPyPattern(@NotNull PyPattern node) {
+    boolean isRefutable = !node.isIrrefutable();
+    if (isRefutable) {
+      myBuilder.addNodeAndCheckPending(new RefutablePatternInstruction(myBuilder, node, false));
+      myBuilder.addPendingEdge(node.getParent(), myBuilder.prevInstruction);
+    }
+
+    node.acceptChildren(this);
+    myBuilder.updatePendingElementScope(node, node.getParent());
+
+    if (isRefutable) {
+      myBuilder.addNode(new RefutablePatternInstruction(myBuilder, node, true));
+    }
+  }
+
+  @Override
+  public void visitPyOrPattern(@NotNull PyOrPattern node) {
+    myBuilder.addNodeAndCheckPending(new RefutablePatternInstruction(myBuilder, node, false));
+
+    TransparentInstruction onSuccess = new TransparentInstructionImpl(myBuilder, node, "onSuccess");
+    List<PyPattern> alternatives = node.getAlternatives();
+    PyPattern lastAlternative = ContainerUtil.getLastItem(alternatives);
+
+    for (PyPattern alternative : alternatives) {
+      alternative.accept(this);
+      if (alternative != lastAlternative) {
+        // Allow next alternative to handle the fail edge of this alternative
+        myBuilder.updatePendingElementScope(node, alternative);
+      }
+      myBuilder.addEdge(myBuilder.prevInstruction, onSuccess);
+      myBuilder.prevInstruction = null;
+    }
+    myBuilder.addNode(onSuccess);
+    myBuilder.addNode(new RefutablePatternInstruction(myBuilder, node, true));
+    myBuilder.updatePendingElementScope(node, node.getParent());
+  }
+
+  @Override
+  public void visitPyClassPattern(@NotNull PyClassPattern node) {
+    myBuilder.addNodeAndCheckPending(new RefutablePatternInstruction(myBuilder, node, false));
+
+    node.getClassNameReference().accept(this);
+    myBuilder.addPendingEdge(node.getParent(), myBuilder.prevInstruction);
+
+    node.getArgumentList().acceptChildren(this);
+    myBuilder.updatePendingElementScope(node, node.getParent());
+
+    myBuilder.addNode(new RefutablePatternInstruction(myBuilder, node, true));
+  }
+
+  @Override
+  public void visitPyValuePattern(@NotNull PyValuePattern node) {
+    myBuilder.addNodeAndCheckPending(new RefutablePatternInstruction(myBuilder, node, false));
+
+    node.getValue().accept(this);
+    myBuilder.addPendingEdge(node.getParent(), myBuilder.prevInstruction);
+
+    myBuilder.addNode(new RefutablePatternInstruction(myBuilder, node, true));
+  }
+
+  @Override
+  public void visitPyAsPattern(@NotNull PyAsPattern node) {
+    // AsPattern cannot fail by itself - it fails only if its child fails.
+    // So no need to create additional fail edge
+    myBuilder.startNode(node);
+    node.acceptChildren(this);
+    myBuilder.updatePendingElementScope(node, node.getParent());
+  }
+
+  @Override
+  public void visitPyGroupPattern(@NotNull PyGroupPattern node) {
+    // GroupPattern cannot fail by itself - it fails only if its child fails.
+    // So no need to create additional fail edge
+    // Also no need to dedicated node for GroupPattern itself
+    node.acceptChildren(this);
+    myBuilder.updatePendingElementScope(node, node.getParent());
   }
 
   @Override
@@ -569,16 +695,6 @@ public class PyControlFlowBuilder extends PyRecursiveElementVisitor {
     for (PyExpression expression : expressions) {
       expression.accept(this);
     }
-
-    myBuilder.processPending((pendingScope, instruction) -> {
-      final PsiElement pendingElement = instruction.getElement();
-      if (pendingElement != null && PsiTreeUtil.isAncestor(node, pendingElement, false)) {
-        myBuilder.addEdge(null, instruction);
-      }
-      else {
-        myBuilder.addPendingEdge(pendingScope, instruction);
-      }
-    });
     myBuilder.addPendingEdge(null, myBuilder.prevInstruction);
     myBuilder.flowAbrupted();
   }
@@ -590,7 +706,8 @@ public class PyControlFlowBuilder extends PyRecursiveElementVisitor {
     if (expression != null) {
       expression.accept(this);
     }
-    abruptFlow(node);
+    myBuilder.addPendingEdge(null, myBuilder.prevInstruction);
+    myBuilder.flowAbrupted();
   }
 
   @Override
@@ -652,6 +769,7 @@ public class PyControlFlowBuilder extends PyRecursiveElementVisitor {
       myBuilder.flowAbrupted();
       finallyFailInstruction = myBuilder.startNode(finallyPart);
       finallyPart.accept(this);
+      myBuilder.addNode(new PyFinallyFailExitInstruction(myBuilder, finallyFailInstruction));
       myBuilder.addPendingEdge(null, myBuilder.prevInstruction);
       myBuilder.flowAbrupted();
     }
@@ -820,31 +938,25 @@ public class PyControlFlowBuilder extends PyRecursiveElementVisitor {
     super.visitPyAssertStatement(node);
     final PyExpression[] args = node.getArguments();
     // assert False
-    if (args.length >= 1 && !PyEvaluator.evaluateAsBooleanNoResolve(args[0], true)) {
-      myBuilder.processPending((pendingScope, instruction) -> {
-        final PsiElement pendingElement = instruction.getElement();
-        if (pendingElement != null && PsiTreeUtil.isAncestor(node, pendingElement, false)) {
-          myBuilder.addEdge(null, instruction);
-        }
-        else {
-          myBuilder.addPendingEdge(pendingScope, instruction);
-        }
-      });
-      myBuilder.addPendingEdge(null, myBuilder.prevInstruction);
-      myBuilder.flowAbrupted();
-      return;
+    if (args.length >= 1) {
+      if (!PyEvaluator.evaluateAsBooleanNoResolve(args[0], true)) {
+        myBuilder.addNode(new PyRaiseInstruction(myBuilder, node));
+        myBuilder.addPendingEdge(null, myBuilder.prevInstruction);
+        myBuilder.flowAbrupted();
+        return;
+      }
+
+      TransparentInstruction trueNode = addTransparentInstruction();
+      TransparentInstruction falseNode = addTransparentInstruction();
+      visitCondition(args[0], trueNode, falseNode);
+
+      PyRaiseInstruction raiseInstruction = new PyRaiseInstruction(myBuilder, node);
+      myBuilder.instructions.add(raiseInstruction);
+      myBuilder.addEdge(falseNode, raiseInstruction);
+
+      myBuilder.addPendingEdge(null, raiseInstruction);
+      myBuilder.prevInstruction = trueNode;
     }
-
-    TransparentInstruction trueNode = addTransparentInstruction();
-    TransparentInstruction falseNode = addTransparentInstruction();
-    visitCondition(args[0], trueNode, falseNode);
-
-    PyRaiseInstruction raiseInstruction = new PyRaiseInstruction(myBuilder, null);
-    myBuilder.instructions.add(raiseInstruction);
-    myBuilder.addEdge(falseNode, raiseInstruction);
-
-    myBuilder.addPendingEdge(null, raiseInstruction);
-    myBuilder.prevInstruction = trueNode;
   }
 
   @Override
@@ -855,28 +967,54 @@ public class PyControlFlowBuilder extends PyRecursiveElementVisitor {
 
   @Override
   public void visitPyWithStatement(final @NotNull PyWithStatement node) {
-    super.visitPyWithStatement(node);
+    myBuilder.startNode(node);
 
-    final boolean suppressor = StreamEx
-      .of(node.getWithItems())
-      .map(PyWithItem::getExpression)
-      .select(PyCallExpression.class)
-      .map(PyCallExpression::getCallee)
-      .select(PyReferenceExpression.class)
-      .anyMatch(it -> EXCEPTION_SUPPRESSORS.contains(it.getReferencedName()));
-
-    myBuilder.processPending((pendingScope, instruction) -> {
-      final PsiElement element = instruction.getElement();
-      if (element != null &&
-          PsiTreeUtil.isAncestor(node, element, true) &&
-          (suppressor && canRaiseExceptions(instruction) 
-           || PsiTreeUtil.getParentOfType(element, PyRaiseStatement.class) != null
-           || PsiTreeUtil.getParentOfType(element, PyAssertStatement.class) != null
-           )) {
-        myBuilder.addPendingEdge(node, instruction);
+    List<Instruction> exits = new ArrayList<>();
+    for (var item : node.getWithItems()) {
+      int itemStart = myBuilder.instructions.size();
+      item.accept(this);
+      int itemEnd = myBuilder.instructions.size();
+      for (int i = itemStart; i < itemEnd; i++) {
+        final Instruction instruction = myBuilder.instructions.get(i);
+        final PsiElement e = instruction.getElement();
+        if (e == null || !canRaiseExceptions(instruction) || !PsiTreeUtil.isAncestor(node, e, false)) {
+          continue;
+        }
+        for (var exit : exits) {
+          myBuilder.addEdge(myBuilder.instructions.get(i), exit);
+        }
       }
-      myBuilder.addPendingEdge(pendingScope, instruction);
-    });
+
+      var nextExit = new PyWithContextExitInstruction(myBuilder, item);
+      exits.add(nextExit);
+      myBuilder.instructions.add(nextExit);
+      // ControlFlowUtil.iterate assumes nodes are added to CFG in order they are created
+    }
+
+    final var toAllExits = addTransparentInstruction();
+    final var fromAllExits = addTransparentInstruction();
+    for (var exit : exits) {
+      myBuilder.addEdge(toAllExits, exit);
+      myBuilder.addEdge(exit, fromAllExits);
+    }
+
+    int stmtStart = myBuilder.instructions.size();
+    node.getStatementList().accept(this);
+    int stmtEnd = myBuilder.instructions.size();
+
+    for (int j = stmtStart; j < stmtEnd; j++) {
+      final Instruction instruction = myBuilder.instructions.get(j);
+      final PsiElement e = instruction.getElement();
+      if (e == null || !canRaiseExceptions(instruction) || !PsiTreeUtil.isAncestor(node, e, false)) {
+        continue;
+      }
+      myBuilder.addEdge(instruction, toAllExits);
+    }
+
+    // Checks if exit nodes will have at least one predecessor
+    if (exits.size() > 1 || !toAllExits.allPred().isEmpty()) {
+      myBuilder.addPendingEdge(node, fromAllExits);
+    }
   }
 
   @Override
@@ -933,29 +1071,19 @@ public class PyControlFlowBuilder extends PyRecursiveElementVisitor {
     statementList.accept(this);
   }
 
-  private void abruptFlow(final PsiElement node) {
-    // Here we process pending instructions!!!
-    myBuilder.processPending((pendingScope, instruction) -> {
-      if (pendingScope != null && PsiTreeUtil.isAncestor(node, pendingScope, false)) {
-        myBuilder.addPendingEdge(null, instruction);
-      }
-      else {
-        myBuilder.addPendingEdge(pendingScope, instruction);
-      }
-    });
-    myBuilder.addPendingEdge(null, myBuilder.prevInstruction);
-    myBuilder.flowAbrupted();
-  }
-
-  private static boolean canRaiseExceptions(final Instruction instruction) {
+  private static boolean canRaiseExceptions(@NotNull Instruction instruction) {
     if (instruction instanceof ReadWriteInstruction) {
       return true;
     }
-    return !PsiTreeUtil.instanceOf(instruction.getElement(),
-                                   PyStatementList.class);
+    PsiElement element = instruction.getElement();
+    return !(element instanceof PyReturnStatement returnStatement && returnStatement.getExpression() == null
+             || element instanceof PyContinueStatement
+             || element instanceof PyBreakStatement
+             || element instanceof PyPassStatement
+             || element instanceof PyStatementList);
   }
 
-  private void addTypeAssertionNodes(@NotNull PyExpression condition, boolean positive) {
+  private void addTypeAssertionNodes(@NotNull PyElement condition, boolean positive) {
     final PyTypeAssertionEvaluator evaluator = new PyTypeAssertionEvaluator(positive);
     condition.accept(evaluator);
     for (PyTypeAssertionEvaluator.Assertion def : evaluator.getDefinitions()) {

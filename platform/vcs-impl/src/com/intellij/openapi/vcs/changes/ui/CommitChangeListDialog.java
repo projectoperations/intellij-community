@@ -27,7 +27,6 @@ import com.intellij.openapi.vcs.checkin.BeforeCheckinDialogHandler;
 import com.intellij.openapi.vcs.ui.CommitMessage;
 import com.intellij.openapi.vcs.ui.RefreshableOnComponent;
 import com.intellij.ui.JBColor;
-import com.intellij.ui.SplitterWithSecondHideable;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.scale.JBUIScale;
 import com.intellij.util.Alarm;
@@ -577,6 +576,11 @@ public abstract class CommitChangeListDialog extends DialogWrapper implements Si
     myChangesInfoCalculator
       .update(getDisplayedChanges(), getIncludedChanges(), getDisplayedUnversionedFiles().size(), getIncludedUnversionedFiles().size());
     myLegend.update();
+  }
+
+  @Override
+  public @Nullable Dimension getInitialSize() {
+    return JBUI.DialogSizes.extraLarge();
   }
 
   @Override

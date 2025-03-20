@@ -56,6 +56,9 @@
     <projectService serviceInterface="com.intellij.openapi.vcs.changes.VcsDirtyScopeManager"
                     serviceImplementation="com.intellij.openapi.vcs.changes.VcsDirtyScopeManagerImpl"/>
 
+    <projectService serviceInterface="com.intellij.openapi.vcs.changes.ChangesViewWorkflowManager"
+                    serviceImplementation="com.intellij.openapi.vcs.changes.ChangesViewWorkflowManagerImpl"/>
+
     <postStartupActivity implementation="com.intellij.openapi.vcs.changes.shelf.ShelveChangeManagerProjectActivity"/>
     <projectService serviceImplementation="com.intellij.openapi.vcs.changes.shelf.ShelvedChangesViewManager"
                     headlessImplementation=""/>
@@ -201,6 +204,8 @@
                            implementationClass="com.intellij.openapi.vcs.changes.ui.DirectoryChangesGroupingPolicy$Factory"/>
 
     <vcs.changes.changesViewModifier implementation="com.intellij.vcs.commit.EditedCommitChangesViewModifier"/>
+
+    <vcs.changes.changesViewConflictsBannerCustomizer implementation="com.intellij.openapi.vcs.merge.DefaultChangesViewConflictsBannerCustomizer"/>
 
     <checkinHandlerFactory implementation="com.intellij.openapi.vcs.checkin.MultipleChangeListsCheckFactory"/>
     <checkinHandlerFactory implementation="com.intellij.openapi.vcs.checkin.UnresolvedMergeCheckFactory"/>
@@ -394,6 +399,8 @@
               topic="com.intellij.openapi.vcs.changes.shelf.ShelveChangesManagerListener"/>
     <listener class="com.intellij.openapi.vcs.actions.AnnotationsLineStatusTrackerListener"
               topic="com.intellij.openapi.vcs.impl.LineStatusTrackerManager$Listener"/>
+    <listener class="com.intellij.vcs.commit.ChangesViewToolWindowRefresher"
+              topic="com.intellij.openapi.wm.ex.ToolWindowManagerListener"/>
   </projectListeners>
 </idea-plugin>
 

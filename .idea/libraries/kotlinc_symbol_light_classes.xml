@@ -1,18 +1,18 @@
 <component name="libraryTable">
   <library name="kotlinc.symbol-light-classes" type="repository">
-    <properties include-transitive-deps="false" maven-id="org.jetbrains.kotlin:symbol-light-classes-for-ide:2.2.0-dev-3086">
+    <properties include-transitive-deps="false" maven-id="org.jetbrains.kotlin:symbol-light-classes-for-ide:2.2.0-dev-8822">
       <verification>
-        <artifact url="file://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/symbol-light-classes-for-ide/2.2.0-dev-3086/symbol-light-classes-for-ide-2.2.0-dev-3086.jar">
-          <sha256sum>cf53fa06be52d030ec8aafb71a9b7d9fa5175fc4c53fd098ca891415fc85c093</sha256sum>
+        <artifact url="file://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/symbol-light-classes-for-ide/2.2.0-dev-8822/symbol-light-classes-for-ide-2.2.0-dev-8822.jar">
+          <sha256sum>4b0af4ed575eefcfedb69dba41c453c85ebe0a20b68deeaf46f04cd6f857588b</sha256sum>
         </artifact>
       </verification>
     </properties>
     <CLASSES>
-      <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/symbol-light-classes-for-ide/2.2.0-dev-3086/symbol-light-classes-for-ide-2.2.0-dev-3086.jar!/" />
+      <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/symbol-light-classes-for-ide/2.2.0-dev-8822/symbol-light-classes-for-ide-2.2.0-dev-8822.jar!/" />
     </CLASSES>
     <JAVADOC />
     <SOURCES>
-      <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/symbol-light-classes-for-ide/2.2.0-dev-3086/symbol-light-classes-for-ide-2.2.0-dev-3086-sources.jar!/" />
+      <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/symbol-light-classes-for-ide/2.2.0-dev-8822/symbol-light-classes-for-ide-2.2.0-dev-8822-sources.jar!/" />
     </SOURCES>
   </library>
 </component>

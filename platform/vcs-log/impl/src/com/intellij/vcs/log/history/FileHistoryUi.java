@@ -104,7 +104,7 @@ public class FileHistoryUi extends AbstractVcsLogUi {
 
     myFilterUi.setVisiblePack(pack);
 
-    if (pack.canRequestMore()) {
+    if (pack.getCanRequestMore()) {
       requestMore(EmptyRunnable.INSTANCE);
     }
   }
@@ -112,7 +112,7 @@ public class FileHistoryUi extends AbstractVcsLogUi {
   /**
    * @deprecated use {@link FileHistoryModel#getPathInCommit(Hash)} or {@link FileHistoryPaths#filePath(VcsLogDataPack, int)}
    */
-  @Deprecated
+  @Deprecated(forRemoval = true)
   public @Nullable FilePath getPathInCommit(@NotNull Hash hash) {
     return myFileHistoryModel.getPathInCommit(hash);
   }

@@ -3,17 +3,17 @@ package com.intellij.notebooks.visualization.inlay
 import com.intellij.notebooks.visualization.NotebookCellLines
 import com.intellij.notebooks.visualization.NotebookCellLinesEvent
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.editor.CustomFoldRegion
-import com.intellij.openapi.editor.Editor
-import com.intellij.openapi.editor.Inlay
-import com.intellij.openapi.editor.InlayModel
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.editor.*
 import com.intellij.openapi.editor.ex.FoldingListener
 import com.intellij.openapi.editor.ex.SoftWrapChangeListener
 import com.intellij.openapi.editor.impl.EditorImpl
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.Key
+import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 import com.intellij.util.EventDispatcher
 import java.beans.PropertyChangeListener
+import javax.swing.SwingUtilities
 
 /**
  * Per-editor service on which can one subscribe.
@@ -25,6 +25,7 @@ import java.beans.PropertyChangeListener
  * - On soft wrap recalculation ends
  * - Folding model change
  * - Inlay model change
+ * - Tool window state changes
  */
 // Class name does not reflect the functionality of this class.
 class JupyterBoundsChangeHandler(val editor: EditorImpl) : Disposable {
@@ -44,11 +45,22 @@ class JupyterBoundsChangeHandler(val editor: EditorImpl) : Disposable {
       override fun recalculationEnds() {
         if (editor.document.isInEventsHandling)
           return
-        boundsChanged()
+
+        // WriteAction can not be called from ReadAction
+        // but deep inside boundsChanged, in EditorCellOutputView.kt:60, we are calling layout for EditorImpl that requires write action
+        // while recalculationEnds called from readAction
+        if (ApplicationManager.getApplication().isWriteAccessAllowed)
+          boundsChanged()
+        else
+          schedulePerformPostponed()
       }
     })
 
     editor.foldingModel.addListener(object : FoldingListener {
+      override fun onFoldRegionStateChange(region: FoldRegion) {
+        boundsChanged()
+      }
+
       override fun onFoldProcessingEnd() {
         boundsChanged()
       }
@@ -89,20 +101,19 @@ class JupyterBoundsChangeHandler(val editor: EditorImpl) : Disposable {
         boundsChanged()
       }
     }, this)
+
+    editor.project?.messageBus?.connect(this)?.subscribe(
+      ToolWindowManagerListener.TOPIC,
+      object : ToolWindowManagerListener {
+        override fun stateChanged() = boundsChanged()
+      }
+    )
   }
 
   override fun dispose(): Unit = Unit
 
-  fun subscribe(listener: JupyterBoundsChangeListener) {
-    dispatcher.addListener(listener)
-  }
-
   fun subscribe(parentDisposable: Disposable, listener: JupyterBoundsChangeListener) {
     dispatcher.addListener(listener, parentDisposable)
-  }
-
-  fun unsubscribe(listener: JupyterBoundsChangeListener) {
-    dispatcher.removeListener(listener)
   }
 
   fun boundsChanged() {
@@ -110,6 +121,10 @@ class JupyterBoundsChangeHandler(val editor: EditorImpl) : Disposable {
       isShouldBeRecalculated = true
       return
     }
+    notifyBoundsChanged()
+  }
+
+  private fun notifyBoundsChanged() {
     if (!editor.isDisposed) {
       dispatcher.multicaster.boundsChanged()
     }
@@ -121,9 +136,22 @@ class JupyterBoundsChangeHandler(val editor: EditorImpl) : Disposable {
   }
 
   fun performPostponed() {
+    finishDelayAndDoIfShouldBeRecalculated { notifyBoundsChanged() }
+  }
+
+  fun schedulePerformPostponed() {
+    finishDelayAndDoIfShouldBeRecalculated {
+      SwingUtilities.invokeLater {
+        notifyBoundsChanged()
+      }
+    }
+  }
+
+  private fun finishDelayAndDoIfShouldBeRecalculated(block: () -> Unit) {
     isDelayed = false
     if (isShouldBeRecalculated) {
-      boundsChanged()
+      isShouldBeRecalculated = false
+      block()
     }
   }
 

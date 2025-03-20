@@ -25,8 +25,7 @@ import com.intellij.ide.ui.UIThemeProvider
 import com.intellij.idea.IdeaLogger
 import com.intellij.lang.Language
 import com.intellij.notification.NotificationType
-import com.intellij.notification.NotificationsManager
-import com.intellij.notification.impl.NotificationsManagerImpl
+import com.intellij.notification.impl.ApplicationNotificationsModel
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.AnAction
@@ -72,6 +71,7 @@ import com.intellij.openapi.wm.impl.IdeFrameImpl
 import com.intellij.openapi.wm.impl.ProjectFrameHelper
 import com.intellij.platform.ide.progress.ModalTaskOwner
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
+import com.intellij.platform.plugins.parser.impl.elements.ActionElement.ActionElementName
 import com.intellij.psi.util.CachedValuesManager
 import com.intellij.serviceContainer.ComponentManagerImpl
 import com.intellij.ui.IconDeferrer
@@ -414,7 +414,7 @@ object DynamicPlugins {
   }
 
   private fun checkNoComponentsOrServiceOverrides(pluginId: PluginId?, containerDescriptor: ContainerDescriptor): String? {
-    if (!containerDescriptor.components.isNullOrEmpty()) {
+    if (!containerDescriptor.components.isEmpty()) {
       return "Plugin $pluginId is not unload-safe because it declares components"
     }
     if (containerDescriptor.services.any { it.overrides }) {
@@ -559,7 +559,7 @@ object DynamicPlugins {
           ActionToolbarImpl.resetAllToolbars()
           PresentationFactory.clearPresentationCaches()
           TouchbarSupport.reloadAllActions()
-          (serviceIfCreated<NotificationsManager>() as? NotificationsManagerImpl)?.expireAll()
+          ApplicationNotificationsModel.expireAll()
           MessagePool.getInstance().clearErrors()
           LaterInvocator.purgeExpiredItems()
           FileAttribute.resetRegisteredIds()
@@ -807,11 +807,11 @@ object DynamicPlugins {
 
     app.unloadServices(module, module.appContainerDescriptor.services)
     val appMessageBus = app.messageBus as MessageBusEx
-    module.appContainerDescriptor.listeners?.let { appMessageBus.unsubscribeLazyListeners(module, it) }
+    module.appContainerDescriptor.listeners.let { appMessageBus.unsubscribeLazyListeners(module, it) }
 
     for (project in openedProjects) {
       (project.actualComponentManager as ComponentManagerImpl).unloadServices(module, module.projectContainerDescriptor.services)
-      module.projectContainerDescriptor.listeners?.let {
+      module.projectContainerDescriptor.listeners.let {
         ((project.actualComponentManager as ComponentManagerImpl).messageBus as MessageBusEx).unsubscribeLazyListeners(module, it)
       }
 
@@ -860,15 +860,15 @@ object DynamicPlugins {
   private inline fun processExtensionPoints(pluginDescriptor: IdeaPluginDescriptorImpl,
                                             projects: List<Project>,
                                             processor: (points: List<ExtensionPointDescriptor>, area: ExtensionsAreaImpl) -> Unit) {
-    pluginDescriptor.appContainerDescriptor.extensionPoints?.let {
+    pluginDescriptor.appContainerDescriptor.extensionPoints.takeIf { it.isNotEmpty() }?.let {
       processor(it, ApplicationManager.getApplication().extensionArea as ExtensionsAreaImpl)
     }
-    pluginDescriptor.projectContainerDescriptor.extensionPoints?.let { extensionPoints ->
+    pluginDescriptor.projectContainerDescriptor.extensionPoints.takeIf { it.isNotEmpty() }?.let { extensionPoints ->
       for (project in projects) {
         processor(extensionPoints, project.extensionArea as ExtensionsAreaImpl)
       }
     }
-    pluginDescriptor.moduleContainerDescriptor.extensionPoints?.let { extensionPoints ->
+    pluginDescriptor.moduleContainerDescriptor.extensionPoints.takeIf { it.isNotEmpty() }?.let { extensionPoints ->
       for (project in projects) {
         for (module in ModuleManager.getInstance(project).modules) {
           processor(extensionPoints, module.extensionArea as ExtensionsAreaImpl)
@@ -1359,7 +1359,7 @@ private fun doCheckExtensionsCanUnloadWithoutRestart(
 
 private fun findPluginExtensionPoint(pluginDescriptor: IdeaPluginDescriptorImpl, epName: String): ExtensionPointDescriptor? {
   fun findContainerExtensionPoint(containerDescriptor: ContainerDescriptor): ExtensionPointDescriptor? {
-    return containerDescriptor.extensionPoints?.find { it.nameEquals(epName, pluginDescriptor) }
+    return containerDescriptor.extensionPoints.find { it.nameEquals(epName, pluginDescriptor) }
   }
 
   return findContainerExtensionPoint(pluginDescriptor.appContainerDescriptor)
@@ -1447,8 +1447,8 @@ private fun checkUnloadActions(module: IdeaPluginDescriptorImpl): String? {
   for (descriptor in module.actions) {
     val element = descriptor.element
     val elementName = descriptor.name
-    if (elementName != ActionDescriptorName.action &&
-        !(elementName == ActionDescriptorName.group && canUnloadActionGroup(element)) && elementName != ActionDescriptorName.reference) {
+    if (elementName != ActionElementName.action &&
+        !(elementName == ActionElementName.group && canUnloadActionGroup(element)) && elementName != ActionElementName.reference) {
       return "Plugin $module is not unload-safe because of action element $elementName"
     }
   }

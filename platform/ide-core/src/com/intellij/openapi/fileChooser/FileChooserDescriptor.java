@@ -64,10 +64,11 @@ public class FileChooserDescriptor implements Cloneable {
     boolean chooseJarContents,
     boolean chooseMultiple
   ) {
-    this(chooseFiles || chooseJars || chooseJarsAsFiles, chooseFolders, chooseJarContents, chooseMultiple);
+    this(chooseFiles || (chooseJars && !chooseJarContents) || chooseJarsAsFiles, chooseFolders, chooseJarContents, chooseMultiple);
   }
 
-  FileChooserDescriptor(boolean chooseFiles, boolean chooseFolders, boolean chooseJarContents, boolean chooseMultiple) {
+  @ApiStatus.Internal
+  public FileChooserDescriptor(boolean chooseFiles, boolean chooseFolders, boolean chooseJarContents, boolean chooseMultiple) {
     this(chooseFiles, chooseFolders, chooseJarContents, chooseMultiple, null);
   }
 
@@ -225,8 +226,6 @@ public class FileChooserDescriptor implements Cloneable {
 
   /**
    * @see #withExtensionFilter(String, String...)
-   * @see FileChooserDescriptorFactory#createSingleFileDescriptor(FileType)
-   * @see FileChooserDescriptorFactory#createSingleFileOrFolderDescriptor(FileType)
    */
   public FileChooserDescriptor withExtensionFilter(@NotNull FileType type) {
     return withExtensionFilter(IdeCoreBundle.message("file.chooser.files.label", type.getName()), type);
@@ -248,7 +247,6 @@ public class FileChooserDescriptor implements Cloneable {
 
   /**
    * @see #withExtensionFilter(String, String...)
-   * @see FileChooserDescriptorFactory#createSingleFileDescriptor(String)
    */
   public FileChooserDescriptor withExtensionFilter(@NotNull String extension) {
     return withExtensionFilter(IdeCoreBundle.message("file.chooser.files.label", extension.toUpperCase(Locale.ROOT)), extension);
@@ -339,7 +337,7 @@ public class FileChooserDescriptor implements Cloneable {
     return myChooseFiles || myChooseJarContents && isArchive(file);
   }
 
-  private boolean matchesFilters(VirtualFile file) {
+  protected boolean matchesFilters(VirtualFile file) {
     return
       (myExtensionFilter == null || ContainerUtil.exists(myExtensionFilter.second, ext -> Strings.endsWithIgnoreCase(file.getName(), '.' + ext))) &&
       (myFileTypeFilter == null || ContainerUtil.exists(myFileTypeFilter, type -> FileTypeRegistry.getInstance().isFileOfType(file, type))) &&

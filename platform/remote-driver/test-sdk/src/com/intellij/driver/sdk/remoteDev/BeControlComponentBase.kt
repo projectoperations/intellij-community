@@ -70,16 +70,16 @@ open class BeControlComponentBase(
     return frontendComponent.getBounds()
   }
 
-  override fun isVisible(): Boolean {
-    return frontendComponent.isVisible()
-  }
-
   override fun isShowing(): Boolean {
     return frontendComponent.isShowing()
   }
 
   override fun isEnabled(): Boolean {
     return frontendComponent.isEnabled()
+  }
+
+  override fun requestFocus() {
+    frontendComponent.requestFocus()
   }
 
   override fun isFocusOwner(): Boolean {

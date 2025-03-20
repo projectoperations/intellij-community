@@ -38,12 +38,14 @@ jvm_library(
     "@lib//:kotlinx-serialization-json",
     "@lib//:caffeine",
     "//platform/util/coroutines",
+    "//platform/util/kmp",
     ":troveCompileOnly_provided",
   ],
   exports = [
     "@lib//:jetbrains-annotations",
     "//platform/util-rt",
     "//platform/util/base",
+    "//platform/util/kmp",
   ],
   runtime_deps = [
     ":util_resources",
@@ -55,7 +57,19 @@ jvm_library(
 
 ### auto-generated section `build intellij.platform.util.tests` start
 load("@rules_java//java:defs.bzl", "java_library")
-load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_test")
+load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources", "jvm_test")
+
+jvm_resources(
+  name = "util-tests_test_resources",
+  files = glob(["testData/**/*"]),
+  strip_prefix = "testData"
+)
+
+jvm_resources(
+  name = "util-tests_test_resources_1",
+  files = glob(["testResources/**/*"]),
+  strip_prefix = "testResources"
+)
 
 java_library(
   name = "util-tests",
@@ -94,12 +108,20 @@ jvm_library(
     "//platform/boot",
     "//platform/testFramework/junit5",
     "//platform/testFramework/junit5:junit5_test_lib",
+    "//platform/testFramework/junit5.jimfs:junit5-jimfs",
+    "//platform/testFramework/junit5.jimfs:junit5-jimfs_test_lib",
     "@lib//:kotlinx-coroutines-debug",
     "//tools/intellij.tools.ide.metrics.benchmark:ide-metrics-benchmark",
     "//tools/intellij.tools.ide.metrics.benchmark:ide-metrics-benchmark_test_lib",
     "//platform/util/coroutines",
     "@lib//:jetbrains-kotlinx-lincheck-jvm",
     "@lib//:mockito",
+    "@lib//:mockito-kotlin",
+    "@lib//:jimfs",
+  ],
+  runtime_deps = [
+    ":util-tests_test_resources",
+    ":util-tests_test_resources_1",
   ]
 )
 

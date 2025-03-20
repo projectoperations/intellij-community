@@ -2,6 +2,7 @@
 package com.intellij.idea
 
 import com.intellij.accessibility.enableScreenReaderSupportIfNeeded
+import com.intellij.diagnostic.EdtLockLoadMonitorService
 import com.intellij.diagnostic.LoadingState
 import com.intellij.diagnostic.PerformanceWatcher
 import com.intellij.featureStatistics.fusCollectors.LifecycleUsageTriggerCollector
@@ -28,6 +29,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.IntellijInternalApi
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.SystemInfoRt
+import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.registry.RegistryManager
 import com.intellij.openapi.util.registry.migrateRegistryToAdvSettings
 import com.intellij.openapi.util.text.HtmlBuilder
@@ -40,6 +42,7 @@ import com.intellij.ui.mac.touchbar.TouchbarSupport
 import com.intellij.ui.updateAppWindowIcon
 import com.intellij.util.io.URLUtil.SCHEME_SEPARATOR
 import kotlinx.coroutines.*
+import org.jetbrains.annotations.ApiStatus
 import java.nio.file.Path
 import java.util.*
 import javax.swing.JOptionPane
@@ -85,7 +88,7 @@ open class IdeStarter : ModernApplicationStarter() {
 
       val starterClass = this@IdeStarter.javaClass
       val starter = FUSProjectHotStartUpMeasurer.getStartUpContextElementIntoIdeStarter(
-        close = isHeadless || (starterClass != IdeStarter::class.java && starterClass != StandaloneLightEditStarter::class.java),
+        close = isHeadless || (!shouldRunFusStartUpMeasurer() && starterClass != IdeStarter::class.java && starterClass != StandaloneLightEditStarter::class.java)
       )
       if (starter != null) {
         if ((app as ApplicationEx).isLightEditMode) {
@@ -100,6 +103,10 @@ open class IdeStarter : ModernApplicationStarter() {
       app.serviceAsync<PerformanceWatcher>()
       // cache it as IdeEventQueue should use loaded PerformanceWatcher service as soon as it is ready (getInstanceIfCreated is used)
       PerformanceWatcher.getInstance().startEdtSampling()
+
+      if (Registry.`is`("ide.enable.edt.lock.load.monitor")) {
+        app.serviceAsync<EdtLockLoadMonitorService>().initialize()
+      }
 
       launch { reportPluginErrors() }
 
@@ -183,6 +190,9 @@ open class IdeStarter : ModernApplicationStarter() {
       WelcomeFrame.showIfNoProjectOpened(publisher)
     }
   }
+
+  @ApiStatus.Internal
+  protected open fun shouldRunFusStartUpMeasurer(): Boolean = false
 
   private suspend fun showWelcomeFrame(lifecyclePublisher: AppLifecycleListener): Boolean {
     val showWelcomeFrameTask = WelcomeFrame.prepareToShow() ?: return true
@@ -272,7 +282,7 @@ private fun CoroutineScope.postOpenUiTasks() {
   }
 
   launch {
-    startSystemHealthMonitor()
+    SystemHealthMonitor.start()
   }
 
   launch {
@@ -289,15 +299,16 @@ private fun CoroutineScope.postOpenUiTasks() {
 }
 
 private suspend fun reportPluginErrors() {
-  val pluginErrors = PluginManagerCore.getAndClearPluginLoadingErrors().toMutableList()
+  val pluginErrors = PluginManagerCore.getAndClearPluginLoadingErrors()
   if (pluginErrors.isEmpty()) {
     return
   }
 
   withContext(Dispatchers.EDT + ModalityState.nonModal().asContextElement()) {
     val title = IdeBundle.message("title.plugin.error")
-    val actions = linksToActions(pluginErrors)
-    val content = HtmlBuilder().appendWithSeparators(HtmlChunk.p(), pluginErrors).toString()
+    val pluginErrorMessages = pluginErrors.map { it.get() }.toMutableList()
+    val actions = linksToActions(pluginErrorMessages)
+    val content = HtmlBuilder().appendWithSeparators(HtmlChunk.p(), pluginErrorMessages).toString()
     @Suppress("DEPRECATION")
     NotificationGroupManager.getInstance().getNotificationGroup(
       "Plugin Error").createNotification(title, content, NotificationType.ERROR)

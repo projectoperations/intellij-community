@@ -1,10 +1,12 @@
 package com.intellij.cce.evaluable
 
 const val PROMPT_PROPERTY = "prompt"
+const val FILE_VALIDATIONS = "file_validations"
 const val SNIPPET_PROMPT_PROPERTY = "snippet_prompt"
 const val PROMPT_PRESENTATION_PROPERTY = "prompt_presentation"
 const val INTERNAL_API_CALLS_PROPERTY = "internal_api_calls"
 const val INTERNAL_RELEVANT_FILES_PROPERTY = "internal_relevant_files"
+const val ORIGINAL_FILE = "original_file"
 
 const val METHOD_NAME_PROPERTY = "method_name"
 

@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.xdebugger.impl;
 
 import com.intellij.CommonBundle;
@@ -278,7 +278,7 @@ public class XDebuggerUtilImpl extends XDebuggerUtil {
   /**
    * @deprecated use {@link #toggleAndReturnLineBreakpoint(Project, List, XSourcePosition, boolean, boolean, Editor, boolean)}
    */
-  @Deprecated
+  @Deprecated(forRemoval = true)
   public static @NotNull Promise<@Nullable XLineBreakpoint> toggleAndReturnLineBreakpoint(final @NotNull Project project,
                                                                                  @NotNull List<? extends XLineBreakpointType> types,
                                                                                  final @NotNull XSourcePosition position,
@@ -525,6 +525,11 @@ public class XDebuggerUtilImpl extends XDebuggerUtil {
     removeBreakpointsWithConfirmation(project, breakpoints);
   }
 
+  public static void performDebuggerAction(@NotNull AnActionEvent e, @NotNull Runnable action) {
+    action.run();
+    reshowInlayRunToCursor(e);
+  }
+
   public static void reshowInlayRunToCursor(@NotNull AnActionEvent e) {
     if (!(e.getInputEvent() instanceof MouseEvent)) {
       return;
@@ -536,10 +541,15 @@ public class XDebuggerUtilImpl extends XDebuggerUtil {
     }
 
     Editor editor = e.getData(CommonDataKeys.EDITOR);
-    if(editor == null) {
+    if (editor == null) {
       return;
     }
 
+    reshowInlayRunToCursor(project, editor);
+  }
+
+  @ApiStatus.Internal
+  public static void reshowInlayRunToCursor(Project project, Editor editor) {
     if (XDebuggerManager.getInstance(project) instanceof XDebuggerManagerImpl debuggerManagerImpl) {
       debuggerManagerImpl.reshowInlayToolbar(editor);
     }

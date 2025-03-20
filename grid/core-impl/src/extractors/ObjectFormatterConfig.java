@@ -11,4 +11,8 @@ public interface ObjectFormatterConfig {
 
   @Nullable
   DataGridSettings getSettings();
+
+  boolean isAllowedShowBigObjects();
+
+  boolean supportsNumberFormats();
 }

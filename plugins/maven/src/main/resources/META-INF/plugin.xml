@@ -1,4 +1,4 @@
-<idea-plugin>
+<idea-plugin allow-bundled-update="true">
   <id>org.jetbrains.idea.maven</id>
   <name>Maven</name>
   <category>Build Tools</category>
@@ -88,7 +88,7 @@
     <externalSystemUnlinkedProjectAware implementation="org.jetbrains.idea.maven.project.MavenUnlinkedProjectAware"/>
     <externalSystemDependencyAnalyzer implementation="org.jetbrains.idea.maven.project.MavenDependencyAnalyzerExtension"/>
     <moduleBuilder builderClass="org.jetbrains.idea.maven.wizards.archetype.MavenArchetypeNewProjectWizard$Builder"/>
-    <frameworkSupport implementation="org.jetbrains.idea.maven.wizards.MavenFrameworkSupportProvider"/>
+    <!--<frameworkSupport implementation="org.jetbrains.idea.maven.wizards.MavenFrameworkSupportProvider"/>-->
     <moduleExtension implementation="org.jetbrains.idea.maven.importing.MavenSourceFoldersModuleExtension"/>
     <moduleService serviceImplementation="org.jetbrains.idea.maven.importing.MavenPomPathModuleService"/>
     <trustedProjectsLocator implementation="org.jetbrains.idea.maven.wizards.MavenTrustedProjectsLocator"/>
@@ -108,7 +108,6 @@
     <projectService
       serviceInterface="org.jetbrains.idea.maven.server.MavenServerResultTransformer"
       serviceImplementation="org.jetbrains.idea.maven.server.MavenServerResultTransformerImpl"/>
-    <projectService serviceImplementation="org.jetbrains.idea.maven.indices.MavenArchetypeManager"/>
     <projectService serviceInterface="org.jetbrains.idea.maven.project.MavenProjectsManager"
                     serviceImplementation="org.jetbrains.idea.maven.project.MavenProjectsManagerEx"/>
     <projectService serviceImplementation="org.jetbrains.idea.maven.navigator.MavenProjectsNavigator"/>
@@ -150,7 +149,7 @@
     <stepsBeforeRunProvider implementation="org.jetbrains.idea.maven.tasks.MavenBeforeRunTasksProvider"/>
     <externalIconProvider key="MAVEN" implementationClass="org.jetbrains.idea.maven.ui.MavenIconProvider"/>
     <externalSystemKeymapProvider implementation="org.jetbrains.idea.maven.tasks.MavenKeymapExtension"/>
-    <externalSystemWorkspaceContributor implementation="org.jetbrains.idea.maven.importing.MavenWorkspaceContributor"/>
+    <externalSystemCoordinateContributor implementation="org.jetbrains.idea.maven.importing.MavenCoordinateContributor"/>
     <configurationType implementation="org.jetbrains.idea.maven.execution.MavenRunConfigurationType"/>
     <runConfigurationProducer implementation="org.jetbrains.idea.maven.execution.MavenConfigurationProducer"/>
     <orderEnumerationHandlerFactory implementation="org.jetbrains.idea.maven.execution.MavenOrderEnumeratorHandler$FactoryImpl"/>
@@ -326,7 +325,7 @@
     <registryKey key="maven.collect.local.stat" defaultValue="false"
                  description="Collect local maven statistics. Used in Internal mode. Does not affect FUS"/>
 
-    <registryKey key="maven.use.scripts" defaultValue="false"
+    <registryKey key="maven.use.scripts" defaultValue="true"
                  description="Run maven goals via mvn.sh/mvn.bat"/>
 
     <registryKey key="maven.dedicated.indexer.vmargs" defaultValue="-Xmx1024m"
@@ -346,6 +345,9 @@
 
     <registryKey key="maven.import.compiler.arguments" defaultValue="true"
                  description="Enable importing of the maven compiler plugin arguments"/>
+
+    <registryKey key="maven.use.plugins.m2e.compat" defaultValue="false"
+                 description="Shows checkbox to run m2e compatibility"/>
 
     <registryKey key="maven.import.keep.existing.module.names" defaultValue="true"
                  description="Keep existing module names after maven project reimport"/>
@@ -403,7 +405,7 @@
     <registryKey key="maven.shade.plugin.remap.uber.jar" defaultValue="false"
                  description="During sync, remap classes in uber jars for Maven projects that use Maven Shade plugin"/>
 
-    <registryKey key="maven.sync.refresh.resolved.artifacts" defaultValue="false"
+    <registryKey key="maven.sync.refresh.resolved.artifacts" defaultValue="true"
                  description="Refresh resolved artifacts after Maven sync"/>
 
     <registryKey key="maven.incremental.sync.resolve.dependencies.incrementally" defaultValue="true"
@@ -942,5 +944,9 @@
     <listener class="org.jetbrains.idea.maven.project.MavenImportListenerBridge"
               topic="org.jetbrains.idea.maven.project.MavenSyncListener"
               activeInTestMode="true" activeInHeadlessMode="true"/>
+
+    <listener class="org.jetbrains.idea.maven.plugins.compatibility.PluginCompatibilityConfiguratorListener"
+              topic="org.jetbrains.idea.maven.project.MavenSyncListener"
+              activeInTestMode="false" activeInHeadlessMode="false"/>
   </applicationListeners>
 </idea-plugin>

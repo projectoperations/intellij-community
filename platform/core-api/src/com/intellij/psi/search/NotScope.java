@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi.search;
 
 import com.intellij.openapi.module.Module;
@@ -28,6 +28,11 @@ final class NotScope extends DelegatingGlobalSearchScope {
   @Override
   public boolean isSearchInModuleContent(@NotNull Module aModule) {
     return true; // not (some files in module A) is perfectly fine to find classes in another part of module A.
+  }
+
+  @Override
+  public @NotNull CodeInsightContextInfo getCodeInsightContextInfo() {
+    return CodeInsightContextAwareSearchScopes.NoContextInformation();
   }
 
   @Override

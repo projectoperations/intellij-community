@@ -4,7 +4,6 @@ load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources")
 
 create_kotlinc_options(
   name = "custom",
-  jvm_target = 17,
   opt_in = ["org.jetbrains.kotlin.utils.addToStdlib.UnsafeCastFunction"]
 )
 
@@ -30,7 +29,7 @@ jvm_library(
     "//java/execution/impl:java-execution-impl",
     "//java/java-impl:impl",
     "//java/compiler/impl:java-compiler-impl",
-    "//plugins/properties",
+    "//plugins/properties:properties-backend",
     "//xml/impl",
     "//java/openapi:java",
     "@lib//:guava",
@@ -58,7 +57,7 @@ jvm_library(
     "@lib//:netty-buffer",
     "//platform/core-ui",
     "@lib//:fastutil-min",
-    "//plugins/properties/properties-psi-impl:psi-impl",
+    "//plugins/properties/properties-psi-impl:backend-psi",
     "//platform/platform-util-io:ide-util-io",
     "//platform/platform-util-netty:ide-util-netty",
     "//platform/boot",

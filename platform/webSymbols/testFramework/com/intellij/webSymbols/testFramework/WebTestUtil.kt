@@ -16,7 +16,6 @@ import com.intellij.injected.editor.DocumentWindow
 import com.intellij.injected.editor.EditorWindow
 import com.intellij.lang.documentation.ide.IdeDocumentationTargetProvider
 import com.intellij.lang.injection.InjectedLanguageManager
-import com.intellij.lang.parameterInfo.ParameterInfoHandler
 import com.intellij.model.psi.PsiSymbolReference
 import com.intellij.model.psi.impl.referencesAt
 import com.intellij.openapi.actionSystem.IdeActions
@@ -516,8 +515,12 @@ fun CodeInsightTestFixture.getParameterInfoAtCaret(): String? {
       NonBlockingReadActionImpl.waitForAsyncTaskCompletion()
     }
     return hintFixture.currentHintText
-      ?.removePrefix("<html>")
-      ?.removeSuffix("</html>")
+      ?.replace(Regex("</?span[^>]*>|</?html>"), "")
+      ?.replace(Regex("&#32;|&nbsp;"), " ")
+      ?.split('\n')
+      ?.filter { it != "-" }
+      ?.sorted()
+      ?.joinToString("\n-\n")
   } finally {
     Disposer.dispose(disposable)
   }

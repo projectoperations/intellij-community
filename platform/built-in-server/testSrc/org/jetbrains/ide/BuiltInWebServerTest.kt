@@ -2,7 +2,7 @@
 package org.jetbrains.ide
 
 import com.google.common.net.UrlEscapers
-import com.intellij.ide.impl.setTrusted
+import com.intellij.ide.trustedProjects.TrustedProjects
 import com.intellij.openapi.application.runWriteActionAndWait
 import com.intellij.openapi.components.service
 import com.intellij.openapi.module.EmptyModuleType
@@ -20,7 +20,6 @@ import io.netty.handler.codec.http.HttpResponseStatus
 import org.assertj.core.api.Assertions.assertThat
 import org.jetbrains.builtInWebServer.BuiltInWebServerAuth
 import org.jetbrains.builtInWebServer.TOKEN_HEADER_NAME
-import org.jetbrains.builtInWebServer.acquireToken
 import org.junit.BeforeClass
 import org.junit.ClassRule
 import org.junit.Rule
@@ -148,7 +147,7 @@ internal class HeavyBuiltInWebServerTest {
       val responseTrusted = client.send(builder.build(), HttpResponse.BodyHandlers.ofInputStream())
       assertThat(HttpResponseStatus.valueOf(responseTrusted.statusCode())).isEqualTo(HttpResponseStatus.OK)
 
-      project.setTrusted(false)
+      TrustedProjects.setProjectTrusted(project, false)
       val responseNotTrusted = client.send(builder.build(), HttpResponse.BodyHandlers.ofInputStream())
       assertThat(HttpResponseStatus.valueOf(responseNotTrusted.statusCode())).isEqualTo(HttpResponseStatus.NOT_FOUND)
     }

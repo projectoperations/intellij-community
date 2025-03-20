@@ -608,6 +608,24 @@ public class GridUtil extends GridUtilCore {
     };
   }
 
+  public static @NotNull Function<Integer, ObjectFormatterConfig> getConfigProvider(
+    @NotNull DataGrid dataGrid,
+    boolean allowLongValues,
+    boolean extractionMode
+  ) {
+    return num -> {
+      ModelIndex<GridColumn> idx = ModelIndex.forColumn(dataGrid, num);
+      var config = createFormatterConfig(dataGrid, idx);
+      if (allowLongValues) {
+        config.allowShowBigObjects();
+      }
+      if (extractionMode) {
+        config = config.adjustForExtraction();
+      }
+      return config;
+    };
+  }
+
   public static boolean canMutateColumns(@Nullable DataGrid grid) {
     return grid != null && GridHelper.get(grid).canMutateColumns(grid);
   }

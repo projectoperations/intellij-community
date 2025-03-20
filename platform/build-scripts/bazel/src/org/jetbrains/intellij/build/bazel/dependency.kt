@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build.bazel
 
 import com.intellij.openapi.util.NlsSafe
@@ -78,9 +78,10 @@ internal fun generateDeps(
         isExported = isExported,
       )
 
-      if (dependencyModuleName == "intellij.libraries.compose.desktop" ||
-          dependencyModuleName == "intellij.libraries.compose.foundation.desktop" ||
+      if (dependencyModuleName == "intellij.libraries.compose.foundation.desktop" ||
+          dependencyModuleName == "intellij.android.adt.ui.compose" ||
           dependencyModuleName == "intellij.platform.jewel.markdown.ideLafBridgeStyling" ||
+          dependencyModuleName == "intellij.ml.llm.libraries.compose.runtime" ||
           dependencyModuleName == "intellij.platform.jewel.foundation") {
         plugins.add("@lib//:compose-plugin")
       }
@@ -212,10 +213,9 @@ internal fun generateDeps(
 
       val libName = element.libraryReference.libraryName
       if (libName == "jetbrains-jewel-markdown-laf-bridge-styling" ||
-          libName == "jetbrains.kotlin.compose.compiler.plugin") {
+          libName == "jetbrains.kotlin.compose.compiler.plugin" ||
+          libName == "jetbrains-compose-ui-test-junit4-desktop") {
         plugins.add("@lib//:compose-plugin")
-        // poko fails with "java.lang.NoSuchMethodError: 'org.jetbrains.kotlin.com.intellij.psi.PsiElement org.jetbrains.kotlin.js.resolve.diagnostics.SourceLocationUtilsKt.findPsi(org.jetbrains.kotlin.descriptors.DeclarationDescriptor)'"
-        //plugins.add("@lib//:poko-plugin")
       }
     }
   }
@@ -282,7 +282,7 @@ private fun addDep(
       JpsJavaDependencyScope.COMPILE -> {
         deps.add(dependencyLabel)
 
-        if (dependencyModuleDescriptor != null && dependencyModuleDescriptor.testSources.isNotEmpty()) {
+        if (dependencyModuleDescriptor != null && !dependencyModuleDescriptor.testSources.isEmpty()) {
           deps.add(getLabelForTest(dependencyLabel))
         }
       }
@@ -291,17 +291,26 @@ private fun addDep(
           deps.add(dependencyLabel)
         }
         else {
-          val hasTestSource = dependencyModuleDescriptor.testSources.isNotEmpty()
-
-          if (isExported && hasTestSource) {
-            println("Do not export test dependency (module=${dependentModule.module.name}, exported=${dependencyModuleDescriptor.module.name})")
+          if (hasOnlyTestResources(dependencyModuleDescriptor)) {
+            // module with only test resources
+            runtimeDeps.add(dependencyLabel + TEST_RESOURCES_TARGET_SUFFIX)
+            if (isExported) {
+              throw RuntimeException("Do not export test dependency (module=${dependentModule.module.name}, exported=${dependencyModuleDescriptor.module.name})")
+            }
           }
+          else {
+            val hasTestSource = !dependencyModuleDescriptor.testSources.isEmpty()
 
-          if (dependencyModuleDescriptor.sources.isNotEmpty() || !hasTestSource) {
-            deps.add(dependencyLabel)
-          }
-          if (hasTestSource) {
-            deps.add(getLabelForTest(dependencyLabel))
+            if (isExported && hasTestSource) {
+              println("Do not export test dependency (module=${dependentModule.module.name}, exported=${dependencyModuleDescriptor.module.name})")
+            }
+
+            if (!dependencyModuleDescriptor.sources.isEmpty() || !hasTestSource) {
+              deps.add(dependencyLabel)
+            }
+            if (hasTestSource) {
+              deps.add(getLabelForTest(dependencyLabel))
+            }
           }
         }
       }
@@ -355,7 +364,20 @@ private fun addDep(
   }
 }
 
+internal fun hasOnlyTestResources(moduleDescriptor: ModuleDescriptor): Boolean {
+  return !moduleDescriptor.testResources.isEmpty() &&
+         moduleDescriptor.sources.isEmpty() &&
+         moduleDescriptor.resources.isEmpty() &&
+         moduleDescriptor.testSources.isEmpty()
+}
+
 internal const val TEST_LIB_NAME_SUFFIX = "_test_lib"
+
+internal const val PRODUCTION_RESOURCES_TARGET_SUFFIX = "_resources"
+internal val PRODUCTION_RESOURCES_TARGET_REGEX = Regex("^(?!.+${Regex.escape(TEST_RESOURCES_TARGET_SUFFIX)}).+${Regex.escape(PRODUCTION_RESOURCES_TARGET_SUFFIX)}(_[0-9]+)?$")
+
+internal const val TEST_RESOURCES_TARGET_SUFFIX = "_test_resources"
+internal val TEST_RESOURCES_TARGET_REGEX = Regex("^.+${Regex.escape(TEST_RESOURCES_TARGET_SUFFIX)}(_[0-9]+)?$")
 
 private fun getLabelForTest(dependencyLabel: String): String {
   if (dependencyLabel.contains(':')) {

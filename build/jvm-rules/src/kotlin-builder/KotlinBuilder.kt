@@ -2,7 +2,7 @@
 package org.jetbrains.bazel.jvm.kotlin
 
 import io.opentelemetry.api.trace.Tracer
-import io.opentelemetry.context.Context
+import org.jetbrains.bazel.jvm.ArgMap
 import org.jetbrains.bazel.jvm.WorkRequest
 import org.jetbrains.bazel.jvm.WorkRequestExecutor
 import org.jetbrains.bazel.jvm.WorkRequestReaderWithoutDigest
@@ -14,10 +14,15 @@ object KotlinBuildWorker : WorkRequestExecutor<WorkRequest> {
   @JvmStatic
   fun main(startupArgs: Array<String>) {
     org.jetbrains.kotlin.cli.jvm.compiler.CompileEnvironmentUtil
-    processRequests(startupArgs = startupArgs, executor = this, reader = WorkRequestReaderWithoutDigest(System.`in`), serviceName = "kotlin-builder")
+    processRequests(
+      startupArgs = startupArgs,
+      executorFactory = { _, _ -> this },
+      reader = WorkRequestReaderWithoutDigest(System.`in`),
+      serviceName = "kotlin-builder",
+    )
   }
 
-  override suspend fun execute(request: WorkRequest, writer: Writer, baseDir: Path, tracingContext: Context, tracer: Tracer): Int {
+  override suspend fun execute(request: WorkRequest, writer: Writer, baseDir: Path, tracer: Tracer): Int {
     val sources = request.inputPaths.asSequence()
       .filter { it.endsWith(".kt") || it.endsWith(".java") }
       .map { baseDir.resolve(it).normalize() }
@@ -60,7 +65,7 @@ internal suspend fun buildKotlin(
 }
 
 private fun createBuildInfo(args: ArgMap<JvmBuilderFlags>): CompilationTaskInfo {
-  val ruleKind = args.mandatorySingle(JvmBuilderFlags.RULE_KIND).split('_')
+  val ruleKind = (args.optionalSingle(JvmBuilderFlags.RULE_KIND) ?: "kt_jvm_library)").split('_')
   check(ruleKind.size == 3 && ruleKind[0] == "kt") {
     "invalid rule kind $ruleKind"
   }

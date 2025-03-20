@@ -9,10 +9,9 @@ private const val TOOL_WINDOW_ROOT_COMPONENT_CLASS = "com.intellij.toolWindow.In
 
 fun IdeaFrameUI.buildToolWindow(action: UiComponent.() -> Unit = {}): UiComponent = x { byType("com.intellij.build.BuildView") }.apply(action)
 
-fun IdeaFrameUI.notificationsToolWindow(action: UiComponent.() -> Unit = {}): UiComponent = toolWindow("Notifications", action)
+fun IdeaFrameUI.runToolWindow(action: UiComponent.() -> Unit = {}): UiComponent = toolWindow("Main", action)
 
-fun IdeaFrameUI.projectToolWindow(action: UiComponent.() -> Unit = {}): UiComponent =
-  x { componentWithChild(byType(TOOL_WINDOW_ROOT_COMPONENT_CLASS), byType("com.intellij.ide.projectView.impl.ProjectViewTree")) }.apply(action)
+fun IdeaFrameUI.notificationsToolWindow(action: UiComponent.() -> Unit = {}): UiComponent = toolWindow("Notifications", action)
 
 fun IdeaFrameUI.structureToolWindow(action: UiComponent.() -> Unit = {}): UiComponent = toolWindow("Structure", action)
 

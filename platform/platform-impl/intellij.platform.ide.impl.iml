@@ -148,5 +148,11 @@
     <orderEntry type="module" module-name="intellij.platform.resources.en" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.platform.ide.ui" />
     <orderEntry type="module" module-name="intellij.platform.buildData" />
+    <orderEntry type="module" module-name="intellij.platform.syntax" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.platform.syntax.psi" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.platform.syntax.i18n" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.platform.syntax.util" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.platform.pasta" />
+    <orderEntry type="module" module-name="intellij.platform.plugins.parser.impl" />
   </component>
 </module>

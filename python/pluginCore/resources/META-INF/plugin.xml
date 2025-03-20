@@ -85,9 +85,6 @@ The Python plug-in provides smart editing for Python scripts. The feature set of
                             implementationClass="com.jetbrains.python.requirements.PoetryDependencyPackageNameCompletionContributor"/>
     <completion.contributor language="TOML"
                             implementationClass="com.jetbrains.python.requirements.PoetryDependencyVersionCompletionContributor"/>
-    <projectService serviceInterface="com.intellij.psi.search.ProjectScopeBuilder"
-                    serviceImplementation="com.jetbrains.python.psi.search.PyProjectScopeBuilder"
-                    overrides="true"/>
     <localInspection language="Requirements" shortName="UnsatisfiedRequirementInspection" suppressId="UnsatisfiedRequirement" bundle="messages.PyBundle"
                      key="INSP.requirement.uninstalled.name" groupKey="INSP.GROUP.requirements" enabledByDefault="true" level="WARNING"
                      implementationClass="com.jetbrains.python.requirements.UnsatisfiedRequirementInspection"/>
@@ -646,7 +643,12 @@ The Python plug-in provides smart editing for Python scripts. The feature set of
                  restartRequired="false"
                  description="Disables automatic updating of PyPI package cache and ranking on project startup."/>
 
+    <!-- Setting up cross-module dependencies -->
+    <registryKey key="python.detect.cross.module.dependencies" defaultValue="false"
+                 description="Try to detect and automatically set-up module dependencies in a multi-module project"/>
+
     <feedback.idleFeedbackSurvey implementation="com.jetbrains.python.statistics.feedback.PythonJobSurvey"/>
+    <feedback.idleFeedbackSurvey implementation="com.jetbrains.python.statistics.feedback.PythonUvSupportSurvey"/>
     <statistics.counterUsagesCollector implementationClass="com.jetbrains.python.statistics.feedback.PythonJobStatisticsCollector"/>
     <backgroundPostStartupActivity implementation="com.jetbrains.python.statistics.feedback.PythonFirstLaunchChecker"/>
 
@@ -836,7 +838,11 @@ The Python plug-in provides smart editing for Python scripts. The feature set of
     <pyAddSdkProvider implementation="com.jetbrains.python.sdk.poetry.PyAddPoetrySdkProvider"/>
     <pythonFlavorProvider implementation="com.jetbrains.python.sdk.poetry.PyPoetrySdkFlavorProvider"/>
 
+    <!-- Uv -->
+    <pyAddSdkProvider implementation="com.jetbrains.python.sdk.uv.ui.PyAddUvSdkProvider"/>
     <pythonFlavorProvider implementation="com.jetbrains.python.sdk.uv.UvSdkFlavorProvider"/>
+
+    <pythonFlavorProvider implementation="com.jetbrains.python.sdk.hatch.HatchSdkFlavorProvider"/>
 
     <!-- SDK Flavors -->
     <pythonSdkFlavor implementation="com.jetbrains.python.sdk.flavors.conda.CondaEnvSdkFlavor"/>
@@ -930,7 +936,7 @@ The Python plug-in provides smart editing for Python scripts. The feature set of
     </action>
 
     <action id="NewPythonFile" class="com.jetbrains.python.actions.CreatePythonFileAction">
-      <add-to-group group-id="NewGroup" anchor="before" relative-to-action="NewWebDevelopment"/>
+      <add-to-group group-id="NewGroup" anchor="before" relative-to-action="NewFile"/>
     </action>
 
     <action id="NewPythonPackage" class="com.jetbrains.python.actions.CreatePackageAction"
@@ -1015,6 +1021,9 @@ The Python plug-in provides smart editing for Python scripts. The feature set of
               text="Set PropertiesComponent Value" description="Set value in application-level PropertiesComponent"/>
       <action id="PyShowJobSurvey" internal="true" class="com.jetbrains.python.statistics.feedback.PythonShowJobSurveyAction"
               text="Show Python Job Survey"/>
+      <action id="PyUvSupportSurvey" internal="true" class="com.jetbrains.python.statistics.feedback.PythonShowUvSupportAction"
+              text="Show uv Support Survey"/>
+
       <add-to-group group-id="Internal"/>
     </group>
   </actions>

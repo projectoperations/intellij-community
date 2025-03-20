@@ -14,6 +14,8 @@ import com.intellij.openapi.ui.TextFieldWithBrowseButton
 import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.openapi.util.UserDataHolder
 import com.intellij.openapi.vfs.StandardFileSystems
+import com.intellij.python.pyproject.PY_PROJECT_TOML
+import com.intellij.python.pyproject.PyProjectToml
 import com.intellij.ui.DocumentAdapter
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBTextField
@@ -24,19 +26,20 @@ import com.jetbrains.python.PyBundle
 import com.jetbrains.python.PySdkBundle
 import com.jetbrains.python.PythonModuleTypeBase
 import com.jetbrains.python.newProject.collector.InterpreterStatisticsInfo
-import com.jetbrains.python.sdk.ModuleOrProject
 import com.jetbrains.python.sdk.PySdkSettings
 import com.jetbrains.python.sdk.PythonSdkCoroutineService
-import com.jetbrains.python.sdk.add.PyAddNewEnvPanel
-import com.jetbrains.python.sdk.add.PySdkPathChoosingComboBox
-import com.jetbrains.python.sdk.add.addInterpretersAsync
+import com.jetbrains.python.sdk.add.*
 import com.jetbrains.python.sdk.basePath
-import com.jetbrains.python.sdk.uv.*
+import com.jetbrains.python.sdk.uv.UV_ICON
+import com.jetbrains.python.sdk.uv.getPyProjectTomlForUv
 import com.jetbrains.python.sdk.uv.impl.detectUvExecutable
 import com.jetbrains.python.sdk.uv.impl.getUvExecutable
 import com.jetbrains.python.sdk.uv.impl.setUvExecutable
+import com.jetbrains.python.sdk.uv.setupNewUvSdkAndEnvUnderProgress
+import com.jetbrains.python.sdk.uv.validateSdks
 import com.jetbrains.python.statistics.InterpreterTarget
 import com.jetbrains.python.statistics.InterpreterType
+import com.jetbrains.python.venvReader.tryResolvePath
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -44,6 +47,7 @@ import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.event.ItemEvent
 import java.nio.file.Path
+import java.util.function.Supplier
 import javax.swing.Icon
 import javax.swing.JComboBox
 import javax.swing.event.DocumentEvent
@@ -75,6 +79,16 @@ class PyAddNewUvPanel(
   override val icon: Icon = UV_ICON
 
   private val moduleField: JComboBox<Module>
+
+  private val environmentLocation = TextFieldWithBrowseButton().apply {
+    addBrowseFolderListener(project, FileChooserDescriptorFactory.createSingleFolderDescriptor())
+    val path = module?.basePath ?: project?.basePath
+    text = when {
+      path != null -> path
+      else -> System.getProperty("user.home")
+    }
+  }
+
   private val baseSdkField = PySdkPathChoosingComboBox()
 
   init {
@@ -95,11 +109,11 @@ class PyAddNewUvPanel(
   }
 
   private val uvPathField = TextFieldWithBrowseButton().apply {
-    addBrowseFolderListener(null, FileChooserDescriptorFactory.createSingleFileDescriptor())
+    addBrowseFolderListener(project, FileChooserDescriptorFactory.createSingleFileDescriptor())
     val field = textField as? JBTextField ?: return@apply
     service<PythonSdkCoroutineService>().cs.launch {
       detectUvExecutable()?.let {
-          field.emptyText.text = "Auto-detected: ${it.absolutePathString()}"
+        field.emptyText.text = "Auto-detected: ${it.absolutePathString()}"
       }
       getUvExecutable()?.let {
         field.text = it.pathString
@@ -138,6 +152,7 @@ class PyAddNewUvPanel(
         }
         addLabeledComponent(associatedObjectLabel, moduleField)
       }
+      addLabeledComponent(PySdkBundle.message("python.venv.location.label"), environmentLocation)
       addLabeledComponent(PySdkBundle.message("python.venv.base.label"), baseSdkField)
       addComponent(installPackagesCheckBox)
       addLabeledComponent(PyBundle.message("python.sdk.uv.executable"), uvPathField)
@@ -148,11 +163,10 @@ class PyAddNewUvPanel(
   }
 
   override fun getOrCreateSdk(): Sdk? {
-    val module = selectedModule
-    val path = newProjectPath
-    val python = baseSdkField.selectedSdk.homePath
+    val path = tryResolvePath(newProjectPath ?: project?.basePath)
+    val python = tryResolvePath(baseSdkField.selectedSdk.homePath)
 
-    if (module == null || path == null || python == null) {
+    if (project == null || path == null || python == null) {
       return null
     }
 
@@ -160,8 +174,9 @@ class PyAddNewUvPanel(
     uvPath?.let {
       setUvExecutable(it)
     }
+
     val sdk = runBlockingCancellable {
-      setupUvSdkUnderProgress(ModuleOrProject.ModuleAndProject(module), existingSdks, Path.of(python))
+      setupNewUvSdkAndEnvUnderProgress(project, path, existingSdks, python)
     }
 
     sdk.onSuccess {
@@ -197,7 +212,7 @@ class PyAddNewUvPanel(
   private fun update() {
     service<PythonSdkCoroutineService>().cs.launch {
       selectedModule?.let {
-        installPackagesCheckBox.isEnabled = pyProjectToml(it) != null
+        installPackagesCheckBox.isEnabled = PyProjectToml.findFile(it) != null
       }
     }
   }
@@ -219,4 +234,23 @@ class PyAddNewUvPanel(
    */
   private val projectPath: String?
     get() = newProjectPath ?: selectedModule?.basePath ?: project?.basePath
+}
+
+class PyAddUvSdkProvider : PyAddSdkProvider {
+  override fun createView(
+    project: Project?,
+    module: Module?,
+    newProjectPath: String?,
+    existingSdks: List<Sdk>,
+    context: UserDataHolder,
+  ): PyAddSdkPanel {
+    val panel = PyAddNewUvPanel(project, module, existingSdks, null, context)
+    // TODO: support for adding existing uv environments
+
+    return PyAddSdkGroupPanel(Supplier { "uv environment" }, UV_ICON, listOf(panel), panel)
+  }
+
+  private fun allowCreatingNewEnvironments(project: Project?): Boolean {
+    return project != null || !PlatformUtils.isPyCharm() || PlatformUtils.isPyCharmEducational()
+  }
 }

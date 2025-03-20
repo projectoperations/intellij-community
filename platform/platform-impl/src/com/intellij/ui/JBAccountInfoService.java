@@ -131,6 +131,12 @@ public interface JBAccountInfoService {
    */
   @NotNull CompletableFuture<@NotNull LicenseListResult> issueTrialLicense(@NotNull String productCode, @NotNull List<String> consentOptions);
 
+
+  /**
+   * Simulates the process of issuing a trial license for a specified product without performing any actual changes.
+   */
+  @NotNull CompletableFuture<@NotNull LicenseListResult> dryRunIssueTrialLicense(@NotNull String productCode);
+
   /**
    * Records the accepted version of the specified EUA document, and responds whether a newer version of the document is available.
    * <p>
@@ -158,7 +164,7 @@ public interface JBAccountInfoService {
 
   record JbaOAuthProvider(
     @NotNull String id,
-    @NotNull String name,
+    @NlsSafe @NotNull String name,
     @NotNull String logoUrl,
     @NotNull String logoDarkUrl
   ) { }
@@ -211,6 +217,7 @@ public interface JBAccountInfoService {
     @NotNull String jbaUserId,
     @NotNull LicenseKind licenseKind,
     @NotNull LicenseeType licenseeType,
+    @NotNull LicensePack licensePack,
     @NlsSafe @NotNull String licensedTo,
     @NotNull Instant expiresOn
   ) { }
@@ -219,6 +226,13 @@ public interface JBAccountInfoService {
     STANDARD,
     TRIAL,
     FREE,
+  }
+
+  enum LicensePack {
+    ALL_PRODUCTS_PACK,
+    DOTULTIMATE,
+    STUDENT,
+    NONE
   }
 
   enum LicenseeType {

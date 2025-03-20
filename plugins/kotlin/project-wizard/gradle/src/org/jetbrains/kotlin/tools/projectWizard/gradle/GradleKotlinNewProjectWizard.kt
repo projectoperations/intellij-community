@@ -113,7 +113,7 @@ internal class GradleKotlinNewProjectWizard : BuildSystemKotlinNewProjectWizard 
                     .bindSelected(generateMultipleModulesProperty)
                     .enabledIf(gradleDslProperty.equalsTo(GradleDsl.KOTLIN))
                     .whenStateChangedFromUi { logGenerateMultipleModulesChanged(it) }
-                    .onApply { logGenerateMultipleModulesFinished(generateMultipleModules) }
+                    .onApply { logGenerateMultipleModulesFinished(shouldGenerateMultipleModules) }
 
                 contextHelp(KotlinNewProjectWizardUIBundle.message("tooltip.project.wizard.new.project.generate.multiple.modules"))
             }.visibleIf(gradleDslProperty.equalsTo(GradleDsl.KOTLIN))
@@ -335,7 +335,7 @@ internal class GradleKotlinNewProjectWizard : BuildSystemKotlinNewProjectWizard 
             }
 
             addOrConfigureSettingsScript {
-                if (parent.isFoojayPluginSupported || parent.isCreatingDaemonToolchain) {
+                if (parent.isCreatingNewLinkedProject && parent.isFoojayPluginSupported || parent.isCreatingDaemonToolchain) {
                     withFoojayPlugin()
                 }
             }

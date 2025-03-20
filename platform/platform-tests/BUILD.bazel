@@ -1,6 +1,12 @@
 ### auto-generated section `build intellij.platform.tests` start
 load("@rules_java//java:defs.bzl", "java_library")
-load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_test")
+load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources", "jvm_test")
+
+jvm_resources(
+  name = "tests_test_resources",
+  files = glob(["testResources/**/*"]),
+  strip_prefix = "testResources"
+)
 
 java_library(
   name = "tests",
@@ -131,8 +137,12 @@ jvm_library(
     "//platform/bookmarks",
     "//platform/statistics/testFramework",
     "//platform/platform-impl/bootstrap/eel:ide-bootstrap-eel",
+    "//platform/testFramework/junit5/projectStructure:testFramework-junit5-projectStructure",
+    "//platform/testFramework/junit5/projectStructure:testFramework-junit5-projectStructure_test_lib",
+    "//platform/plugins/parser/impl:plugins-parser-impl",
   ],
   runtime_deps = [
+    ":tests_test_resources",
     "//xml/dom-impl",
     "//xml/relaxng",
     "//platform/xdebugger-impl:debugger-impl",

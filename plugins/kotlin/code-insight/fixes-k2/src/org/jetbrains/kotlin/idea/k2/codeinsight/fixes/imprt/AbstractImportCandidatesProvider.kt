@@ -11,20 +11,15 @@ import org.jetbrains.kotlin.analysis.api.symbols.KaFileSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbol
 import org.jetbrains.kotlin.idea.base.psi.kotlinFqName
 import org.jetbrains.kotlin.idea.base.util.isImported
-import org.jetbrains.kotlin.idea.util.positionContext.KDocLinkNamePositionContext
-import org.jetbrains.kotlin.idea.util.positionContext.KotlinNameReferencePositionContext
-import org.jetbrains.kotlin.idea.util.positionContext.KotlinRawPositionContext
-import org.jetbrains.kotlin.idea.util.positionContext.KotlinTypeNameReferencePositionContext
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.containingClassOrObject
 import org.jetbrains.kotlin.resolve.ImportPath
 
-internal abstract class AbstractImportCandidatesProvider(
-    protected val positionContext: KotlinNameReferencePositionContext,
-): ImportCandidatesProvider {
+internal abstract class AbstractImportCandidatesProvider(): ImportCandidatesProvider {
+    protected abstract val importContext: ImportContext
 
-    private val file: KtFile get() = positionContext.nameExpression.containingKtFile
+    private val file: KtFile get() = importContext.position.containingKtFile
     private val fileImports: List<ImportPath> by lazy { file.importDirectives.mapNotNull { it.importPath } }
 
     context(KaSession)
@@ -40,12 +35,21 @@ internal abstract class AbstractImportCandidatesProvider(
     private fun KaSymbol.isVisible(visibilityChecker: KaUseSiteVisibilityChecker): Boolean =
         this is KaDeclarationSymbol && visibilityChecker.isVisible(this)
 
-    protected fun PsiElement.isImported(): Boolean =
-        kotlinFqName?.let { ImportPath(it, isAllUnder = false).isImported(fileImports, excludedFqNames = emptyList()) } == true
+    protected fun PsiElement.isImported(): Boolean {
+        val fqName = kotlinFqName ?: return false
+
+        if (fqName.parent() == file.packageFqName) {
+            // the declaration is already imported via default package import
+            // TODO Consider getting rid of this check after KTIJ-33214 is fixed
+            return true
+        }
+
+        return ImportPath(fqName, isAllUnder = false).isImported(fileImports, excludedFqNames = emptyList())
+    }
 
     protected fun PsiMember.canBeImported(): Boolean {
         return when (this) {
-            is PsiClass -> qualifiedName != null && (containingClass == null || hasModifier(JvmModifier.STATIC))
+            is PsiClass -> qualifiedName != null && (containingClass == null || hasModifier(JvmModifier.STATIC) || importContext.positionTypeAndReceiver.acceptsInnerClasses())
             is PsiField, is PsiMethod -> hasModifier(JvmModifier.STATIC) && containingClass?.qualifiedName != null
             else -> false
         }
@@ -56,7 +60,7 @@ internal abstract class AbstractImportCandidatesProvider(
             is KtProperty -> isTopLevel || containingClassOrObject is KtObjectDeclaration
             is KtNamedFunction -> isTopLevel || containingClassOrObject is KtObjectDeclaration
             is KtTypeAlias -> true
-            is KtClassOrObject -> !isLocal && (!isInner || positionContext.acceptsInnerClasses())
+            is KtClassOrObject -> !isLocal && (!isInner || importContext.positionTypeAndReceiver.acceptsInnerClasses())
 
             else -> false
         }
@@ -67,6 +71,6 @@ internal abstract class AbstractImportCandidatesProvider(
 
     private val KtClassLikeDeclaration.isInner: Boolean get() = hasModifier(KtTokens.INNER_KEYWORD)
 
-    private fun KotlinRawPositionContext.acceptsInnerClasses(): Boolean =
-        this is KotlinTypeNameReferencePositionContext || this is KDocLinkNamePositionContext
+    private fun ImportPositionTypeAndReceiver<*>.acceptsInnerClasses(): Boolean =
+        this is ImportPositionTypeAndReceiver.TypeReference || this is ImportPositionTypeAndReceiver.KDocNameReference
 }

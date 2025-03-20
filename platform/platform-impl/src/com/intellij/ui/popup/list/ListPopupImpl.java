@@ -462,7 +462,12 @@ public class ListPopupImpl extends WizardPopup implements ListPopup, NextStepHan
     boolean selectable = listStep.isSelectable(selectedValue);
     boolean preferExecution = listStep.isFinal(selectedValue) && selectable && handleFinalChoices;
     if (!myExecuteExpandedItemOnClick && !preferExecution && myList.getSelectedIndex() == getIndexForShowingChild()) {
-      if (myChild != null && !myChild.isVisible()) setIndexForShowingChild(-1);
+      // child was closed by StackingPopupDispatcherImpl by this very event
+      // we should not re-open it again
+      // BUG IJPL-180199: this will also happen if child was closed by an earlier 'Escape' key press event
+      if (myChild != null && !myChild.isVisible()) {
+        setIndexForShowingChild(-1);
+      }
       return false;
     }
     if (!selectable) return false;
@@ -945,7 +950,13 @@ public class ListPopupImpl extends WizardPopup implements ListPopup, NextStepHan
     if (step instanceof FilterableListPopupStep<?> o) {
       o.updateFilter(mySpeedSearch.getFilter());
     }
+    var before = myListModel.getSize();
     myListModel.refilter();
+    var after = myListModel.getSize();
+    var fusActivity = ActionGroupPopupActivity.getCurrentActivity(this);
+    if (fusActivity != null) {
+      fusActivity.filtered(StringUtil.length(mySpeedSearch.getFilter()), before, after);
+    }
     boolean nowEmpty = myListModel.getSize() == 0;
     if (myListModel.getSize() > 0) {
       if (!(shouldUseStatistics() && autoSelectUsingStatistics())) {

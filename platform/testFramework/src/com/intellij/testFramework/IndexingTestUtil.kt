@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.testFramework
 
 import com.intellij.diagnostic.ThreadDumper
@@ -18,11 +18,35 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert
-import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 
-class IndexingTestUtil(private val project: Project) {
+class IndexingTestUtil private constructor() {
+  companion object { // companion object for keeping API compatibility
+    const val DEFAULT_TIMEOUT_MS: Long = 600_000
 
-  private fun waitAfterWriteAction() {
+    @JvmStatic
+    @JvmOverloads
+    fun waitUntilIndexesAreReadyInAllOpenedProjects(indexWaitingTimeoutMs: Long = DEFAULT_TIMEOUT_MS) {
+      for (project in ProjectManager.getInstance().openProjects) {
+        IndexWaiter(project).waitUntilFinished(indexWaitingTimeoutMs.milliseconds)
+      }
+    }
+
+    @JvmStatic
+    @JvmOverloads
+    fun waitUntilIndexesAreReady(project: Project, indexWaitingTimeoutMs: Long = DEFAULT_TIMEOUT_MS) {
+      IndexWaiter(project).waitUntilFinished(indexWaitingTimeoutMs.milliseconds)
+    }
+
+    suspend fun suspendUntilIndexesAreReady(project: Project, indexWaitingTimeout: Duration = DEFAULT_TIMEOUT_MS.milliseconds) {
+      IndexWaiter(project).suspendUntilIndexesAreReady(indexWaitingTimeout)
+    }
+  }
+}
+
+private class IndexWaiter(private val project: Project) {
+  private fun waitAfterWriteAction(indexWaitingTimeout: Duration) {
     if (project.isDisposed) return
 
     val listenerDisposable = Disposer.newDisposable()
@@ -31,7 +55,7 @@ class IndexingTestUtil(private val project: Project) {
 
     ApplicationManager.getApplication().addApplicationListener(object : ApplicationListener {
 
-      // Volatile: any thread could be write thread
+      // Volatile: any thread could be a writer thread
       @Volatile
       private var nested: Int = 1 // 1 because at least one write action is currently happenings
 
@@ -43,22 +67,23 @@ class IndexingTestUtil(private val project: Project) {
       override fun afterWriteActionFinished(action: Any) {
         nested--
         assert(nested >= 0) { "We counted more finished write actions than started." }
-        if (nested <= 0) { // may not be negative, but let's stay on safe side
-          Disposer.dispose(listenerDisposable);
-          waitNow();
+        if (nested <= 0) { // may not be negative, but let's stay on the safe side
+          Disposer.dispose(listenerDisposable)
+          waitNow(indexWaitingTimeout)
         }
       }
-    }, listenerDisposable);
+    }, listenerDisposable)
   }
 
   @OptIn(DelicateCoroutinesApi::class)
-  private fun waitNow() {
+  private fun waitNow(indexWaitingTimeout: Duration) {
     thisLogger().debug("waitNow, thread=${Thread.currentThread()}")
     Assert.assertFalse("Should not be invoked from write action", ApplicationManager.getApplication().isWriteAccessAllowed)
 
     if (!shouldWait()) {
       return // TODO: CodeInsightTestFixtureImpl.configureInner via GroovyHighlightUsagesTest
-    } else {
+    }
+    else {
       thisLogger().debug("waitNow will be waiting, thread=${Thread.currentThread()}")
     }
 
@@ -70,7 +95,7 @@ class IndexingTestUtil(private val project: Project) {
     }
     else {
       runBlockingMaybeCancellable {
-        suspendUntilIndexesAreReady()
+        suspendUntilIndexesAreReady(indexWaitingTimeout)
       }
     }
   }
@@ -90,20 +115,20 @@ class IndexingTestUtil(private val project: Project) {
 
     val scannerExecutor = UnindexedFilesScannerExecutorImpl.getInstance(project)
 
-    // Scheduled tasks will become a running tasks soon. To avoid a race, we check scheduled tasks first
+    // Scheduled tasks will become running tasks soon. To avoid a race, we check scheduled tasks first
     if (scannerExecutor.hasQueuedTasks) {
       return if (scannerExecutor.scanningWaitsForNonDumbMode() && dumbService.isDumb) {
         val isEternal = DumbModeTestUtils.isEternalDumbTaskRunning(project)
         if (isEternal) {
           thisLogger().debug("Do not wait for queued scanning task, because eternal dumb task is running in the project [$project]")
         }
-        !isEternal;
+        !isEternal
       }
       else {
         true // wait for queued scanning tasks to complete
       }
     }
-    // Scheduled tasks will become a running tasks soon. To avoid a race, we check scheduled tasks first
+    // Scheduled tasks will become running tasks soon. To avoid a race, we check scheduled tasks first
     else if (dumbService.hasScheduledTasks()) {
       return true
     }
@@ -111,7 +136,7 @@ class IndexingTestUtil(private val project: Project) {
       return true
     }
     else if (dumbService.isDumb) {
-      // DUMB_FULL_INDEX should wait until all the scheduled tasks are finished, but should not wait for smart mode
+      // DUMB_FULL_INDEX should wait until all the scheduled tasks are finished but should not wait for smart mode
       val isEternal = DumbModeTestUtils.isEternalDumbTaskRunning(project)
       if (isEternal) {
         thisLogger().debug("Do not wait for smart mode, because eternal dumb task is running in the project [$project]")
@@ -123,13 +148,13 @@ class IndexingTestUtil(private val project: Project) {
     }
   }
 
-  private suspend fun suspendUntilIndexesAreReady() {
+  suspend fun suspendUntilIndexesAreReady(timeout: Duration) {
     if (shouldWait()) {
       thisLogger().debug("suspendUntilIndexesAreReady will be waiting, thread=${Thread.currentThread()}")
     }
 
     try {
-      withTimeout(600.seconds) {
+      withTimeout(timeout) {
         while (shouldWait()) {
           delay(1)
         }
@@ -141,31 +166,13 @@ class IndexingTestUtil(private val project: Project) {
     }
   }
 
-  private fun waitUntilFinished() {
+  fun waitUntilFinished(indexWaitingTimeout: Duration) {
     thisLogger().debug("waitUntilFinished, thread=${Thread.currentThread()}, WA=${ApplicationManager.getApplication().isWriteAccessAllowed}")
     if (ApplicationManager.getApplication().isWriteAccessAllowed) {
-      waitAfterWriteAction()
+      waitAfterWriteAction(indexWaitingTimeout)
     }
     else {
-      waitNow()
-    }
-  }
-
-  companion object {
-    @JvmStatic
-    fun waitUntilIndexesAreReadyInAllOpenedProjects() {
-      for (project in ProjectManager.getInstance().openProjects) {
-        IndexingTestUtil(project).waitUntilFinished()
-      }
-    }
-
-    @JvmStatic
-    fun waitUntilIndexesAreReady(project: Project) {
-      IndexingTestUtil(project).waitUntilFinished()
-    }
-
-    suspend fun suspendUntilIndexesAreReady(project: Project) {
-      IndexingTestUtil(project).suspendUntilIndexesAreReady()
+      waitNow(indexWaitingTimeout)
     }
   }
 }

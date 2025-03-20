@@ -5,8 +5,8 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.HtmlChunk;
 import com.intellij.psi.PsiElement;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.Optional;
 
@@ -26,26 +26,15 @@ public record JavaCompilationError<Psi extends PsiElement, Context>(@NotNull Jav
   public static final String JAVA_DISPLAY_GRAYED = "--java-display-grayed";
   public static final String JAVA_DISPLAY_PARAMETER = "--java-display-parameter";
   public static final String JAVA_DISPLAY_ERROR = "--java-display-error";
-  
-  public JavaCompilationError {
-    kind.validate(psi, context);
-  }
-  
+
   public @NotNull Project project() {
     return psi.getProject();
   }
 
   /**
-   * @return a desired anchor to put the error message at
+   * @return range of this error within the file
    */
-  public @NotNull PsiElement anchor() {
-    return kind.anchor(psi, context);
-  }
-
-  /**
-   * @return range within anchor to highlight; or null if the whole anchor should be highlighted
-   */
-  public @Nullable TextRange range() {
+  public @NotNull TextRange range() {
     return kind.range(psi, context);
   }
 
@@ -57,9 +46,9 @@ public record JavaCompilationError<Psi extends PsiElement, Context>(@NotNull Jav
   }
 
   /**
-   * @return a user-readable localized error description
+   * @return a user-readable localized error description (plain text)
    */
-  public @NotNull HtmlChunk description() {
+  public @NotNull @Nls String description() {
     return kind.description(psi, context);
   }
 
@@ -68,7 +57,8 @@ public record JavaCompilationError<Psi extends PsiElement, Context>(@NotNull Jav
    * <ul>
    *   <li>"--java-display-information" for informational formatting
    *   <li>"--java-display-grayed" for grayed formatting
-   *   <li>"--java-display-error" for error formatting (typically red text or background)</li>
+   *   <li>"--java-display-parameter" for parameter name formatting (like inlay hint)
+   *   <li>"--java-display-error" for error formatting (typically red text or background)
    * </ul>
    * 
    * @return a user-readable localized error tooltip.
@@ -92,6 +82,26 @@ public record JavaCompilationError<Psi extends PsiElement, Context>(@NotNull Jav
       if (errorKind.equals(kind)) {
         //noinspection unchecked
         return Optional.of((WantedPsi)psi);
+      }
+    }
+    return Optional.empty();
+  } 
+
+  /**
+   * A helper method to match the wanted error message and cast it safely.
+   * 
+   * @param kinds wanted error kinds
+   * @return an optional containing this object typed, if it matches one of wanted kinds; empty optional otherwise
+   * @param <WantedPsi> the common context type of wanted kinds
+   * @param <WantedContext> the common context type of wanted kinds
+   */
+  @SafeVarargs
+  public final <WantedPsi extends PsiElement, WantedContext> @NotNull Optional<JavaCompilationError<WantedPsi, WantedContext>> 
+  forKind(JavaErrorKind<? extends WantedPsi, ? extends WantedContext>... kinds) {
+    for (JavaErrorKind<? extends WantedPsi, ? extends WantedContext> errorKind : kinds) {
+      if (errorKind.equals(kind)) {
+        //noinspection unchecked
+        return Optional.of((JavaCompilationError<WantedPsi, WantedContext>)this);
       }
     }
     return Optional.empty();

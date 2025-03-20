@@ -128,28 +128,56 @@ class PluginVerifier(
     }
   }
 
-  val exceptions = listOf(
+  val exceptions: List<String>  = listOf(
 
-    // Code completion, perf tests plugin
-    "org.jetbrains.completion.full.line.settings.GeneralState.setEnableInIntegrationTest",
+//  Code completion, perf tests plugin
+//  "org.jetbrains.completion.full.line.settings.GeneralState.setEnableInIntegrationTest",
 
     // bugs...
     "com.intellij.psi.PsiClass",
-    "com.intellij.ide.util.gotoByName.GotoActionModel.ActionWrapper.<init>",
-    "com.intellij.ide.util.gotoByName.GotoActionModel.getGroupMapping",
-    "com.jetbrains.rdclient.util.idea.RangeUtilKt",
     "com.intellij.lang.javascript.DialectOptionHolder",
+    "org.jetbrains.jewel.ui.icons.AllIconsKeys.Actions.Refresh",
+    "com.intellij.database.util.SqlDialects",
+    //"com.intellij.ide.util.gotoByName.GotoActionModel.ActionWrapper.<init>",
+    //"com.intellij.ide.util.gotoByName.GotoActionModel.getGroupMapping",
+    //"com.jetbrains.rdclient.util.idea.RangeUtilKt",
 
     // new 243.1
-    "com.intellij.database.run.ConsoleDataRequest.CONSOLE_DATA_REQUEST",
-    "com.intellij.vcs.ShelveTitlePatch",
-    "com.intellij.vcs.ShelveTitleProvider",
+    //"com.intellij.database.run.ConsoleDataRequest.CONSOLE_DATA_REQUEST",
+    //"com.intellij.vcs.ShelveTitlePatch",
+    //"com.intellij.vcs.ShelveTitleProvider",
 
     // To Fix
-    "com.intellij.jupyter.core.jupyter.editor.outputs.JupyterOutputDataKeyExtractorKt.getOutputsForIndex",
+    "org.jetbrains.kotlin.analysis.api.session.KaSessionProvider.handleAnalysisException",
 
-    "com.intellij.llmInstaller.AiAutoEnableManager.AutoEnableState"
+    // Bugs
+
+    // https://youtrack.jetbrains.com/issue/LLM-15214/Compatibility-issue-with-EXTERNALMODELMARKER
+    "com.intellij.ml.inline.completion.impl.MLCompletionProposalsDetails.getEXTERNAL_MODEL_MARKER",
+
+    // in 251 already.
+    "com.intellij.ml.inline.completion.impl.postprocessing.enclosure.MLCompletionEnclosuresDefinition.<init>",
+    "com.intellij.fullLine.api",
+
+    // https://youtrack.jetbrains.com/issue/LLM-15211/Inline-code-competion-fails-with-NoSuchMethodError-in-251
+    "com.intellij.ml.llm.completion.cloud.inline.CloudInlineCompletionProvider.getSuggestionDebounced",
+
+    // https://youtrack.jetbrains.com/issue/LLM-15215/Compatibility-issues-with-DefaultLanguageHighlighterColors
+    "com.intellij.openapi.editor.DefaultLanguageHighlighterColors.AI_INLAY_BUTTON_DEFAULT",
+    "com.intellij.openapi.editor.DefaultLanguageHighlighterColors.AI_INLAY_BUTTON_FOCUSED",
+    "com.intellij.openapi.editor.DefaultLanguageHighlighterColors.AI_INLAY_BUTTON_HOVERED",
+    
+    // https://youtrack.jetbrains.com/issue/LLM-15466/Compatibility-issues-with-DatabaseSchemaSelectionTree.init
+    "com.intellij.ml.llm.sql.chat.context.UtilsKt.createSchemaContextPopupComponent",
+
+    "com.intellij.jupyter.core.jupyter.helper.OtherKt.toJupyterCellType",
+    "com.intellij.ml.inline.completion.impl.kit.SkipLocationReason",
+    //https://youtrack.jetbrains.com/issue/LLM-15389/Compatibility-issues-with-ServicesKt.serviceAsync
+    "com.intellij.openapi.components.ServicesKt.serviceAsync(com.intellij.openapi.components.ComponentManager, java.lang.Class, kotlin.coroutines.Continuation)",
+
+    //https://youtrack.jetbrains.com/issue/LLM-15549/Compatibility-issues-with-DebuggerManagerThreadImplKt.withDebugContext
+    "com.intellij.debugger.engine.DebuggerManagerThreadImplKt.withDebugContext"
+
 
   )
-
 }

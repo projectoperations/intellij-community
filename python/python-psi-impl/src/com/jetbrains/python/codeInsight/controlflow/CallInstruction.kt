@@ -1,7 +1,6 @@
 package com.jetbrains.python.codeInsight.controlflow
 
 import com.intellij.codeInsight.controlflow.ControlFlowBuilder
-import com.intellij.codeInsight.controlflow.Instruction
 import com.intellij.codeInsight.controlflow.impl.InstructionImpl
 import com.jetbrains.python.codeInsight.typing.PyTypingTypeProvider
 import com.jetbrains.python.psi.PyCallExpression
@@ -23,11 +22,5 @@ class CallInstruction(builder: ControlFlowBuilder, call: PyCallExpression) : Ins
       }
     }
     return false
-  }
-
-  companion object {
-    fun allPredWithoutNoReturn(instruction: Instruction, typeEvalContext: TypeEvalContext): List<Instruction> {
-      return instruction.allPred().filter { it !is CallInstruction || !it.isNoReturnCall(typeEvalContext) }
-    }
   }
 }

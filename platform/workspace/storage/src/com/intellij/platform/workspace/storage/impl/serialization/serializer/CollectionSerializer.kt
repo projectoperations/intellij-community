@@ -12,6 +12,10 @@ import com.google.common.collect.HashMultimap
 import com.intellij.platform.workspace.storage.impl.containers.Int2IntWithDefaultMap
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet
+import kotlinx.collections.immutable.PersistentMap
+import kotlinx.collections.immutable.PersistentSet
+import kotlinx.collections.immutable.toPersistentHashMap
+import kotlinx.collections.immutable.toPersistentHashSet
 
 
 internal class DefaultListSerializer<T : List<*>> : CollectionSerializer<T>() {
@@ -46,6 +50,33 @@ internal class DefaultMapSerializer<T : Map<*, *>> : MapSerializer<T>() {
       return HashMap<Any, Any>(size) as T
     }
     return super.create(kryo, input, type, size)
+  }
+}
+
+
+internal class PersistentHashMapSerializer : Serializer<PersistentMap<*, *>>(false, true) {
+  override fun write(kryo: Kryo, output: Output, `object`: PersistentMap<*, *>) {
+    val res = `object`.toMap()
+    kryo.writeClassAndObject(output, res)
+  }
+
+  override fun read(kryo: Kryo, input: Input, type: Class<out PersistentMap<*, *>>): PersistentMap<*, *> {
+    val des = kryo.readClassAndObject(input) as Map<*, *>
+    val res = des.toPersistentHashMap()
+    return res
+  }
+}
+
+internal class PersistentHashSetSerializer : Serializer<PersistentSet<*>>(false, true) {
+  override fun write(kryo: Kryo, output: Output, `object`: PersistentSet<*>) {
+    val res = `object`.toSet()
+    kryo.writeClassAndObject(output, res)
+  }
+
+  override fun read(kryo: Kryo, input: Input, type: Class<out PersistentSet<*>>): PersistentSet<*> {
+    val des = kryo.readClassAndObject(input) as Set<*>
+    val res = des.toPersistentHashSet()
+    return res
   }
 }
 
@@ -97,7 +128,7 @@ internal class Int2IntWithDefaultMapSerializer : Serializer<Int2IntWithDefaultMa
   @Suppress("UNCHECKED_CAST")
   override fun read(kryo: Kryo, input: Input, type: Class<out Int2IntWithDefaultMap>): Int2IntWithDefaultMap {
     val des = kryo.readClassAndObject(input) as Map<Int, Int>
-    val res = Int2IntWithDefaultMap()
+    val res = Int2IntWithDefaultMap(des.size)
     des.forEach { key, value ->
       res.put(key, value)
     }

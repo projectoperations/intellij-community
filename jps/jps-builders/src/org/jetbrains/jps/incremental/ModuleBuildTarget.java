@@ -4,12 +4,14 @@ package org.jetbrains.jps.incremental;
 import com.dynatrace.hash4j.hashing.HashSink;
 import com.dynatrace.hash4j.hashing.HashStream64;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.util.SystemProperties;
 import com.intellij.util.containers.FileCollectionFactory;
 import org.jetbrains.annotations.*;
 import org.jetbrains.jps.ProjectPaths;
 import org.jetbrains.jps.api.GlobalOptions;
 import org.jetbrains.jps.builders.*;
 import org.jetbrains.jps.builders.java.ExcludedJavaSourceRootProvider;
+import org.jetbrains.jps.builders.java.JavaBuilderUtil;
 import org.jetbrains.jps.builders.java.JavaModuleBuildTargetType;
 import org.jetbrains.jps.builders.java.JavaSourceRootDescriptor;
 import org.jetbrains.jps.builders.storage.BuildDataPaths;
@@ -23,6 +25,7 @@ import org.jetbrains.jps.model.java.*;
 import org.jetbrains.jps.model.java.compiler.JpsJavaCompilerConfiguration;
 import org.jetbrains.jps.model.java.compiler.ProcessorConfigProfile;
 import org.jetbrains.jps.model.java.impl.JpsJavaDependenciesEnumeratorImpl;
+import org.jetbrains.jps.model.library.JpsLibrary;
 import org.jetbrains.jps.model.module.JpsModule;
 import org.jetbrains.jps.model.module.JpsModuleDependency;
 import org.jetbrains.jps.model.module.JpsTypedModuleSourceRoot;
@@ -225,6 +228,18 @@ public class ModuleBuildTarget extends JVMModuleBuildTarget<JavaSourceRootDescri
       hash.putString(encoding);
     }
 
+    if (SystemProperties.getBooleanProperty("jps.rebuild.on.change.in.instrumenters", true)) {
+      for (JvmClassFileInstrumenter instrumenter : BuilderRegistry.getInstance().getClassFileInstrumenters()) {
+        if (instrumenter.isEnabled(projectDescriptor, module)) {
+          hash.putString(instrumenter.getId());
+          hash.putInt(instrumenter.getVersion());
+          if (logBuilder != null) {
+            logBuilder.append(instrumenter.getId()).append(":").append(instrumenter.getVersion()).append('\n');
+          }
+        }
+      }
+    }
+    
     if (logBuilder == null) {
       return;
     }
@@ -266,6 +281,14 @@ public class ModuleBuildTarget extends JVMModuleBuildTarget<JavaSourceRootDescri
     }
     if (ProjectStamps.PORTABLE_CACHES) {
       enumerator = enumerator.withoutSdk();
+    }
+    if (JavaBuilderUtil.isTrackLibraryDependenciesEnabled()) {
+      // when enabled, library roots will be tracked by DepGraph
+      for (JpsLibrary library : enumerator.getLibraries()) {
+        // include only library names in correct order
+        hash.putString(library.getName());
+      }
+      enumerator = enumerator.withoutLibraries();
     }
 
     Collection<Path> roots = enumerator.classes().getPaths();

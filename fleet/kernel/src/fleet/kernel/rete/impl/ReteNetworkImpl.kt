@@ -195,7 +195,8 @@ internal class Propagation {
 
 internal class ReteNetworkImpl(
   val lastKnownDb: MutableStateFlow<ReteState>,
-  val failWhenPropagationFailed: Boolean
+  val failWhenPropagationFailed: Boolean,
+  val performAdditionalChecks: Boolean
 ) : ReteNetwork {
 
   val subscriptionIndex = SubscriptionsIndex()
@@ -289,6 +290,8 @@ internal class ReteNetworkImpl(
             }
         }
       }
+
+      override val performAdditionalChecks: Boolean = this@ReteNetworkImpl.performAdditionalChecks
     }
 
   override fun <T> observeQuery(

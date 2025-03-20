@@ -4,7 +4,6 @@ load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources")
 
 create_kotlinc_options(
   name = "custom",
-  jvm_target = 17,
   opt_in = [
     "org.jetbrains.kotlin.utils.addToStdlib.UnsafeCastFunction",
     "org.jetbrains.kotlin.analysis.api.KaExperimentalApi",
@@ -45,6 +44,8 @@ jvm_library(
     "//platform/backend/workspace",
     "//plugins/kotlin/base/facet:kotlin-base-facet",
     "//platform/analysis-impl",
+    "//java/java-analysis-impl:analysis-impl",
+    "//java/codeserver/core:java-codeserver-core",
   ],
   runtime_deps = [":kotlin-base-analysis-api-platform_resources"]
 )

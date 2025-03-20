@@ -1319,6 +1319,11 @@ public abstract class ExtractionTestGenerated extends AbstractExtractionTest {
                 runTest("testData/refactoring/extractFunction/basic/delegatingFunction.kt");
             }
 
+            @TestMetadata("destructuringEntry.kt")
+            public void testDestructuringEntry() throws Exception {
+                runTest("testData/refactoring/extractFunction/basic/destructuringEntry.kt");
+            }
+
             @TestMetadata("enumQualifier.kt")
             public void testEnumQualifier() throws Exception {
                 runTest("testData/refactoring/extractFunction/basic/enumQualifier.kt");
@@ -1562,6 +1567,11 @@ public abstract class ExtractionTestGenerated extends AbstractExtractionTest {
             @TestMetadata("suspendCallInsideSuspendContinuation.kt")
             public void testSuspendCallInsideSuspendContinuation() throws Exception {
                 runTest("testData/refactoring/extractFunction/basic/suspendCallInsideSuspendContinuation.kt");
+            }
+
+            @TestMetadata("suspendCallLocal.kt")
+            public void testSuspendCallLocal() throws Exception {
+                runTest("testData/refactoring/extractFunction/basic/suspendCallLocal.kt");
             }
 
             @TestMetadata("suspendCallWithExtractedParameter.kt")
@@ -4671,6 +4681,11 @@ public abstract class ExtractionTestGenerated extends AbstractExtractionTest {
             @TestMetadata("lambdaParamWithDefaultValue.kt")
             public void testLambdaParamWithDefaultValue() throws Exception {
                 runTest("testData/refactoring/introduceLambdaParameter/lambdaParamWithDefaultValue.kt");
+            }
+
+            @TestMetadata("noTypeParameters.kt")
+            public void testNoTypeParameters() throws Exception {
+                runTest("testData/refactoring/introduceLambdaParameter/noTypeParameters.kt");
             }
 
             @TestMetadata("suspendCalls.kt")

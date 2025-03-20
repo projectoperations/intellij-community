@@ -4,8 +4,11 @@
 package com.intellij.ide.plugins
 
 import com.intellij.core.CoreBundle
+import com.intellij.openapi.application.impl.ApplicationInfoImpl
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.util.BuildNumber
+import com.intellij.platform.plugins.parser.impl.ReadModuleContext
+import com.intellij.platform.plugins.parser.impl.elements.OS
 import com.intellij.util.xml.dom.XmlInterner
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet
 import it.unimi.dsi.fastutil.objects.ReferenceOpenHashSet
@@ -19,17 +22,18 @@ import java.util.function.Supplier
 
 @ApiStatus.Internal
 class DescriptorListLoadingContext(
-  private val customDisabledPlugins: Set<PluginId>? = null,
-  private val customExpiredPlugins: Set<PluginId>? = null,
-  private val customBrokenPluginVersions: Map<PluginId, Set<String?>>? = null,
+  customDisabledPlugins: Set<PluginId>? = null,
+  customExpiredPlugins: Set<PluginId>? = null,
+  customBrokenPluginVersions: Map<PluginId, Set<String?>>? = null,
+  customEssentialPlugins: List<PluginId>? = null,
   @JvmField val productBuildNumber: () -> BuildNumber = { PluginManagerCore.buildNumber },
   override val isMissingIncludeIgnored: Boolean = false,
   @JvmField val isMissingSubDescriptorIgnored: Boolean = false,
-  checkOptionalConfigFileUniqueness: Boolean = false,
-  @JvmField val transient: Boolean = false
+  checkOptionalConfigFileUniqueness: Boolean = false
 ) : AutoCloseable, ReadModuleContext {
-  val disabledPlugins by lazy { customDisabledPlugins ?: DisabledPluginsState.getDisabledIds() }
-  val expiredPlugins by lazy { customExpiredPlugins ?: ExpiredPluginsState.expiredPluginIds }
+  val disabledPlugins: Set<PluginId> by lazy { customDisabledPlugins ?: DisabledPluginsState.getDisabledIds() }
+  val expiredPlugins: Set<PluginId> by lazy { customExpiredPlugins ?: ExpiredPluginsState.expiredPluginIds }
+  val essentialPlugins: List<PluginId> by lazy { customEssentialPlugins ?: ApplicationInfoImpl.getShadowInstance().getEssentialPluginIds() }
   private val brokenPluginVersions by lazy { customBrokenPluginVersions ?: getBrokenPluginVersions() }
   
   @JvmField
@@ -81,6 +85,7 @@ class DescriptorListLoadingContext(
 
   override val interner: XmlInterner
     get() = threadLocalXmlFactory.get()[0]!!
+  override val elementOsFilter: (OS) -> Boolean = { it.convert().isSuitableForOs() }
 
   override fun close() {
     for (ref in toDispose) {

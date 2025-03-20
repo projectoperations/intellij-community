@@ -14,9 +14,10 @@ import com.intellij.icons.AllIcons
 import com.intellij.ide.ActivityTracker
 import com.intellij.ide.DataManager
 import com.intellij.ide.ProhibitAWTEvents
-import com.intellij.ide.plugins.*
-import com.intellij.ide.plugins.RawPluginDescriptor.ActionDescriptorAction
-import com.intellij.ide.plugins.RawPluginDescriptor.ActionDescriptorGroup
+import com.intellij.ide.plugins.IdeaPluginDescriptor
+import com.intellij.ide.plugins.IdeaPluginDescriptorImpl
+import com.intellij.ide.plugins.PluginManager
+import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.ide.ui.customization.CustomActionsSchema
 import com.intellij.idea.IdeaLogger
 import com.intellij.internal.statistic.collectors.fus.actions.persistence.ActionIdProvider
@@ -54,6 +55,7 @@ import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.openapi.wm.IdeFrame
 import com.intellij.openapi.wm.awaitFocusSettlesDown
 import com.intellij.platform.ide.CoreUiCoroutineScopeHolder
+import com.intellij.platform.plugins.parser.impl.elements.ActionElement.*
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.serviceContainer.AlreadyDisposedException
 import com.intellij.serviceContainer.ComponentManagerImpl
@@ -101,7 +103,6 @@ private val DEFAULT_ACTION_GROUP_CLASS_NAME = DefaultActionGroup::class.java.nam
 
 open class ActionManagerImpl protected constructor(private val coroutineScope: CoroutineScope) : ActionManagerEx() {
   private val notRegisteredInternalActionIds = ArrayList<String>()
-  private val actionListeners = ContainerUtil.createLockFreeCopyOnWriteList<AnActionListener>()
   private val actionPopupMenuListeners = ContainerUtil.createLockFreeCopyOnWriteList<ActionPopupMenuListener>()
   private val popups = ArrayList<Any>()
   private var timer: MyTimer? = null
@@ -376,7 +377,7 @@ open class ActionManagerImpl protected constructor(private val coroutineScope: C
                                keymapToOperations = keymapToOperations,
                                classLoader = module.classLoader)
         }
-        is ActionDescriptorGroup -> {
+        is ActionElementGroup -> {
           processGroupElement(className = descriptor.className,
                               id = descriptor.id,
                               element = element,
@@ -388,17 +389,17 @@ open class ActionManagerImpl protected constructor(private val coroutineScope: C
         }
         else -> {
           when (descriptor.name) {
-            ActionDescriptorName.separator -> processSeparatorNode(parentGroup = null,
-                                                                   element = element,
-                                                                   module = module,
-                                                                   bundleSupplier = bundleSupplier,
-                                                                   actionRegistrar = actionRegistrar)
-            ActionDescriptorName.reference -> processReferenceNode(element = element,
-                                                                   module = module,
-                                                                   bundleSupplier = bundleSupplier,
-                                                                   actionRegistrar = actionRegistrar)
-            ActionDescriptorName.unregister -> processUnregisterNode(element = element, module = module, actionRegistrar = actionRegistrar)
-            ActionDescriptorName.prohibit -> processProhibitNode(element = element, module = module, actionRegistrar = actionRegistrar)
+            ActionElementName.separator -> processSeparatorNode(parentGroup = null,
+                                                                element = element,
+                                                                module = module,
+                                                                bundleSupplier = bundleSupplier,
+                                                                actionRegistrar = actionRegistrar)
+            ActionElementName.reference -> processReferenceNode(element = element,
+                                                                module = module,
+                                                                bundleSupplier = bundleSupplier,
+                                                                actionRegistrar = actionRegistrar)
+            ActionElementName.unregister -> processUnregisterNode(element = element, module = module, actionRegistrar = actionRegistrar)
+            ActionElementName.prohibit -> processProhibitNode(element = element, module = module, actionRegistrar = actionRegistrar)
             else -> LOG.error("${descriptor.name} is unknown")
           }
         }
@@ -898,9 +899,9 @@ open class ActionManagerImpl protected constructor(private val coroutineScope: C
       val descriptor = descriptors[i]
       val element = descriptor.element
       when (descriptor.name) {
-        ActionDescriptorName.action -> unloadActionElement(element)
-        ActionDescriptorName.group -> unloadGroupElement(element)
-        ActionDescriptorName.reference -> {
+        ActionElementName.action -> unloadActionElement(element)
+        ActionElementName.group -> unloadGroupElement(element)
+        ActionElementName.reference -> {
           val action = processReferenceElement(element = element, module = module, actionRegistrar = actionPostInitRegistrar) ?: return
           val actionId = getReferenceActionId(element)
           for ((name, attributes) in element.children) {
@@ -1064,11 +1065,6 @@ open class ActionManagerImpl protected constructor(private val coroutineScope: C
 
   fun getParentGroupIds(actionId: String): Collection<String> = actionPostInitRegistrar.state.getParentGroupIds(actionId)
 
-  @Suppress("removal", "OVERRIDE_DEPRECATION")
-  override fun addAnActionListener(listener: AnActionListener) {
-    actionListeners.add(listener)
-  }
-
   override fun fireBeforeActionPerformed(action: AnAction, event: AnActionEvent) {
     prevPreformedActionId = lastPreformedActionId
     lastPreformedActionId = getId(action)
@@ -1077,9 +1073,6 @@ open class ActionManagerImpl protected constructor(private val coroutineScope: C
     }
     IdeaLogger.ourLastActionId = lastPreformedActionId
     ProhibitAWTEvents.start("fireBeforeActionPerformed").use {
-      for (listener in actionListeners) {
-        listener.beforeActionPerformed(action, event)
-      }
       publisher().beforeActionPerformed(action, event)
       onBeforeActionInvoked(action, event)
     }
@@ -1091,9 +1084,6 @@ open class ActionManagerImpl protected constructor(private val coroutineScope: C
     IdeaLogger.ourLastActionId = lastPreformedActionId
     ProhibitAWTEvents.start("fireAfterActionPerformed").use {
       onAfterActionInvoked(action, event, result)
-      for (listener in actionListeners) {
-        listener.afterActionPerformed(action, event, result)
-      }
       publisher().afterActionPerformed(action, event, result)
     }
   }
@@ -1112,9 +1102,6 @@ open class ActionManagerImpl protected constructor(private val coroutineScope: C
 
   override fun fireBeforeEditorTyping(c: Char, dataContext: DataContext) {
     lastTimeEditorWasTypedIn = System.currentTimeMillis()
-    for (listener in actionListeners) {
-      listener.beforeEditorTyping(c, dataContext)
-    }
     //maybe readaction
     WriteIntentReadAction.run {
       publisher().beforeEditorTyping(c, dataContext)
@@ -1122,9 +1109,6 @@ open class ActionManagerImpl protected constructor(private val coroutineScope: C
   }
 
   override fun fireAfterEditorTyping(c: Char, dataContext: DataContext) {
-    for (listener in actionListeners) {
-      listener.afterEditorTyping(c, dataContext)
-    }
     //maybe readaction
     WriteIntentReadAction.run {
       publisher().afterEditorTyping(c, dataContext)

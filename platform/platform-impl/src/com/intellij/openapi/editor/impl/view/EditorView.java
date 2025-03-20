@@ -582,8 +582,8 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
     return myDocument;
   }
 
-  FoldingModelImpl getFoldingModel() {
-    return (FoldingModelImpl)myEditorModel.getFoldingModel();
+  FoldingModelInternal getFoldingModel() {
+    return myEditorModel.getFoldingModel();
   }
 
   InlayModelEx getInlayModel() {
@@ -664,7 +664,13 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
   }
 
   float getCodePointWidth(int codePoint, @JdkConstants.FontStyle int fontStyle) {
-    return myCharWidthCache.getCodePointWidth(codePoint, fontStyle);
+    var grid = myEditor.getCharacterGrid();
+    if (grid != null) {
+      return grid.codePointWidth(codePoint);
+    }
+    else {
+      return myCharWidthCache.getCodePointWidth(codePoint, fontStyle);
+    }
   }
 
   Insets getInsets() {

@@ -6,15 +6,14 @@ import com.intellij.codeInspection.dataFlow.lang.ir.ControlFlow
 import com.intellij.codeInspection.dataFlow.lang.ir.DataFlowIRProvider
 import com.intellij.codeInspection.dataFlow.value.DfaValueFactory
 import com.intellij.codeInspection.dataFlow.value.DfaVariableValue
-import com.intellij.debugger.engine.SuspendContextImpl
 import com.intellij.debugger.engine.dfaassist.DebuggerDfaRunner.Larva
 import com.intellij.debugger.engine.dfaassist.DebuggerDfaRunner.Pupa
 import com.intellij.debugger.engine.evaluation.EvaluateException
-import com.intellij.debugger.engine.events.SuspendContextCommandImpl
+import com.intellij.debugger.engine.executeOnDMT
 import com.intellij.debugger.impl.DebuggerContextImpl
 import com.intellij.debugger.impl.DebuggerUtilsEx
 import com.intellij.debugger.jdi.StackFrameProxyEx
-import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.application.ReadConstraint
 import com.intellij.openapi.application.constrainedReadAction
@@ -25,9 +24,11 @@ import com.intellij.psi.SmartPointerManager
 import com.intellij.psi.SmartPsiElementPointer
 import com.intellij.psi.util.PsiModificationTracker
 import com.intellij.util.ThreeState
-import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.xdebugger.impl.dfaassist.DfaResult
 import com.sun.jdi.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.VisibleForTesting
 import java.util.concurrent.ExecutionException
 
@@ -158,30 +159,31 @@ suspend fun createDfaRunner(
 
 internal fun scheduleDfaUpdate(assist: DfaAssist, newContext: DebuggerContextImpl, element: PsiElement) {
   val pointer = SmartPointerManager.createPointer<PsiElement?>(element)
-  newContext.getManagerThread()!!.schedule(object : SuspendContextCommandImpl(newContext.suspendContext) {
-    override suspend fun contextActionSuspend(suspendContext: SuspendContextImpl) {
-      val proxy = suspendContext.getFrameProxy()
-      if (proxy == null) {
-        assist.cleanUp()
-        return
-      }
-      val runnerPupa = makePupa(proxy, pointer)
-      if (runnerPupa == null) {
-        assist.cleanUp()
-        return
-      }
-      blockingContext {
-        val computation = ReadAction.nonBlocking<DfaResult> {
-          runnerPupa.transform()?.computeHints() ?: DfaResult.EMPTY
-        }
-          .withDocumentsCommitted(suspendContext.debugProcess.project)
-          .coalesceBy(assist)
-          .finishOnUiThread(ModalityState.nonModal()) { hints -> assist.displayInlaysInternal(hints) }
-          .submit(AppExecutorUtil.getAppExecutorService())
-        assist.setComputation(computation)
+  val suspendContext = newContext.suspendContext ?: return
+  executeOnDMT(suspendContext) {
+    val proxy = suspendContext.getFrameProxy()
+    if (proxy == null) {
+      assist.cleanUp()
+      return@executeOnDMT
+    }
+    val runnerPupa = makePupa(proxy, pointer)
+    if (runnerPupa == null) {
+      assist.cleanUp()
+      return@executeOnDMT
+    }
+    val project = suspendContext.debugProcess.project
+    val hintsJob = suspendContext.coroutineScope.async {
+      constrainedReadAction(ReadConstraint.withDocumentsCommitted(project)) {
+        runnerPupa.transform()?.computeHints() ?: DfaResult.EMPTY
       }
     }
-  })
+    assist.cancelComputation()
+    assist.setComputation(hintsJob)
+    val hints = hintsJob.await()
+    withContext(Dispatchers.EDT) {
+      assist.displayInlaysInternal(hints)
+    }
+  }
 }
 
 private data class LarvaData(

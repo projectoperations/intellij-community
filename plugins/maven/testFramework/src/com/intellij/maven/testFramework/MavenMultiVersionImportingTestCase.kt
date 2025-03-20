@@ -2,7 +2,7 @@
 package com.intellij.maven.testFramework
 
 import com.intellij.maven.testFramework.utils.MavenProjectJDKTestFixture
-import com.intellij.openapi.application.writeAction
+import com.intellij.openapi.application.edtWriteAction
 import com.intellij.openapi.roots.ContentEntry
 import com.intellij.openapi.roots.ContentFolder
 import com.intellij.openapi.roots.ExcludeFolder
@@ -29,7 +29,7 @@ import java.nio.file.Path
 import java.util.*
 import kotlin.math.min
 
-private const val MAVEN_4_VERSION = "4.0.0-rc-2"
+private const val MAVEN_4_VERSION = "4.0.0-rc-3"
 private val MAVEN_VERSIONS: Array<String> = arrayOf<String>(
   "bundled",
   "4"
@@ -386,13 +386,13 @@ abstract class MavenMultiVersionImportingTestCase : MavenImportingTestCase() {
   protected suspend fun withRealJDK(jdkName: String = "JDK_FOR_MAVEN_TESTS", block: suspend () -> Unit) {
     val fixture = MavenProjectJDKTestFixture(project, jdkName)
     try {
-      writeAction {
+      edtWriteAction {
         fixture.setUp()
       }
       block()
     }
     finally {
-      writeAction {
+      edtWriteAction {
         fixture.tearDown()
       }
     }

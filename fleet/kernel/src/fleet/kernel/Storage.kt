@@ -3,8 +3,8 @@ package fleet.kernel
 
 import com.jetbrains.rhizomedb.*
 import com.jetbrains.rhizomedb.impl.EidGen
-import fleet.tracing.span
-import fleet.tracing.spannedScope
+import fleet.reporting.shared.tracing.span
+import fleet.reporting.shared.tracing.spannedScope
 import fleet.util.UID
 import fleet.util.async.catching
 import fleet.util.async.use
@@ -12,6 +12,7 @@ import fleet.util.logging.KLogger
 import fleet.util.logging.logger
 import fleet.fastutil.ints.Int2ObjectOpenHashMap
 import fleet.fastutil.ints.IntOpenHashSet
+import fleet.util.computeIfAbsentShim
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.Serializable
@@ -41,7 +42,7 @@ suspend fun <T> withStorage(
       spannedScope("transact snapshot") {
         if (snapshot != DurableSnapshotWithPartitions.Empty) {
           Storage.logger.info { "applying non-empty snapshot $storageKey" }
-          val isFailFast = currentCoroutineContext()[FailFastMarker] != null
+          val isFailFast = currentCoroutineContext().shouldFailFast
           hackyNonBlockingChange {
             span("apply snapshot") {
               DbContext.threadBound.ensureMutable {
@@ -53,7 +54,7 @@ suspend fun <T> withStorage(
       }
     }.onFailure { x ->
       // Throwing exception only if we're in test mode
-      if (coroutineContext[FailFastMarker] != null)
+      if (coroutineContext.shouldFailFast)
         throw x
       else
         Storage.logger.error(x) { "couldn't restore state for $storageKey" }
@@ -137,7 +138,7 @@ private fun DbContext<Mut>.applyDurableSnapshotWithPartitions(snapshotWithPartit
     val memoizedEIDs = HashMap<UID, EID>()
     applySnapshotNew(snapshotWithPartitions.snapshot) { uid ->
       val partition = snapshotWithPartitions.partitions[uid]!!
-      memoizedEIDs.computeIfAbsent(uid) { EidGen.freshEID(partition) }
+      memoizedEIDs.computeIfAbsentShim(uid) { EidGen.freshEID(partition) }
     }
 
     val attrIdents = snapshotWithPartitions.snapshot.entities.flatMapTo(HashSet()) { e -> e.attrs.keys }

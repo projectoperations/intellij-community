@@ -1,9 +1,10 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.rhizomedb
 
-import fleet.util.AtomicRef
+import fleet.multiplatform.shims.AtomicRef
 import fleet.fastutil.longs.LongArrayList
 import fleet.fastutil.longs.toArray
+import fleet.util.computeShim
 import kotlinx.collections.immutable.PersistentMap
 import kotlinx.collections.immutable.PersistentSet
 import kotlinx.collections.immutable.persistentHashMapOf
@@ -32,7 +33,7 @@ class QueryCache private constructor(private val cache: AtomicRef<QueryCacheData
 
       result.patterns.forEach { newPattern ->
         if (oldPatterns == null || !oldPatterns.contains(newPattern)) {
-          patternToQueryPrime.compute(newPattern) { _, queries ->
+          patternToQueryPrime.computeShim(newPattern) { _, queries ->
             (queries ?: persistentHashSetOf()).add(query)
           }
         }

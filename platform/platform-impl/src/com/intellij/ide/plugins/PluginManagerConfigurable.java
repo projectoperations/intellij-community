@@ -16,6 +16,7 @@ import com.intellij.ide.plugins.marketplace.ranking.MarketplaceLocalRanker;
 import com.intellij.ide.plugins.marketplace.statistics.PluginManagerUsageCollector;
 import com.intellij.ide.plugins.newui.*;
 import com.intellij.ide.util.PropertiesComponent;
+import com.intellij.idea.AppMode;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.impl.PresentationFactory;
@@ -80,7 +81,9 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
+import static com.intellij.ide.plugins.PluginManagerCoreKt.pluginRequiresUltimatePluginButItsDisabled;
 import static com.intellij.ide.plugins.newui.PluginsViewCustomizerKt.getPluginsViewCustomizer;
+import static com.intellij.util.containers.ContainerUtil.exists;
 
 @ApiStatus.Internal
 public final class PluginManagerConfigurable
@@ -356,7 +359,8 @@ public final class PluginManagerConfigurable
 
   private void createGearGotIt() {
     if (!PluginManagementPolicy.getInstance().isPluginAutoUpdateAllowed() ||
-        UpdateSettings.getInstance().getState().isPluginsAutoUpdateEnabled()) {
+        UpdateSettings.getInstance().getState().isPluginsAutoUpdateEnabled() ||
+        AppMode.isRemoteDevHost()) {
       return;
     }
 
@@ -1379,6 +1383,7 @@ public final class PluginManagerConfigurable
     addGroup(groups, groupName, PluginsGroupType.SUGGESTED, "", plugins, group -> false);
   }
 
+
   private final class ComparablePluginsGroup extends PluginsGroup
     implements Comparable<ComparablePluginsGroup> {
 
@@ -1394,7 +1399,7 @@ public final class PluginManagerConfigurable
       rightAction = new LinkLabelButton<>("",
                                           null,
                                           (__, ___) -> setEnabledState());
-
+      rightAction.setVisible(hasPluginsForEnableDisable(descriptors));
       titleWithEnabled(myPluginModel);
     }
 
@@ -1411,12 +1416,32 @@ public final class PluginManagerConfigurable
     }
 
     private void setEnabledState() {
-      if (myIsEnable) {
-        myPluginModel.enable(descriptors);
-      }
-      else {
-        myPluginModel.disable(descriptors);
-      }
+      setState(myPluginModel, descriptors, myIsEnable);
+    }
+
+    /** Returns true, if in descriptors list not only Ultimate plugins while we are on Core license.
+     * (Any plugin exists, for which we can change the enabled / disable state) */
+    private static boolean hasPluginsForEnableDisable(List<? extends IdeaPluginDescriptor> descriptors){
+      var idMap = PluginManagerCore.INSTANCE.buildPluginIdMap();
+      return exists(descriptors, descriptor -> !pluginRequiresUltimatePluginButItsDisabled(descriptor.getPluginId(), idMap));
+    }
+  }
+
+  /** Modifies the state of the plugin list, excluding Ultimate plugins when the Ultimate license is not active. */
+  private static void setState(MyPluginModel pluginModel, Collection<IdeaPluginDescriptor> descriptors, boolean isEnable) {
+    if (descriptors.isEmpty()) return;
+
+    var idMap = PluginManagerCore.INSTANCE.buildPluginIdMap();
+    var suitableDescriptors = descriptors.stream().
+      filter(descriptor -> !pluginRequiresUltimatePluginButItsDisabled(descriptor.getPluginId(), idMap)).toList();
+
+    if (suitableDescriptors.isEmpty()) return;
+
+    if (isEnable) {
+      pluginModel.enable(suitableDescriptors);
+    }
+    else {
+      pluginModel.disable(suitableDescriptors);
     }
   }
 
@@ -1884,14 +1909,7 @@ public final class PluginManagerConfigurable
         }
       }
 
-      if (!descriptors.isEmpty()) {
-        if (myEnable) {
-          myPluginModel.enable(descriptors);
-        }
-        else {
-          myPluginModel.disable(descriptors);
-        }
-      }
+      setState(myPluginModel, descriptors, myEnable);
     }
   }
 

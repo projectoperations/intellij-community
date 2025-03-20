@@ -9,8 +9,10 @@ import com.intellij.ide.impl.OpenUntrustedProjectChoice
 import com.intellij.ide.impl.TRUSTED_PROJECTS_HELP_TOPIC
 import com.intellij.ide.impl.TrustedPathsSettings
 import com.intellij.ide.impl.TrustedProjectsStatistics
+import com.intellij.ide.trustedProjects.impl.TrustedProjectsStartupDialog
 import com.intellij.openapi.application.ApplicationInfo
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.ex.ApplicationInfoEx
 import com.intellij.openapi.application.invokeAndWaitIfNeeded
 import com.intellij.openapi.components.service
 import com.intellij.openapi.components.serviceAsync
@@ -53,7 +55,7 @@ object TrustedProjectsDialog {
 
     val pathsToExclude = getDefenderExcludePaths(project, projectRoot)
     val dialog = withContext(Dispatchers.EDT) {
-      val dialog = TrustedProjectStartupDialog(
+      val dialog = TrustedProjectsStartupDialog(
         project, projectRoot, pathsToExclude, title, message, trustButtonText, distrustButtonText, cancelButtonText
       )
       dialog.show()
@@ -69,15 +71,15 @@ object TrustedProjectsDialog {
         service<TrustedPathsSettings>().addTrustedPath(projectLocationPath)
       }
     }
-    if (openChoice == OpenUntrustedProjectChoice.OPEN_IN_SAFE_MODE) {
+    else if (openChoice == OpenUntrustedProjectChoice.OPEN_IN_SAFE_MODE) {
       TrustedProjects.setProjectTrusted(locatedProject, false)
     }
 
-    TrustedProjectsStatistics.NEW_PROJECT_OPEN_OR_IMPORT_CHOICE.log(openChoice)
-
-    if (pathsToExclude.isNotEmpty()) {
+    if (openChoice != OpenUntrustedProjectChoice.CANCEL && pathsToExclude.isNotEmpty()) {
+      val checker = serviceAsync<WindowsDefenderChecker>()
       val defenderTrustDir = dialog.getDefenderTrustFolder()
       if (openChoice == OpenUntrustedProjectChoice.TRUST_AND_OPEN && defenderTrustDir != null) {
+        checker.markProjectPath(projectRoot, /*skip =*/ false)
         WindowsDefenderStatisticsCollector.excludedFromTrustDialog(dialog.isTrustAll())
         if (defenderTrustDir != projectRoot) {
           (pathsToExclude as MutableList<Path>).apply {
@@ -85,20 +87,18 @@ object TrustedProjectsDialog {
             add(0, defenderTrustDir)
           }
         }
-        val checker = serviceAsync<WindowsDefenderChecker>()
-        if (project == null) {
-          checker.schedule(projectRoot, pathsToExclude)
-        }
-        else {
-          WindowsDefenderCheckerActivity.runAndNotify(project) {
-            checker.excludeProjectPaths(project, pathsToExclude)
-          }
+        WindowsDefenderCheckerActivity.runAndNotify(project) {
+          checker.excludeProjectPaths(project, projectRoot, pathsToExclude)
         }
       }
-      else if (openChoice != OpenUntrustedProjectChoice.CANCEL) {
-        val checker = serviceAsync<WindowsDefenderChecker>()
-        checker.schedule(projectRoot, emptyList())  // skipping Defender check if the checkbox was shown but ignored
+      else {
+        checker.markProjectPath(projectRoot, /*skip =*/ true)
       }
+    }
+
+    TrustedProjectsStatistics.NEW_PROJECT_OPEN_OR_IMPORT_CHOICE.log(openChoice)
+    if (pathsToExclude.isNotEmpty()) {
+      WindowsDefenderStatisticsCollector.checkboxShownInTrustDialog()
     }
 
     return openChoice != OpenUntrustedProjectChoice.CANCEL
@@ -123,10 +123,10 @@ object TrustedProjectsDialog {
 
   suspend fun confirmLoadingUntrustedProjectAsync(
     project: Project,
-    title: @NlsContexts.DialogTitle String,
-    message: @NlsContexts.DialogMessage String,
-    trustButtonText: @NlsContexts.Button String,
-    distrustButtonText: @NlsContexts.Button String
+    title: @NlsContexts.DialogTitle String = IdeBundle.message("untrusted.project.general.dialog.title"),
+    message: @NlsContexts.DialogMessage String = IdeBundle.message("untrusted.project.open.dialog.text", ApplicationInfoEx.getInstanceEx().fullApplicationName),
+    trustButtonText: @NlsContexts.Button String = IdeBundle.message("untrusted.project.dialog.trust.button"),
+    distrustButtonText: @NlsContexts.Button String = IdeBundle.message("untrusted.project.dialog.distrust.button"),
   ): Boolean {
     val locatedProject = TrustedProjectsLocator.locateProject(project)
     if (TrustedProjects.isProjectTrusted(locatedProject)) {
@@ -150,14 +150,14 @@ object TrustedProjectsDialog {
     return answer
   }
 
-  @ApiStatus.ScheduledForRemoval
-  @Deprecated("Use async method instead")
+  @JvmStatic
+  @ApiStatus.Obsolete
   fun confirmLoadingUntrustedProject(
     project: Project,
-    title: @NlsContexts.DialogTitle String,
-    message: @NlsContexts.DialogMessage String,
-    trustButtonText: @NlsContexts.Button String,
-    distrustButtonText: @NlsContexts.Button String
+    title: @NlsContexts.DialogTitle String = IdeBundle.message("untrusted.project.general.dialog.title"),
+    message: @NlsContexts.DialogMessage String = IdeBundle.message("untrusted.project.open.dialog.text", ApplicationInfoEx.getInstanceEx().fullApplicationName),
+    trustButtonText: @NlsContexts.Button String = IdeBundle.message("untrusted.project.dialog.trust.button"),
+    distrustButtonText: @NlsContexts.Button String = IdeBundle.message("untrusted.project.dialog.distrust.button"),
   ): Boolean {
     val locatedProject = TrustedProjectsLocator.locateProject(project)
     if (TrustedProjects.isProjectTrusted(locatedProject)) {

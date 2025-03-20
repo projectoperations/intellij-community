@@ -566,7 +566,6 @@
       "separatorColor": "#515151",
       "UI": "com.intellij.ide.ui.laf.darcula.ui.DarculaSeparatorUI"
     },
-
     "Slider": {
       "tickColor": "#666666",
       "UI": "com.intellij.ide.ui.laf.darcula.ui.DarculaSliderUI"

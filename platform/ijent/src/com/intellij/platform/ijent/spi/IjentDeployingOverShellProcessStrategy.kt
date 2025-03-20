@@ -40,11 +40,11 @@ abstract class IjentDeployingOverShellProcessStrategy(scope: CoroutineScope) : I
   private val myContext: Deferred<DeployingContextAndShell> = run {
     var createdShellProcess: ShellProcessWrapper? = null
     val context = scope.async(start = CoroutineStart.LAZY) {
-      val shellProcess = ShellProcessWrapper(IjentSessionMediator.create(scope, createShellProcess(), ijentLabel))
+      val shellProcess = ShellProcessWrapper(IjentSessionMediator.create(scope, createShellProcess(), ijentLabel, ::isExpectedProcessExit))
       createdShellProcess = shellProcess
       createDeployingContext(shellProcess.apply {
         val initializationTime = measureTime {
-          withTimeout(Registry.intValue("ijent.shell.initialization.timeout").milliseconds) {
+          withTimeout(runCatching { Registry.intValue("ijent.shell.initialization.timeout") }.getOrDefault(30_000).milliseconds) {
             write("set -ex")
             ensureActive()
             filterOutBanners()

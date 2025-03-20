@@ -94,6 +94,7 @@
               use-shortcut-of="EditorPageDownWithSelection"/>
       <action id="Tree-selectNextSibling" class="com.intellij.ui.TreeActions$NextSibling"/>
       <action id="Tree-selectPreviousSibling" class="com.intellij.ui.TreeActions$PreviousSibling"/>
+      <action id="Tree-selectAll" class="com.intellij.ui.TreeActions$SelectAll" use-shortcut-of="$SelectAll"/>
       <action id="Tree-startEditing" icon="AllIcons.Actions.Edit" class="com.intellij.ide.actions.tree.StartEditingAction">
         <keyboard-shortcut keymap="$default" first-keystroke="F2"/>
       </action>
@@ -124,18 +125,17 @@
       <add-to-group group-id="Other.KeymapGroup"/>
     </group>
 
-    <group id="SwitcherAndRecentFiles">
-      <action id="Switcher" class="com.intellij.ide.actions.Switcher"/>
-      <action id="SwitcherForward" class="com.intellij.ide.actions.ShowSwitcherForwardAction"/>
-      <action id="SwitcherBackward" class="com.intellij.ide.actions.ShowSwitcherBackwardAction"/>
-      <action id="SwitcherRecentEditedChangedToggleCheckBox" class="com.intellij.ide.actions.SwitcherToggleOnlyEditedFilesAction"/>
-      <action id="SwitcherIterateItems" class="com.intellij.ide.actions.SwitcherIterateThroughItemsAction"/>
-      <action id="SwitcherNextProblem" use-shortcut-of="GotoNextError" class="com.intellij.ide.actions.SwitcherNextProblemAction"/>
-      <action id="SwitcherPreviousProblem" use-shortcut-of="GotoPreviousError"
-              class="com.intellij.ide.actions.SwitcherPreviousProblemAction"/>
-      <action id="DeleteRecentFiles" use-shortcut-of="$Delete" class="com.intellij.openapi.actionSystem.EmptyAction"/>
-      <action id="RecentFiles" class="com.intellij.ide.actions.ShowRecentFilesAction"/>
-      <action id="RecentChangedFiles" class="com.intellij.ide.actions.ShowRecentlyEditedFilesAction"/>
+    <group id="SwitcherAndRecentFilesFallback">
+      <action id="SwitcherFallback" class="com.intellij.ide.actions.Switcher" use-shortcut-of="Switcher"/>
+      <action id="SwitcherForwardFallback" class="com.intellij.ide.actions.ShowSwitcherForwardAction" use-shortcut-of="SwitcherForward"/>
+      <action id="SwitcherBackwardFallback" class="com.intellij.ide.actions.ShowSwitcherBackwardAction" use-shortcut-of="SwitcherBackward"/>
+      <action id="SwitcherRecentEditedChangedToggleCheckBoxFallback" class="com.intellij.ide.actions.SwitcherToggleOnlyEditedFilesAction" use-shortcut-of="SwitcherRecentEditedChangedToggleCheckBox"/>
+      <action id="SwitcherIterateItemsFallback" class="com.intellij.ide.actions.SwitcherIterateThroughItemsAction" use-shortcut-of="SwitcherIterateItems"/>
+      <action id="SwitcherNextProblemFallback" use-shortcut-of="GotoNextError" class="com.intellij.ide.actions.SwitcherNextProblemAction"/>
+      <action id="SwitcherPreviousProblemFallback" use-shortcut-of="GotoPreviousError" class="com.intellij.ide.actions.SwitcherPreviousProblemAction"/>
+      <action id="DeleteRecentFilesFallback" use-shortcut-of="$Delete" class="com.intellij.openapi.actionSystem.EmptyAction"/>
+      <action id="RecentFilesFallback" class="com.intellij.ide.actions.ShowRecentFilesAction" use-shortcut-of="RecentFiles"/>
+      <action id="RecentChangedFilesFallback" class="com.intellij.ide.actions.ShowRecentlyEditedFilesAction" use-shortcut-of="RecentChangedFiles"/>
       <add-to-group group-id="Other.KeymapGroup"/>
     </group>
 
@@ -445,8 +445,6 @@
       <action id="OpenInAssociatedApplication" class="com.intellij.ide.actions.OpenInAssociatedApplicationAction"/>
     </group>
 
-    <action id="CloseSettings" class="com.intellij.openapi.options.newEditor.settings.CloseSettingsAction" use-shortcut-of="CloseDiffEditor"/>
-
     <group id="MainMenu">
       <group id="FileMenu" popup="true">
         <group id="FileOpenGroup">
@@ -663,10 +661,10 @@
         <action id="ViewSource" class="com.intellij.ide.actions.ViewSourceAction"/>
         <separator/>
         <group id="ViewRecentActions">
-          <reference ref="RecentFiles"/>
-          <reference ref="SwitcherRecentEditedChangedToggleCheckBox"/>
-          <reference ref="SwitcherIterateItems"/>
-          <reference ref="RecentChangedFiles"/>
+          <reference ref="RecentFilesFallback"/>
+          <reference ref="SwitcherRecentEditedChangedToggleCheckBoxFallback"/>
+          <reference ref="SwitcherIterateItemsFallback"/>
+          <reference ref="RecentChangedFilesFallback"/>
           <action id="RecentLocations" class="com.intellij.ide.actions.RecentLocationsAction"/>
         </group>
         <separator/>
@@ -942,7 +940,7 @@
     </group>
 
     <group id="EditorTabsEntryPoint" popup="true" icon="AllIcons.Actions.More">
-      <reference ref="RecentFiles"/>
+      <reference ref="RecentFilesFallback"/>
       <reference ref="RecentLocations"/>
       <separator/>
       <reference ref="CloseAllEditors"/>
@@ -987,7 +985,6 @@
         <action id="main.toolbar.Filename" class="com.intellij.openapi.wm.impl.headertoolbar.FilenameToolbarWidgetAction"/>
       </group>
       <group id="MainToolbarRight" searchable="false">
-        <action id="TrialStateWidget" class="com.intellij.ui.components.trialState.TrialStateWidget"/>
         <reference ref="SearchEverywhere"/>
         <reference ref="SettingsEntryPoint"/>
       </group>
@@ -1075,6 +1072,7 @@
           <!--Cmd key is used, because it’s used in most of the action shortcuts: Back/Forward, Breakpoint and Find Usages./-->
           <reference ref="Back"/>
           <reference ref="Forward"/>
+          <!--suppress PluginXmlI18n, PluginXmlCapitalization -->
           <separator text="type.large"/>
         </group>
         <group id="TouchBarDefault_cmd.alt">
@@ -1243,8 +1241,6 @@
       <action id="ChangeIdeScale" class="com.intellij.ide.actions.QuickChangeIdeScaleAction"/>
     </group>
 
-    <action id="MaintenanceAction" class="com.intellij.ide.actions.MaintenanceAction"/>
-
     <group id="MaintenanceGroup">
       <action id="ShowRegistry" class="com.intellij.openapi.util.registry.ShowRegistryAction"/>
       <action id="UiDebugger" class="com.intellij.ui.debugger.ShowUiDebuggerAction"/>
@@ -1262,9 +1258,16 @@
     </group>
 
     <action id="LogFocusRequests" class="com.intellij.internal.focus.LogFocusRequestsAction"/>
-    <action id="CreateAllServicesAndExtensions" internal="true" class="com.intellij.ide.plugins.CreateAllServicesAndExtensionsAction"/>
+    <action id="CreateAllServicesAndExtensions" internal="true"
+            class="com.intellij.ide.plugins.CreateAllServicesAndExtensionsAction"
+            text="Create All Services And Extensions"/>
     <action id="PerformGC" internal="true" class="com.intellij.internal.PerformGCAction"/>
-    <action id="ShowTrustProjectDialog" class="com.intellij.ide.impl.ShowTrustProjectDialogAction"/>
+
+    <action id="ShowTrustProjectDialog" class="com.intellij.ide.trustedProjects.impl.ShowTrustProjectDialogAction"/>
+    <group id="Internal.Trust" popup="true">
+      <action id="TrustProject" internal="true" class="com.intellij.ide.trustedProjects.impl.YesTrustAction"/>
+      <action id="UntrustProject" internal="true" class="com.intellij.ide.trustedProjects.impl.NoTrustAction"/>
+    </group>
 
     <group id="Internal" internal="true" popup="true" compact="true">
       <group id="Internal.Errors" popup="true">
@@ -1279,13 +1282,12 @@
       </group>
       <separator/>
       <action internal="true" id="ReloadProjectAction" class="com.intellij.internal.ReloadProjectAction"/>
-      <group id="Internal.Trust" popup="true">
-        <action id="TrustProject" internal="true" class="com.intellij.internal.YesTrustAction"/>
-        <action id="UntrustProject" internal="true" class="com.intellij.internal.NoTrustAction"/>
-      </group>
       <group id="Internal.WorkspaceModel" popup="true">
-        <action id="PrintModulesAndEntitySources" internal="true" class="com.intellij.internal.PrintModulesAndEntitySources"/>
+        <action id="PrintModulesAndEntitySources" internal="true"
+                class="com.intellij.internal.PrintModulesAndEntitySources"
+                text="Print Modules and Entity Sources to Log"/>
       </group>
+      <action id="ShowEdtUtilizationChart" internal="true" class="com.intellij.internal.ShowEdtUtilizationChartAction"/>
       <action internal="true" id="ShowMainMenu" class="com.intellij.internal.ui.ShowMainMenuAction"/>
       <action id="DumbMode" internal="true" class="com.intellij.internal.ToggleDumbModeAction">
         <synonym text="Exit Dumb Mode"/>
@@ -1296,11 +1298,13 @@
       </action>
       <action id="TriggerProjectIndexableFilesFilterHealthCheckAction" internal="true"
               class="com.intellij.util.indexing.projectFilter.TriggerProjectIndexableFilesFilterHealthCheckAction"/>
-      <action id="DumbModeTremble" class="com.intellij.internal.DumbModeTrembleAction">
+      <action id="DumbModeTremble" class="com.intellij.internal.DumbModeTrembleAction" internal="true">
         <synonym text="Exit Tremble Dumb Mode"/>
         <synonym text="Enter Tremble Dumb Mode"/>
       </action>
-      <action id="ShowPoweredProgress" internal="true" class="com.intellij.internal.ShowPoweredProgressAction"/>
+      <action id="ShowPoweredProgress" internal="true"
+              class="com.intellij.internal.ShowPoweredProgressAction"
+              text="Show Powered Progress"/>
       <action id="SkipWindowDeactivationEvents" class="com.intellij.internal.SkipWindowDeactivationEventsAction" internal="true">
         <synonym text="Disable ProcessCanceledException"/>
       </action>
@@ -1533,7 +1537,7 @@
       <synonym key="action.SelectOpenedFileInProjectView.text"/>
     </action>
 
-    <action id="ClearAllNotifications" class="com.intellij.notification.impl.ClearAllNotificationsAction" icon="AllIcons.Actions.GC"/>
+    <action id="ClearAllNotifications" class="com.intellij.notification.impl.actions.ClearAllNotificationsAction" icon="AllIcons.Actions.GC"/>
 
     <group id="ProjectViewToolbar">
       <separator/>
@@ -1766,7 +1770,7 @@
     <!-- copy of CheckVfsSanityInMenu: !internal so could be invoked via 'search everywhere' -->
     <action id="CheckVfsSanity" class="com.intellij.openapi.vfs.newvfs.persistent.CheckVFSHealthAction"/>
     <action id="PaintEditorLineStripeComponentAction" class="com.intellij.codeInsight.editorLineStripeHint.PaintEditorLineStripeHintComponentAction" internal="true"/>
-
+    
     <group id="CustomizeMainToolbarGroup" popup="true" searchable="false">
       <action id="CustomizeMainToolbarAction" class="com.intellij.ide.actions.CustomizeMainToolbarAction"/>
       <separator key="group.MainToolbarQuickActions.text"/>

@@ -4,12 +4,22 @@ package com.intellij.ide.plugins
 import com.intellij.AbstractBundle
 import com.intellij.DynamicBundle
 import com.intellij.core.CoreBundle
+import com.intellij.ide.plugins.ModuleLoadingRule.Companion.fromElementValue
 import com.intellij.idea.AppMode
 import com.intellij.openapi.application.impl.ApplicationInfoImpl
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.extensions.ExtensionDescriptor
+import com.intellij.openapi.extensions.LoadingOrder
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.extensions.impl.ExtensionPointImpl
+import com.intellij.openapi.util.BuildNumber
+import com.intellij.platform.plugins.parser.impl.PluginDescriptorBuilder
+import com.intellij.platform.plugins.parser.impl.RawPluginDescriptor
+import com.intellij.platform.plugins.parser.impl.elements.ActionElement
+import com.intellij.platform.plugins.parser.impl.elements.ContentElement
+import com.intellij.platform.plugins.parser.impl.elements.DependenciesElement
+import com.intellij.platform.plugins.parser.impl.elements.DependsElement
+import com.intellij.platform.plugins.parser.impl.elements.MiscExtensionElement
 import com.intellij.util.Java11Shim
 import com.intellij.util.PlatformUtils
 import org.jetbrains.annotations.ApiStatus
@@ -47,7 +57,7 @@ class IdeaPluginDescriptorImpl(
   @JvmField var isDependentOnCoreClassLoader: Boolean = true,
 ) : IdeaPluginDescriptor {
   private val id: PluginId = id ?: PluginId.getId(raw.id ?: raw.name ?: throw RuntimeException("Neither id nor name are specified"))
-  private val name = raw.name ?: id?.idString ?: raw.id
+  private val name: String = raw.name ?: id?.idString ?: raw.id!! // if it throws, it throws on `id` above
 
   @Suppress("EnumEntryName")
   enum class OS {
@@ -60,54 +70,41 @@ class IdeaPluginDescriptorImpl(
 
   @Volatile
   private var description: String? = null
-  private val productCode = raw.productCode
+  private val productCode: String? = raw.productCode
   private var releaseDate: Date? = raw.releaseDate?.let { Date.from(it.atStartOfDay(ZoneOffset.UTC).toInstant()) }
-  private val releaseVersion = raw.releaseVersion
-  private val isLicenseOptional = raw.isLicenseOptional
+  private val releaseVersion: Int = raw.releaseVersion
+  private val isLicenseOptional: Boolean = raw.isLicenseOptional
 
   @NonNls
   private var resourceBundleBaseName: String? = null
-  private val changeNotes = raw.changeNotes
+  private val changeNotes: String? = raw.changeNotes
   private var version: String? = raw.version
-  private var vendor = raw.vendor
-  private val vendorEmail = raw.vendorEmail
-  private val vendorUrl = raw.vendorUrl
+  private var vendor: String? = raw.vendor
+  private val vendorEmail: String? = raw.vendorEmail
+  private val vendorUrl: String? = raw.vendorUrl
   private var category: String? = raw.category
 
   @JvmField
   internal val url: String? = raw.url
 
+  /**
+   * aka `<depends>` elements from the plugin.xml
+   *
+   * Note that it's different from [dependencies]
+   */
   @JvmField
   val pluginDependencies: List<PluginDependency>
 
   @JvmField
-  val incompatibilities: List<PluginId> = raw.incompatibilities ?: Java11Shim.INSTANCE.listOf()
+  val incompatibilities: List<PluginId> = raw.incompatibleWith.map(PluginId::getId)
 
   init {
     if (moduleName != null) {
       require(moduleLoadingRule != null) { "'moduleLoadingRule' parameter must be specified when creating a module descriptor, but it is missing for '$moduleName'" }
     }
-    // https://youtrack.jetbrains.com/issue/IDEA-206274
-    val list = raw.depends
-    if (list.isNullOrEmpty()) {
-      pluginDependencies = Java11Shim.INSTANCE.listOf()
-    }
-    else {
-      val iterator = list.iterator()
-      while (iterator.hasNext()) {
-        val item = iterator.next()
-        if (!item.isOptional) {
-          for (a in list) {
-            if (a.isOptional && a.pluginId == item.pluginId) {
-              a.isOptional = false
-              iterator.remove()
-              break
-            }
-          }
-        }
-      }
-      pluginDependencies = list
-    }
+    pluginDependencies = raw.depends
+      .let(::convertDepends)
+      .let(::fixDepends)
   }
 
   @Transient
@@ -116,53 +113,38 @@ class IdeaPluginDescriptorImpl(
   private var _pluginClassLoader: ClassLoader? = null
 
   @JvmField
-  val actions: List<RawPluginDescriptor.ActionDescriptor> = raw.actions ?: Java11Shim.INSTANCE.listOf()
+  val actions: List<ActionElement> = raw.actions
 
   // extension point name -> list of extension descriptors
   @JvmField
-  val epNameToExtensions: Map<String, List<ExtensionDescriptor>> = raw.epNameToExtensions.let { rawMap ->
-    if (rawMap == null) {
-      Java11Shim.INSTANCE.mapOf()
-    }
-    else if (rawMap.size < 2 || !rawMap.containsKey(registryEpName)) {
-      rawMap
-    }
-    else {
-      /*
-       * What's going on: see `com.intellij.ide.plugins.DynamicPluginsTest.registry access of key from same plugin`
-       * This is an ad-hoc solution to the problem, it doesn't fix the root cause. This may also break if this map gets copied
-       * or transformed into a HashMap somewhere, but it seems it's not the case right now.
-       * TODO: one way to make a better fix is to introduce loadingOrder on extension points (as it is made for extensions).
-       */
-      val result = LinkedHashMap<String, List<ExtensionDescriptor>>(rawMap.size)
-      val keys = rawMap.keys.toTypedArray()
-      keys.sortWith(extensionPointNameComparator)
-      for (key in keys) {
-        result.put(key, rawMap[key]!!)
-      }
-      result
-    }
-  }
+  val epNameToExtensions: Map<String, List<ExtensionDescriptor>> = raw.miscExtensions
+    .let(::convertExtensions)
+    .let(::sortExtensions)
 
   @JvmField
-  val appContainerDescriptor: ContainerDescriptor = raw.appContainerDescriptor
+  val appContainerDescriptor: ContainerDescriptor = raw.appElementsContainer.convert()
 
   @JvmField
-  val projectContainerDescriptor: ContainerDescriptor = raw.projectContainerDescriptor
+  val projectContainerDescriptor: ContainerDescriptor = raw.projectElementsContainer.convert()
 
   @JvmField
-  val moduleContainerDescriptor: ContainerDescriptor = raw.moduleContainerDescriptor
+  val moduleContainerDescriptor: ContainerDescriptor = raw.moduleElementsContainer.convert()
 
   @JvmField
   val content: PluginContentDescriptor =
-    raw.contentModules.takeIf { !it.isNullOrEmpty() }?.let { PluginContentDescriptor(it) }
+    raw.contentModules.takeIf { it.isNotEmpty() }?.let { PluginContentDescriptor(convertContentModules(it)) }
     ?: PluginContentDescriptor.EMPTY
 
+  /**
+   * aka `<dependencies>` element from plugin.xml
+   *
+   * Note that it's different from [pluginDependencies]
+   */
   @JvmField
-  val dependencies: ModuleDependenciesDescriptor = raw.dependencies
+  val dependencies: ModuleDependenciesDescriptor = raw.dependencies.let(::convertDependencies)
 
   @JvmField
-  var pluginAliases: List<PluginId> = raw.pluginAliases ?: Java11Shim.INSTANCE.listOf()
+  var pluginAliases: List<PluginId> = raw.pluginAliases.map(PluginId::getId)
 
   private val descriptionChildText = raw.description
 
@@ -181,8 +163,8 @@ class IdeaPluginDescriptorImpl(
   @JvmField
   val packagePrefix: String? = raw.`package`
 
-  private val sinceBuild = raw.sinceBuild
-  private val untilBuild = raw.untilBuild
+  private val sinceBuild: String? = raw.sinceBuild
+  private val untilBuild: String? = UntilBuildDeprecation.nullizeIfTargets243OrLater( raw.untilBuild, raw.name ?: raw.id)
   private var isEnabled = true
 
   var isDeleted: Boolean = false
@@ -197,13 +179,14 @@ class IdeaPluginDescriptorImpl(
   override fun getPluginPath(): Path = path
 
   internal fun createSub(
-    raw: RawPluginDescriptor,
+    subBuilder: PluginDescriptorBuilder,
     descriptorPath: String,
     context: DescriptorListLoadingContext,
     module: PluginContentDescriptor.ModuleItem?,
   ): IdeaPluginDescriptorImpl {
-    raw.name = name
-    val result = IdeaPluginDescriptorImpl(raw, path, isBundled, id, module?.name, module?.loadingRule, useCoreClassLoader, raw.isDependentOnCoreClassLoader)
+    subBuilder.name = name
+    val raw = subBuilder.build()
+    val result = IdeaPluginDescriptorImpl(raw, path, isBundled, id, module?.name, module?.loadingRule, useCoreClassLoader, !raw.isIndependentFromCoreClassLoader)
     context.debugData?.recordDescriptorPath(descriptor = result, rawPluginDescriptor = raw, path = descriptorPath)
     result.descriptorPath = descriptorPath
     result.vendor = vendor
@@ -268,22 +251,11 @@ class IdeaPluginDescriptorImpl(
    * This is done to support running without the module-based loader (from sources and in dev mode),
    * where all modules are available, but only some of them need to be loaded.
    *
-   * Module dependencies must be satisfied, module dependencies determine whether a module will be loaded.
-   * If a module declares a special dependency, the dependency might be not satisfied in some produce mode,
-   * and the module will not be loaded in that mode.
-   * This function determines which dependencies are satisfiable by the current product mode.
-   *
-   * There are three product modes:
-   * 1. Split frontend (JetBrains Client)
-   * 2. Monolith, or regular local IDE
-   * 3. Split backend (Remote Dev Host) or CWM plugin installed in monolith
-   *
-   * If a module needs to be loaded in some mode(-s), declare the following dependency(-ies):
-   * - in 1 or 2: `com.intellij.platform.experimental.frontend`
-   * - in 2 or 3: `com.intellij.platform.experimental.backend`
-   * - only in 2: both `com.intellij.platform.experimental.frontend` and `com.intellij.platform.experimental.backend`
-   * - in 1 or 2 or 3: no dependency needed
+   * This method is left for compatibility only. 
+   * Now dependencies on 'intellij.platform.frontend' and 'intellij.platform.backend' should be used instead. 
+   * These modules are automatically disabled if they aren't relevant to the product mode, see [PluginSetBuilder.getModuleIncompatibleWithCurrentProductMode].
    */
+  @ApiStatus.Obsolete
   private fun productModeAliasesForCorePlugin(): List<PluginId> = buildList {
     if (!AppMode.isRemoteDevHost()) {
       // This alias is available in monolith and frontend.
@@ -313,6 +285,7 @@ class IdeaPluginDescriptorImpl(
       if (context.isPluginDisabled(dependency.pluginId)) {
         if (!dependency.isOptional && isIncomplete == null) {
           markAsIncomplete(dependency.pluginId, "plugin.loading.error.short.depends.on.disabled.plugin")
+          // TODO: why we don't just return immediately? or at least continue?
         }
       }
 
@@ -330,8 +303,8 @@ class IdeaPluginDescriptorImpl(
       }
 
       var resolveError: Exception? = null
-      val raw: RawPluginDescriptor? = try {
-        pathResolver.resolvePath(context, dataLoader, configFile, readInto = null)
+      val raw: PluginDescriptorBuilder? = try {
+        pathResolver.resolvePath(context, dataLoader, configFile)
       }
       catch (e: IOException) {
         resolveError = e
@@ -364,7 +337,7 @@ class IdeaPluginDescriptorImpl(
         subDescriptor.processOldDependencies(subDescriptor, context, pathResolver, subDescriptor.pluginDependencies, dataLoader)
       }
       dependency.subDescriptor = subDescriptor
-      visitedFiles.clear()
+      visitedFiles.clear() // TODO: shouldn't it be removeLast instead?
     }
   }
 
@@ -549,7 +522,7 @@ class IdeaPluginDescriptorImpl(
       }
     }
 
-    return name!!
+    return name
   }
 
   override fun getProductCode(): String? = productCode
@@ -639,6 +612,103 @@ class IdeaPluginDescriptorImpl(
       i++
     }
   }
+
+  private companion object {
+    private fun convertDepends(depends: List<DependsElement>): MutableList<PluginDependency> =
+      depends.mapTo(ArrayList(depends.size)) {
+        PluginDependency(PluginId.getId(it.pluginId), it.configFile, it.isOptional)
+      }
+
+    /** https://youtrack.jetbrains.com/issue/IDEA-206274 */
+    private fun fixDepends(depends: MutableList<PluginDependency>): List<PluginDependency> {
+      val iterator = depends.iterator()
+      while (iterator.hasNext()) {
+        val item = iterator.next()
+        if (!item.isOptional) {
+          for (a in depends) {
+            if (a.isOptional && a.pluginId == item.pluginId) {
+              a.isOptional = false
+              iterator.remove()
+              break
+            }
+          }
+        }
+      }
+      return depends
+    }
+
+    private fun sortExtensions(rawMap: Map<String, List<ExtensionDescriptor>>): Map<String, List<ExtensionDescriptor>> {
+      if (rawMap.size < 2 || !rawMap.containsKey(registryEpName)) {
+        return rawMap
+      }
+      /*
+       * What's going on: see `com.intellij.ide.plugins.DynamicPluginsTest.registry access of key from same plugin`
+       * This is an ad-hoc solution to the problem, it doesn't fix the root cause. This may also break if this map gets copied
+       * or transformed into a HashMap somewhere, but it seems it's not the case right now.
+       * TODO: one way to make a better fix is to introduce loadingOrder on extension points (as it is made for extensions).
+       */
+      val result = LinkedHashMap<String, List<ExtensionDescriptor>>(rawMap.size)
+      val keys = rawMap.keys.toTypedArray()
+      keys.sortWith(extensionPointNameComparator)
+      for (key in keys) {
+        result.put(key, rawMap[key]!!)
+      }
+      return result
+    }
+
+    private fun convertExtensions(rawMap: Map<String, List<MiscExtensionElement>>): Map<String, List<ExtensionDescriptor>> = rawMap.mapValues { (_, exts) ->
+      exts.mapNotNull {
+        try {
+          val order = LoadingOrder.readOrder(it.order) // throws AssertionError
+          ExtensionDescriptor(
+            implementation = it.implementation,
+            os = it.os?.convert(),
+            orderId = it.orderId,
+            order = order,
+            element = it.element,
+            hasExtraAttributes = it.hasExtraAttributes
+          )
+        } catch (e: Throwable) {
+          LOG.error(e)
+          null
+        }
+      }
+    }
+
+    private fun convertDependencies(dependencies: List<DependenciesElement>): ModuleDependenciesDescriptor {
+      if (dependencies.isEmpty()) {
+        return ModuleDependenciesDescriptor.EMPTY
+      }
+      val moduleDeps = ArrayList<ModuleDependenciesDescriptor.ModuleReference>()
+      val pluginDeps = ArrayList<ModuleDependenciesDescriptor.PluginReference>()
+      for (dep in dependencies) {
+        when (dep) {
+          is DependenciesElement.PluginDependency -> pluginDeps.add(ModuleDependenciesDescriptor.PluginReference(PluginId.getId(dep.pluginId)))
+          is DependenciesElement.ModuleDependency -> moduleDeps.add(ModuleDependenciesDescriptor.ModuleReference(dep.moduleName))
+          else -> LOG.error("Unknown dependency type: $dep")
+        }
+      }
+      return ModuleDependenciesDescriptor(moduleDeps, pluginDeps)
+    }
+
+    private fun convertContentModules(contentElements: List<ContentElement>): List<PluginContentDescriptor.ModuleItem> {
+      return contentElements.mapNotNull { elem ->
+        when (elem) {
+          is ContentElement.Module -> {
+            val index = elem.name.lastIndexOf('/')
+            val configFile: String? = if (index != -1) {
+              "${elem.name.substring(0, index)}.${elem.name.substring(index + 1)}.xml"
+            } else null
+            PluginContentDescriptor.ModuleItem(elem.name, configFile, elem.embeddedDescriptorContent, elem.loadingRule.fromElementValue())
+          }
+          else -> {
+            LOG.error("Unknown content element: $elem")
+            null
+          }
+        }
+      }
+    }
+  }
 }
 
 internal val IdeaPluginDescriptorImpl.isRequiredContentModule: Boolean
@@ -660,9 +730,25 @@ private val extensionPointNameComparator = Comparator<String> { o1, o2 ->
 }
 
 private fun isCommunity(): Boolean {
-  val ideCode = ApplicationInfoImpl.getShadowInstanceImpl().build.productCode
-  return ideCode == "IC" || ideCode == "PC"
+  try {
+    val ideCode = ApplicationInfoImpl.getShadowInstanceImpl().build.productCode
+    return ideCode == "IC" || ideCode == "PC"
+  } catch (e: RuntimeException) {
+    // do not fail unit tests when there is no app >_<
+    val msg = e.message ?: throw e
+    if (msg.contains("Resource not found") && msg.contains("idea/ApplicationInfo.xml")) {
+      if (!unitTestIsCommunityDespammer) {
+        LOG.warn("failed to read application info, are we in unit tests?", e)
+        unitTestIsCommunityDespammer = true
+      }
+      return false
+    } else {
+      throw e
+    }
+  }
 }
+
+private var unitTestIsCommunityDespammer = false
 
 private data class PluginCardInfo(val title: String, val description: String)
 
@@ -672,3 +758,30 @@ private val CE_PLUGIN_CARDS = mapOf<String, PluginCardInfo>(
     "Provides an easy way to install AI assistant to your IDE"
   )
 )
+
+private object UntilBuildDeprecation {
+  private const val MINIMAL_API_VERSION = 251
+  private val forceHonorUntilBuild = System.getProperty("idea.plugins.honor.until.build", "false").toBoolean()
+
+  fun nullizeIfTargets243OrLater(untilBuild: String?, diagnosticId: String?): String? {
+    if (forceHonorUntilBuild || untilBuild == null) {
+      return untilBuild
+    }
+    try {
+      val untilBuildNumber = BuildNumber.fromStringOrNull(untilBuild)
+      if (untilBuildNumber != null && untilBuildNumber.baselineVersion >= MINIMAL_API_VERSION) {
+        if (untilBuildNumber < PluginManagerCore.buildNumber) {
+          // log only if it would fail the compatibility check without the deprecation in place
+          LOG.info("Plugin ${diagnosticId ?: "<no name>"} has until-build set to $untilBuild. " +
+                   "Until-build _from plugin configuration file (plugin.xml)_ for plugins targeting ${MINIMAL_API_VERSION}+ is ignored. " +
+                   "Effective until-build value can be set via the Marketplace.")
+        }
+        return null
+      }
+    }
+    catch (e: Throwable) {
+      LOG.warn("failed to parse until-build number", e)
+    }
+    return untilBuild
+  }
+}

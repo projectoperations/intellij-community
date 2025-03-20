@@ -6,6 +6,7 @@ import com.intellij.ide.lightEdit.LightEditService
 import com.intellij.ide.util.PsiNavigationSupport
 import com.intellij.openapi.application.*
 import com.intellij.openapi.components.service
+import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.diagnostic.getOrLogException
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.ExtensionPointName
@@ -14,8 +15,9 @@ import com.intellij.openapi.module.Module
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.blockingContext
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.project.ProjectCoreUtil
+import com.intellij.openapi.project.ProjectStorePathManager
 import com.intellij.openapi.project.ex.ProjectManagerEx
+import com.intellij.openapi.project.impl.checkTrustedState
 import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.roots.ModuleRootModificationUtil
 import com.intellij.openapi.startup.StartupManager
@@ -178,8 +180,9 @@ class PlatformProjectOpenProcessor : ProjectOpenProcessor(), CommandLineProjectO
         }
       }
 
+      val storePathManager = ProjectStorePathManager.getInstance()
       var baseDirCandidate = file.parent
-      while (baseDirCandidate != null && !ProjectCoreUtil.isKnownProjectDirectory(baseDirCandidate)) {
+      while (baseDirCandidate != null && !storePathManager.testStoreDirectoryExistsForProjectRoot(baseDirCandidate)) {
         baseDirCandidate = baseDirCandidate.parent
       }
 
@@ -200,7 +203,7 @@ class PlatformProjectOpenProcessor : ProjectOpenProcessor(), CommandLineProjectO
         }
 
         baseDir = file.parent
-        options = options.copy(isNewProject = !ProjectCoreUtil.isKnownProjectDirectory(baseDir))
+        options = options.copy(isNewProject = !storePathManager.testStoreDirectoryExistsForProjectRoot(baseDir))
       }
       else {
         baseDir = baseDirCandidate
@@ -235,7 +238,8 @@ class PlatformProjectOpenProcessor : ProjectOpenProcessor(), CommandLineProjectO
       }
 
       var baseDirCandidate = file.parent
-      while (baseDirCandidate != null && !ProjectCoreUtil.isKnownProjectDirectory(baseDirCandidate)) {
+      val storePathManager = serviceAsync<ProjectStorePathManager>()
+      while (baseDirCandidate != null && !storePathManager.testStoreDirectoryExistsForProjectRoot(baseDirCandidate)) {
         baseDirCandidate = baseDirCandidate.parent
       }
 
@@ -256,7 +260,7 @@ class PlatformProjectOpenProcessor : ProjectOpenProcessor(), CommandLineProjectO
         }
 
         baseDir = file.parent
-        options = options.copy(isNewProject = !ProjectCoreUtil.isKnownProjectDirectory(baseDir))
+        options = options.copy(isNewProject = !storePathManager.testStoreDirectoryExistsForProjectRoot(baseDir))
       }
       else {
         baseDir = baseDirCandidate
@@ -416,6 +420,9 @@ suspend fun attachToProjectAsync(
   processor: ProjectAttachProcessor? = null,
   callback: ProjectOpenedCallback? = null
 ): Boolean {
+  if (!checkTrustedState(projectDir)) {
+    return false
+  }
   if (processor != null) {
     return attachImpl(processor, projectToClose, projectDir, callback)
   }

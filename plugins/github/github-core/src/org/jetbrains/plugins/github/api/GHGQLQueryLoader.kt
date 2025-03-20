@@ -4,13 +4,16 @@ package org.jetbrains.plugins.github.api
 import com.google.common.annotations.VisibleForTesting
 import com.intellij.collaboration.api.graphql.CachingGraphQLQueryLoader
 import com.intellij.collaboration.api.graphql.GraphQLQueryLoader
+import org.jetbrains.annotations.ApiStatus
 import java.nio.file.Files
 import java.nio.file.Paths
 import java.util.stream.Collectors
 import kotlin.io.path.isDirectory
 
-object GHGQLQueryLoader : GraphQLQueryLoader
-                          by CachingGraphQLQueryLoader({ GHGQLQueryLoader::class.java.classLoader.getResourceAsStream(it) }) {
+@ApiStatus.Internal
+object GHGQLQueryLoader : GraphQLQueryLoader {
+  private val delegate: CachingGraphQLQueryLoader = CachingGraphQLQueryLoader({ GHGQLQueryLoader::class.java.classLoader.getResourceAsStream(it) })
+
   @VisibleForTesting
   fun findAllQueries(): List<String> {
     val url = GHGQLQueryLoader::class.java.classLoader.getResource("graphql/query")!!
@@ -19,5 +22,9 @@ object GHGQLQueryLoader : GraphQLQueryLoader
       .filter { !it.isDirectory() }
       .map { "graphql/query/" + it.fileName.toString() }
       .collect(Collectors.toList())
+  }
+
+  override fun loadQuery(queryPath: String): String {
+    return delegate.loadQuery(queryPath)
   }
 }

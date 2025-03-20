@@ -1,19 +1,23 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.core.nio.fs;
 
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
+import sun.nio.fs.DefaultFileTypeDetector;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.net.URI;
 import java.nio.file.FileSystem;
 import java.nio.file.Path;
 import java.nio.file.spi.FileSystemProvider;
+import java.nio.file.spi.FileTypeDetector;
 import java.util.*;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.BiFunction;
 
 /**
@@ -26,6 +30,7 @@ import java.util.function.BiFunction;
  * @see #computeBackend(FileSystemProvider, String, boolean, boolean, BiFunction)
  * @see RoutingAwareFileSystemProvider
  */
+@SuppressWarnings("UseOfSystemOutOrSystemErr")
 public final class MultiRoutingFileSystemProvider
   extends DelegatingFileSystemProvider<MultiRoutingFileSystemProvider, MultiRoutingFileSystem> {
 
@@ -77,6 +82,7 @@ public final class MultiRoutingFileSystemProvider
   ) {
     if (provider.getClass().getName().equals(MultiRoutingFileSystemProvider.class.getName())) {
       Map<String, Object> arguments = new HashMap<>();
+      arguments.put(KEY_MRFS, Void.TYPE);
       arguments.put(KEY_ROOT, root);
       arguments.put(KEY_PREFIX, isPrefix);
       arguments.put(KEY_CASE_SENSITIVE, caseSensitive);
@@ -106,14 +112,18 @@ public final class MultiRoutingFileSystemProvider
   }
 
   @Override
-  public @NotNull MultiRoutingFileSystem newFileSystem(Path path, Map<String, ?> env) {
-    return getFileSystem(path.toUri());
+  public @Nullable MultiRoutingFileSystem newFileSystem(Path path, @Nullable Map<String, ?> env) {
+    throw new UnsupportedOperationException(MultiRoutingFileSystemProvider.class.getName() + " doesn't open other files as filesystems");
   }
 
   @Override
   public @Nullable MultiRoutingFileSystem newFileSystem(URI uri, @Nullable Map<String, ?> env) {
-    if (env == null) {
-      return getFileSystem(uri);
+    if (env == null || !env.containsKey(KEY_MRFS)) {
+      throw new UnsupportedOperationException(
+        MultiRoutingFileSystem.class.getName() + " can be created only with `" +
+        MultiRoutingFileSystemProvider.class.getName() + ".computeBackend()`." +
+        " Otherwise, this file system provider behaves as a default file system provider and throws an error."
+      );
     }
 
     String root = Objects.requireNonNull((String)env.get(KEY_ROOT));
@@ -128,6 +138,7 @@ public final class MultiRoutingFileSystemProvider
     return null;
   }
 
+  private static final String KEY_MRFS = "MRFS." + ThreadLocalRandom.current().nextInt(0, Integer.MAX_VALUE);
   private static final String KEY_ROOT = "KEY_ROOT";
   private static final String KEY_PREFIX = "KEY_PREFIX";
   private static final String KEY_CASE_SENSITIVE = "KEY_CASE_SENSITIVE";
@@ -135,13 +146,13 @@ public final class MultiRoutingFileSystemProvider
 
   @Override
   public @NotNull MultiRoutingFileSystem getFileSystem(@NotNull URI uri) {
-    if (!uri.getScheme().equals("file") || uri.getAuthority() != null && !uri.getAuthority().isEmpty()) {
-      throw new UnsupportedOperationException(String.format(
-        "Unexpected URI: %s\nThis class is supposed to replace the local file system.",
-        uri
-      ));
+    if (uri.equals(URI.create("file:///"))) {
+      return myFileSystem;
     }
-    return myFileSystem;
+    throw new UnsupportedOperationException(String.format(
+      "Unexpected URI: %s\nThis class is supposed to replace the local file system.",
+      uri
+    ));
   }
 
   @Override
@@ -233,23 +244,106 @@ public final class MultiRoutingFileSystemProvider
   @Contract("null -> null; !null -> !null")
   @Override
   @VisibleForTesting
-  public @Nullable Path toDelegatePath(@Nullable Path path) {
-    if (path == null) {
+  public @Nullable Path wrapDelegatePath(@Nullable Path delegatePath) {
+    if (delegatePath == null) {
       return null;
     }
-    else if (path instanceof MultiRoutingFsPath) {
+    else if (delegatePath instanceof MultiRoutingFsPath) {
       // `MultiRoutingFsPath` is encapsulated and can't be created outside this package.
       // Tricks with classloaders are not expected here.
-      return path;
+      return delegatePath;
     }
     else {
-      return new MultiRoutingFsPath(myFileSystem, path);
+      return new MultiRoutingFsPath(myFileSystem, delegatePath);
     }
+  }
+
+  @NotNull
+  private static FileTypeDetector getDefaultFileTypeDetector() {
+    try {
+      return DefaultFileTypeDetector.create();
+    }
+    catch (Throwable e) {
+      e.printStackTrace(System.err);
+      return new FileTypeDetector() {
+        @Override
+        public String probeContentType(Path path) {
+          return null;
+        }
+      };
+    }
+  }
+
+  @NotNull
+  static FileTypeDetector getFileTypeDetector(FileSystemProvider multiRoutingFileSystemProvider) {
+    FileTypeDetector fileTypeDetector;
+    // For some not clear reason {@code multiRoutingFileSystemProvider} usually appears to be from a different classloader
+    if (multiRoutingFileSystemProvider instanceof MultiRoutingFileSystemProvider provider) {
+      try {
+        fileTypeDetector = provider.getFileTypeDetectorInternal();
+      }
+      catch (IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {
+        e.printStackTrace(System.err);
+        fileTypeDetector = getDefaultFileTypeDetector();
+      }
+    }
+    else if (multiRoutingFileSystemProvider.getClass().getName().equals(MultiRoutingFileSystemProvider.class.getName())) {
+      try {
+        Method method = multiRoutingFileSystemProvider.getClass().getDeclaredMethod("getFileTypeDetectorInternal");
+        method.setAccessible(true);
+        fileTypeDetector = (FileTypeDetector)method.invoke(multiRoutingFileSystemProvider);
+      }
+      catch (IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {
+        e.printStackTrace(System.err);
+        fileTypeDetector = getDefaultFileTypeDetector();
+      }
+    }
+    else {
+      fileTypeDetector = getDefaultFileTypeDetector();
+    }
+    return fileTypeDetector;
+  }
+
+  @SuppressWarnings("unused")
+  private FileTypeDetector getFileTypeDetectorInternal() throws NoSuchMethodException, InvocationTargetException, IllegalAccessException {
+    FileTypeDetector delegateDetector;
+    Class<? extends FileSystemProvider> unixFileSystemProviderClass = getUnixFileSystemProviderClass();
+    if (unixFileSystemProviderClass != null) {
+      Method getFileTypeDetectorMethod = unixFileSystemProviderClass.getDeclaredMethod("getFileTypeDetector");
+      getFileTypeDetectorMethod.setAccessible(true);
+      delegateDetector = (FileTypeDetector)getFileTypeDetectorMethod.invoke(myLocalProvider);
+    }
+    else {
+      // in windows, delegate detector is RegistryFileTypeDetector
+      delegateDetector = getDefaultFileTypeDetector();
+    }
+    return new FileTypeDetector() {
+      @Override
+      public String probeContentType(Path path) throws IOException {
+        return delegateDetector.probeContentType(toDelegatePath(path));
+      }
+    };
+  }
+
+  /**
+   * @return {@code sun.nio.fs.UnixFileSystemProvider.class} in unix, {@code null} in windows
+   */
+  private @Nullable Class<? extends FileSystemProvider> getUnixFileSystemProviderClass() {
+    Class<? extends FileSystemProvider> unixFileSystemProviderClass = myLocalProvider.getClass();
+    while (unixFileSystemProviderClass != null && !"sun.nio.fs.UnixFileSystemProvider".equals(unixFileSystemProviderClass.getName())) {
+      Class<?> superclass = unixFileSystemProviderClass.getSuperclass();
+      if (FileSystemProvider.class.isAssignableFrom(superclass)) {
+        unixFileSystemProviderClass = superclass.asSubclass(FileSystemProvider.class);
+      } else {
+        unixFileSystemProviderClass = null;
+      }
+    }
+    return unixFileSystemProviderClass;
   }
 
   @Contract("null -> null; !null -> !null")
   @Override
-  public @Nullable Path fromDelegatePath(@Nullable Path path) {
+  public @Nullable Path toDelegatePath(@Nullable Path path) {
     if (path instanceof MultiRoutingFsPath) {
       // `MultiRoutingFsPath` is encapsulated and can't be created outside this package.
       // Tricks with classloaders are not expected here.

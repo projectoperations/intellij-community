@@ -2,6 +2,7 @@
 package org.jetbrains.intellij.build
 
 import com.intellij.util.xml.dom.readXmlAsModel
+import io.opentelemetry.api.trace.Span
 import org.jetbrains.intellij.build.impl.*
 
 private const val VERIFIER_MODULE = "intellij.platform.commercial.verifier"
@@ -62,7 +63,13 @@ internal suspend fun computeModuleSourcesByContent(
   searchableOptionSet: SearchableOptionSetDescriptor?
 ) {
   val frontendModuleFilter = context.getFrontendModuleFilter()
+  val contentModuleFilter = context.getContentModuleFilter()
   for ((moduleName, loadingRule) in helper.readPluginContentFromDescriptor(context.findRequiredModule(layout.mainModule), jarPackager.moduleOutputPatcher)) {
+    if (helper.isOptionalLoadingRule(loadingRule) && !contentModuleFilter.isOptionalModuleIncluded(moduleName, pluginMainModuleName = layout.mainModule)) {
+      Span.current().addEvent("Module '$moduleName' is excluded from plugin '${layout.mainModule}' by $contentModuleFilter")
+      continue
+    }
+
     // CWM plugin is overcomplicated without any valid reason - it must be refactored
     if (moduleName == "intellij.driver.backend.split" || !addedModules.add(moduleName)) {
       continue
@@ -76,7 +83,7 @@ internal suspend fun computeModuleSourcesByContent(
       item = ModuleItem(
         moduleName = moduleName,
         // relative path with `/` is always packed by dev-mode, so, we don't need to fix resolving for now and can improve it later
-        relativeOutputFile = if (useSeparateJar) "modules/$moduleName.jar" else layout.getMainJarName(),
+        relativeOutputFile = if (useSeparateJar) "modules/$moduleName.jar" else layout.getDefaultJarName(moduleName, frontendModuleFilter),
         reason = "<- ${layout.mainModule} (plugin content)",
       ),
       layout = layout,

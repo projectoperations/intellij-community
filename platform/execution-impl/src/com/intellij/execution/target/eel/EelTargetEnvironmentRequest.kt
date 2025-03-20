@@ -14,19 +14,15 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.platform.eel.*
-import com.intellij.platform.eel.fs.EelFileSystemApi
+import com.intellij.platform.eel.fs.createTemporaryDirectory
 import com.intellij.platform.eel.fs.getPath
 import com.intellij.platform.eel.path.EelPath
 import com.intellij.platform.eel.provider.asEelPath
 import com.intellij.platform.eel.provider.asNioPath
-import com.intellij.platform.eel.provider.utils.EelPathUtils
-import com.intellij.platform.eel.provider.utils.forwardLocalPort
-import com.intellij.platform.util.coroutines.channel.ChannelInputStream
-import com.intellij.platform.util.coroutines.channel.ChannelOutputStream
+import com.intellij.platform.eel.provider.utils.*
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.ui.icons.EMPTY_ICON
 import com.intellij.util.awaitCancellationAndInvoke
-import com.intellij.util.io.copyToAsync
 import com.intellij.util.net.NetUtils
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
@@ -34,10 +30,12 @@ import kotlinx.coroutines.launch
 import org.jetbrains.annotations.ApiStatus
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.nio.file.Files
 import java.nio.file.Path
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import javax.swing.Icon
+import kotlin.io.path.isSameFileAs
 
 private fun EelPlatform.toTargetPlatform(): TargetPlatform = when (this) {
   is EelPlatform.Posix -> TargetPlatform(Platform.UNIX)
@@ -54,6 +52,8 @@ class EelTargetType : TargetEnvironmentType<EelTargetEnvironmentRequest.Configur
 
   override val displayName: String = TARGET_TYPE_NAME
   override val icon: Icon = EMPTY_ICON
+
+  override fun isSystemCompatible(): Boolean = false
 
   override fun createEnvironmentRequest(project: Project?, config: EelTargetEnvironmentRequest.Configuration): TargetEnvironmentRequest {
     return EelTargetEnvironmentRequest(config)
@@ -152,8 +152,7 @@ private class EelTargetEnvironment(override val request: EelTargetEnvironmentReq
 
     request.localPortBindings.forEach { localPortBinding ->
       forwardingScope.launch {
-        val remoteAddress = EelTunnelsApi.HostAddress.Builder((localPortBinding.target ?: 0).toUShort()).build()
-        val acceptor = eel.tunnels.getAcceptorForRemotePort(remoteAddress).getOrThrow()
+        val acceptor = eel.tunnels.getAcceptorForRemotePort().port((localPortBinding.target ?: 0).toUShort()).getOrThrow()
 
         val socket = Socket()
 
@@ -163,11 +162,10 @@ private class EelTargetEnvironment(override val request: EelTargetEnvironmentReq
           val connection = acceptor.incomingConnections.receive()
 
           launch {
-            socket.getInputStream().copyToAsync(ChannelOutputStream.forByteBuffers(connection.sendChannel))
+            copy(socket.consumeAsEelChannel(), connection.sendChannel).getOrThrow()  // TODO: Process error
           }
-
           launch {
-            ChannelInputStream.forByteBuffers(this, connection.receiveChannel).copyToAsync(socket.getOutputStream())
+            copy(connection.receiveChannel, socket.asEelChannel()).getOrThrow() // TODO: PRocess error
           }
         }
 
@@ -200,7 +198,12 @@ private class EelTargetEnvironment(override val request: EelTargetEnvironmentReq
     override fun upload(relativePath: String, targetProgressIndicator: TargetProgressIndicator) {
       val from = localRoot.resolve(relativePath).normalize()
       val to = targetRootPath().resolve(relativePath).normalize()
-      if (from == to) return
+      try {
+        if (from.isSameFileAs(to)) return
+      }
+      catch (err: java.nio.file.NoSuchFileException) {
+        if (!Files.exists(from)) throw err
+      }
       // TODO: generalize com.intellij.execution.wsl.ijent.nio.IjentWslNioFileSystemProvider.copy
       EelPathUtils.walkingTransfer(from, to, removeSource = false, copyAttributes = true)
     }
@@ -208,7 +211,12 @@ private class EelTargetEnvironment(override val request: EelTargetEnvironmentReq
     override fun download(relativePath: String, progressIndicator: ProgressIndicator) {
       val from = targetRootPath().resolve(relativePath).normalize()
       val to = localRoot.resolve(relativePath).normalize()
-      if (from == to) return
+      try {
+        if (from.isSameFileAs(to)) return
+      }
+      catch (err: java.nio.file.NoSuchFileException) {
+        if (!Files.exists(from)) throw err
+      }
       // TODO: generalize com.intellij.execution.wsl.ijent.nio.IjentWslNioFileSystemProvider.copy
       EelPathUtils.walkingTransfer(from, to, removeSource = false, copyAttributes = true)
     }
@@ -229,13 +237,13 @@ private class EelTargetEnvironment(override val request: EelTargetEnvironmentReq
             }
             else {
               runBlockingMaybeCancellable {
-                val options = EelFileSystemApi.CreateTemporaryEntryOptions.Builder()
+                val options = eel.fs.createTemporaryDirectory()
 
                 targetRootPath.prefix?.let(options::prefix)
                 targetRootPath.parentDirectory?.let(eel.fs::getPath)?.let(options::parentDirectory)
                 options.deleteOnExit(true)
 
-                eel.fs.createTemporaryDirectory(options.build()).getOrThrow().toString()
+                options.getOrThrow().toString()
               }
             }
           }

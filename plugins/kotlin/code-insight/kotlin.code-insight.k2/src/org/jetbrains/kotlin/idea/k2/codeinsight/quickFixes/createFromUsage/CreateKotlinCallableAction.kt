@@ -2,7 +2,9 @@
 package org.jetbrains.kotlin.idea.k2.codeinsight.quickFixes.createFromUsage
 
 import com.intellij.codeInsight.daemon.QuickFixBundle.message
+import com.intellij.codeInsight.intention.PriorityAction
 import com.intellij.codeInsight.intention.preview.IntentionPreviewInfo
+import com.intellij.codeInspection.util.IntentionName
 import com.intellij.lang.java.request.CreateExecutableFromJavaUsageRequest
 import com.intellij.lang.jvm.JvmClass
 import com.intellij.lang.jvm.actions.*
@@ -13,9 +15,9 @@ import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.types.KaTypeParameterType
 import org.jetbrains.kotlin.idea.KotlinFileType
+import org.jetbrains.kotlin.idea.codeinsight.utils.resolveExpression
 import org.jetbrains.kotlin.idea.k2.codeinsight.quickFixes.createFromUsage.CreateKotlinCallableActionTextBuilder.renderCandidatesOfParameterTypes
 import org.jetbrains.kotlin.idea.k2.codeinsight.quickFixes.createFromUsage.CreateKotlinCallableActionTextBuilder.renderCandidatesOfReturnType
-import org.jetbrains.kotlin.idea.k2.codeinsight.quickFixes.createFromUsage.K2CreateFunctionFromUsageUtil.resolveExpression
 import org.jetbrains.kotlin.idea.quickfix.createFromUsage.CreateFromUsageUtil
 import org.jetbrains.kotlin.idea.refactoring.getContainer
 import org.jetbrains.kotlin.idea.refactoring.getExtractionContainers
@@ -33,9 +35,9 @@ internal class CreateKotlinCallableAction(
     private val targetClass: JvmClass,
     private val abstract: Boolean,
     private val needFunctionBody: Boolean,
-    private val myText: String,
+    @IntentionName private val myText: String,
     private val pointerToContainer: SmartPsiElementPointer<*>,
-) : JvmGroupIntentionAction {
+) : JvmGroupIntentionAction, PriorityAction {
     private val methodName: String = request.methodName
     private val callPointer: SmartPsiElementPointer<PsiElement>? = when (request) {
         is CreateMethodFromKotlinUsageRequest -> request.call.createSmartPointer()
@@ -74,6 +76,10 @@ internal class CreateKotlinCallableAction(
     }
 
     override fun startInWriteAction(): Boolean = true
+
+    override fun getPriority(): PriorityAction.Priority {
+        return if (methodName.firstOrNull()?.isLowerCase() == true) PriorityAction.Priority.NORMAL else PriorityAction.Priority.LOW
+    }
 
     override fun isAvailable(project: Project, editor: Editor?, file: PsiFile?): Boolean {
         return pointerToContainer.element != null

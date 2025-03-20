@@ -22,6 +22,7 @@ import com.intellij.openapi.vfs.pointers.VirtualFilePointerListener
 import com.intellij.util.EventDispatcher
 import com.intellij.util.SmartList
 import com.intellij.util.io.URLUtil
+import com.intellij.workspaceModel.ide.impl.legacyBridge.module.roots.ModuleRootComponentBridge
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -29,6 +30,7 @@ import kotlinx.coroutines.withContext
 import org.jdom.Element
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.jps.model.module.JpsModuleSourceRootType
+import java.util.concurrent.ConcurrentHashMap
 
 private val LOG = logger<ProjectRootManagerImpl>()
 
@@ -44,6 +46,7 @@ open class ProjectRootManagerImpl(
   @JvmField protected val coroutineScope: CoroutineScope,
 ) : ProjectRootManagerEx(), PersistentStateComponent<Element> {
   private val projectJdkEventDispatcher = EventDispatcher.create(ProjectJdkListener::class.java)
+  private val moduleRootManagerInstances = ConcurrentHashMap<Module, ModuleRootManager>()
   private var projectSdkName: String? = null
   private var projectSdkType: String? = null
   private val rootCache: OrderRootsCache
@@ -262,7 +265,7 @@ open class ProjectRootManagerImpl(
       return null
     }
 
-    val projectJdkTable = ProjectJdkTable.getInstance()
+    val projectJdkTable = ProjectJdkTable.getInstance(project)
     if (projectSdkType == null) {
       return projectJdkTable.findJdk(projectSdkName!!)
     }
@@ -476,6 +479,10 @@ open class ProjectRootManagerImpl(
   override fun withRootsChange(changes: RootsChangeRescanningInfo): AutoCloseable {
     rootsChanged.beforeRootsChanged()
     return AutoCloseable { rootsChanged.rootsChanged(changes) }
+  }
+
+  override fun getModuleRootManager(module: Module): ModuleRootManager {
+    return moduleRootManagerInstances.computeIfAbsent(module) { ModuleRootComponentBridge(module) }
   }
 
   @ApiStatus.Internal

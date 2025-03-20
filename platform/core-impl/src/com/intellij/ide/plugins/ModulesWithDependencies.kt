@@ -11,7 +11,6 @@ private val VCS_ALIAS_ID = PluginId.getId("com.intellij.modules.vcs")
 private val RIDER_ALIAS_ID = PluginId.getId("com.intellij.modules.rider")
 private val COVERAGE_ALIAS_ID = PluginId.getId("com.intellij.modules.coverage")
 private val ML_INLINE_ALIAS_ID = PluginId.getId("com.intellij.ml.inline.completion")
-private val PROVISIONER_ALIAS_ID = PluginId.getId("com.intellij.platform.ide.provisioner")
 
 internal class ModulesWithDependencies(val modules: List<IdeaPluginDescriptorImpl>,
                                        val directDependencies: Map<IdeaPluginDescriptorImpl, List<IdeaPluginDescriptorImpl>>) {
@@ -95,9 +94,6 @@ internal fun createModulesWithDependenciesAndAdditionalEdges(plugins: Collection
       if (doesDependOnPluginAlias(module, ML_INLINE_ALIAS_ID)) {
         moduleMap.get("intellij.ml.inline.completion")?.let { dependenciesCollector.add(it) }
       }
-      if (doesDependOnPluginAlias(module, PROVISIONER_ALIAS_ID)) {
-        moduleMap.get("intellij.platform.ide.provisioner")?.let { dependenciesCollector.add(it) }
-      }
       if (doesDependOnPluginAlias(module, PluginId.getId("org.jetbrains.completion.full.line"))) {
         moduleMap.get("intellij.fullLine.core")?.let { dependenciesCollector.add(it) }
         moduleMap.get("intellij.fullLine.local")?.let { dependenciesCollector.add(it) }
@@ -112,6 +108,15 @@ internal fun createModulesWithDependenciesAndAdditionalEdges(plugins: Collection
       assert(main !== module)
       if (!module.isRequiredContentModule) {
         dependenciesCollector.add(main)
+      }
+
+      /* if the plugin containing the module is incompatible with some other plugins, make sure that the module is processed after that plugins (and all their required modules) 
+         to ensure that the proper module is disabled in case of package conflict */
+      for (incompatibility in main.incompatibilities) {
+        val incompatibleDescriptor = moduleMap.get(incompatibility.idString)
+        if (incompatibleDescriptor != null) {
+          additionalEdgesForCurrentModule.add(incompatibleDescriptor)
+        }
       }
     }
 
@@ -227,14 +232,16 @@ private fun collectDirectDependenciesInNewFormat(
     }
   }
 
-  /* Add edges to all required content modules. 
-     This is needed to ensure that the main plugin module is processed after them, and at that point we can determine whether the plugin 
-     can be loaded or not. */
-  for (item in module.content.modules) {
-    if (item.loadingRule.required) {
-      val descriptor = idMap.get(item.name)
-      if (descriptor != null) {
-        additionalEdges.add(descriptor)
+  if (module.pluginId != PluginManagerCore.CORE_ID) {
+    /* Add edges to all required content modules. 
+       This is needed to ensure that the main plugin module is processed after them, and at that point we can determine whether the plugin 
+       can be loaded or not. */
+    for (item in module.content.modules) {
+      if (item.loadingRule.required) {
+        val descriptor = idMap.get(item.name)
+        if (descriptor != null) {
+          additionalEdges.add(descriptor)
+        }
       }
     }
   }

@@ -11,10 +11,10 @@ import com.intellij.openapi.actionSystem.impl.Utils.runSuspendingUpdateSessionFo
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.registry.Registry
+import com.intellij.platform.searchEverywhere.SeItem
 import com.intellij.platform.searchEverywhere.SeItemPresentation
+import com.intellij.platform.searchEverywhere.SeItemsProvider
 import com.intellij.platform.searchEverywhere.SeParams
-import com.intellij.platform.searchEverywhere.api.SeItem
-import com.intellij.platform.searchEverywhere.api.SeItemsProvider
 import kotlinx.coroutines.CoroutineScope
 import org.jetbrains.annotations.ApiStatus
 import java.awt.Component
@@ -29,8 +29,8 @@ class SeActionsProvider(project: Project? = null, contextComponent: Component? =
   private val asyncProvider: ActionAsyncProvider = ActionAsyncProvider(model)
 
   override suspend fun collectItems(params: SeParams, collector: SeItemsProvider.Collector) {
-    val filter = SeActionsFilterData.fromTabData(params.filterData)
-    processItems(params.text, filter.includeDisabled) { value ->
+    val filter = SeActionsFilterData.from(params.filter)
+    processItems(params.inputQuery, filter.includeDisabled) { value ->
       val item = SeActionItem(value)
       collector.put(item)
     }
@@ -84,5 +84,5 @@ class SeActionsProvider(project: Project? = null, contextComponent: Component? =
 @ApiStatus.Internal
 class SeActionItem(val matchedValue: MatchedValue): SeItem {
   override fun weight(): Int = matchedValue.matchingDegree
-  override fun presentation(): SeItemPresentation = SeActionPresentationProvider.invoke(matchedValue)
+  override suspend fun presentation(): SeItemPresentation = SeActionPresentationProvider.get(matchedValue)
 }

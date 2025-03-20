@@ -9,6 +9,7 @@ import fleet.util.UID
 import fleet.util.UIDSerializer
 import fleet.util.channels.channels
 import fleet.util.serialization.DataSerializer
+import fleet.multiplatform.shims.ThreadLocal
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
@@ -19,7 +20,6 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.UseSerializers
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.serializer
 import kotlin.io.encoding.ExperimentalEncodingApi
 
 private class SerializationContext(val streamDescriptors: MutableList<StreamDescriptor>,
@@ -27,7 +27,7 @@ private class SerializationContext(val streamDescriptors: MutableList<StreamDesc
                                    val token: RpcToken?,
                                    val displayName: String)
 
-private val SerializationContextThreadLocal: ThreadLocal<SerializationContext> = ThreadLocal<SerializationContext>()
+private val SerializationContextThreadLocal: ThreadLocal<SerializationContext?> = ThreadLocal()
 
 fun <T> withSerializationContext(displayName: String,
                                  token: RpcToken?,

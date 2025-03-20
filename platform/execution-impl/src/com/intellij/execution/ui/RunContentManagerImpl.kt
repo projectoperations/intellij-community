@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("ReplacePutWithAssignment", "ReplaceGetOrSet")
 
 package com.intellij.execution.ui
@@ -229,6 +229,7 @@ class RunContentManagerImpl(private val project: Project) : RunContentManager {
       // here we have selected content
       return getRunContentDescriptorByContent(selectedContent)
     }
+
     return null
   }
 
@@ -243,6 +244,7 @@ class RunContentManagerImpl(private val project: Project) : RunContentManager {
   }
 
   private fun showRunContent(executor: Executor, descriptor: RunContentDescriptor, executionId: Long) {
+
     if (ApplicationManager.getApplication().isUnitTestMode) {
       return
     }
@@ -474,6 +476,7 @@ class RunContentManagerImpl(private val project: Project) : RunContentManager {
   }
 
   override fun selectRunContent(descriptor: RunContentDescriptor) {
+
     processToolWindowContentManagers { _, contentManager ->
       val content = getRunContentByDescriptor(contentManager, descriptor) ?: return@processToolWindowContentManagers
       contentManager.setSelectedContent(content)
@@ -502,6 +505,7 @@ class RunContentManagerImpl(private val project: Project) : RunContentManager {
   }
 
   private fun getDescriptorBy(handler: ProcessHandler, runnerInfo: Executor): RunContentDescriptor? {
+
     fun find(manager: ContentManager?): RunContentDescriptor? {
       if (manager == null) return null
       val contents = manager.contentsRecursively

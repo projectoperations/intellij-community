@@ -93,6 +93,7 @@ import com.intellij.openapi.fileTypes.FileTypeManager;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.progress.ProcessCanceledException;
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ModuleRootManager;
@@ -290,8 +291,9 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
     Throwable exception = null;
     int retries = 1000;
     for (int i = 0; i < retries; i++) {
+      int oldDelay = settings.getAutoReparseDelay();
       try {
-        settings.forceUseZeroAutoReparseDelay(true);
+        settings.setAutoReparseDelay(0);
         List<HighlightInfo> infos = new ArrayList<>();
         EdtTestUtil.runInEdtAndWait(() -> {
           PsiFile file = filePointer.getElement();
@@ -334,7 +336,7 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
         exception = e;
       }
       finally {
-        settings.forceUseZeroAutoReparseDelay(false);
+        settings.setAutoReparseDelay(oldDelay);
       }
     }
     ExceptionUtil.rethrow(exception);
@@ -949,7 +951,9 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
     DataContext context = CustomizedDataContext.withSnapshot(editorContext, sink -> {
       sink.set(PsiElementRenameHandler.DEFAULT_NAME, newName);
     });
-    RenameHandler renameHandler = RenameHandlerRegistry.getInstance().getRenameHandler(context);
+    RenameHandler renameHandler = ProgressManager.getInstance().runProcessWithProgressSynchronously(() -> {
+      return ReadAction.compute(() -> RenameHandlerRegistry.getInstance().getRenameHandler(context));
+    }, "", true, getProject());
     assertNotNull("No handler for this context", renameHandler);
 
     renameHandler.invoke(getProject(), editor, getFile(), context);
@@ -1145,6 +1149,9 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
   @Override
   public @Nullable GutterMark findGutter(@NotNull String filePath) {
     configureByFilesInner(filePath);
+    ExpectedHighlightingData data = new ExpectedHighlightingData(editor.getDocument(), false, false, false, true);
+    data.init();
+
     CommonProcessors.FindFirstProcessor<GutterMark> processor = new CommonProcessors.FindFirstProcessor<>();
     doHighlighting();
     processGuttersAtCaret(editor, getProject(), processor);

@@ -2,38 +2,36 @@
 @file:Suppress("ReplaceGetOrSet")
 package com.intellij.ide.plugins
 
-import com.dynatrace.hash4j.hashing.Hashing
 import com.intellij.ide.plugins.cl.PluginAwareClassLoader
 import com.intellij.ide.plugins.cl.PluginClassLoader
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.util.BuildNumber
 import com.intellij.platform.ide.bootstrap.ZipFilePoolImpl
+import com.intellij.platform.plugins.parser.impl.PluginDescriptorBuilder
 import com.intellij.testFramework.assertions.Assertions.assertThat
-import com.intellij.testFramework.assertions.Assertions.assertThatThrownBy
-import com.intellij.testFramework.rules.InMemoryFsRule
+import com.intellij.testFramework.rules.InMemoryFsExtension
 import com.intellij.util.io.directoryStreamIfExists
 import kotlinx.coroutines.runBlocking
-import org.junit.Rule
-import org.junit.Test
-import org.junit.rules.TestName
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.nio.file.Path
 
-private val buildNumber = BuildNumber.fromString("2042.0")!!
-
 internal class ClassLoaderConfiguratorTest {
-  @Rule @JvmField val name = TestName()
+  @RegisterExtension
+  @JvmField
+  val inMemoryFs = InMemoryFsExtension()
 
-  @Rule @JvmField val inMemoryFs = InMemoryFsRule()
+  val rootDir: Path get() = inMemoryFs.fs.getPath("/")
 
   @Test
   fun `plugin must be after child`() {
     val pluginId = PluginId.getId("org.jetbrains.kotlin")
     val emptyPath = Path.of("")
     val plugins = arrayOf(
-      IdeaPluginDescriptorImpl(RawPluginDescriptor(), emptyPath, isBundled = false, id = pluginId, moduleName = null),
-      IdeaPluginDescriptorImpl(RawPluginDescriptor(), emptyPath, isBundled = false, id = PluginId.getId("org.jetbrains.plugins.gradle"), moduleName = null),
-      IdeaPluginDescriptorImpl(RawPluginDescriptor(), emptyPath, isBundled = false, id = pluginId, moduleName = "kotlin.gradle.gradle-java", moduleLoadingRule = ModuleLoadingRule.OPTIONAL),
-      IdeaPluginDescriptorImpl(RawPluginDescriptor(), emptyPath, isBundled = false, id = pluginId, moduleName = "kotlin.compiler-plugins.annotation-based-compiler-support.gradle", moduleLoadingRule = ModuleLoadingRule.OPTIONAL),
+      IdeaPluginDescriptorImpl(PluginDescriptorBuilder.builder().build(), emptyPath, isBundled = false, id = pluginId, moduleName = null),
+      IdeaPluginDescriptorImpl(PluginDescriptorBuilder.builder().build(), emptyPath, isBundled = false, id = PluginId.getId("org.jetbrains.plugins.gradle"), moduleName = null),
+      IdeaPluginDescriptorImpl(PluginDescriptorBuilder.builder().build(), emptyPath, isBundled = false, id = pluginId, moduleName = "kotlin.gradle.gradle-java", moduleLoadingRule = ModuleLoadingRule.OPTIONAL),
+      IdeaPluginDescriptorImpl(PluginDescriptorBuilder.builder().build(), emptyPath, isBundled = false, id = pluginId, moduleName = "kotlin.compiler-plugins.annotation-based-compiler-support.gradle", moduleLoadingRule = ModuleLoadingRule.OPTIONAL),
     )
     sortDependenciesInPlace(plugins)
     assertThat(plugins.last().moduleName).isNull()
@@ -45,7 +43,7 @@ internal class ClassLoaderConfiguratorTest {
     val emptyPath = Path.of("")
 
     fun createModuleDescriptor(name: String): IdeaPluginDescriptorImpl {
-      return IdeaPluginDescriptorImpl(raw = RawPluginDescriptor().also { it.`package` = name },
+      return IdeaPluginDescriptorImpl(raw = PluginDescriptorBuilder.builder().apply { `package` = name }.build(),
                                       path = emptyPath,
                                       isBundled = false,
                                       id = pluginId,
@@ -62,30 +60,6 @@ internal class ClassLoaderConfiguratorTest {
   }
 
   @Test
-  fun packageForOptionalMustBeSpecified() {
-    assertThatThrownBy {
-      loadPlugins(modulePackage = null)
-    }.hasMessageContaining("Package is not specified")
-    .hasMessageContaining("package=null")
-  }
-
-  @Test
-  fun packageForOptionalMustBeDifferent() {
-    assertThatThrownBy {
-      loadPlugins(modulePackage = "com.example")
-    }.hasMessageContaining("Package prefix com.example is already used")
-    .hasMessageContaining("com.example")
-  }
-
-  @Test
-  fun packageMustBeUnique() {
-    assertThatThrownBy {
-      loadPlugins(modulePackage = "com.bar")
-    }.hasMessageContaining("Package prefix com.bar is already used")
-    .hasMessageContaining("package=com.bar")
-  }
-
-  @Test
   fun regularPluginClassLoaderIsUsedIfPackageSpecified() {
     val loadingResult = loadPlugins(modulePackage = "com.example.extraSupportedFeature")
     val plugin = loadingResult
@@ -97,7 +71,7 @@ internal class ClassLoaderConfiguratorTest {
       loadingResult.enabledPlugins).createPluginSetWithEnabledModulesMap())!!
     assertThat(scope.isDefinitelyAlienClass(name = "dd", packagePrefix = "dd", force = false)).isNull()
     assertThat(scope.isDefinitelyAlienClass(name = "com.example.extraSupportedFeature.Foo", packagePrefix = "com.example.extraSupportedFeature.", force = false))
-      .isEqualToIgnoringWhitespace("Class com.example.extraSupportedFeature.Foo must not be requested from main classloader of p_dependent_1115w8a plugin. " +
+      .isEqualToIgnoringWhitespace("Class com.example.extraSupportedFeature.Foo must not be requested from main classloader of p_dependent plugin. " +
                  "Matches content module (packagePrefix=com.example.extraSupportedFeature., moduleName=com.example.sub).")
   }
 
@@ -138,37 +112,21 @@ internal class ClassLoaderConfiguratorTest {
   }
 
   private fun loadPlugins(modulePackage: String?): PluginLoadingResult {
-    val rootDir = inMemoryFs.fs.getPath("/")
+    val dependencyId = "p_dependency"
+    PluginBuilder.empty()
+      .id(dependencyId)
+      .packagePrefix("com.bar")
+      .extensionPoints("""<extensionPoint qualifiedName="bar.barExtension" beanClass="com.intellij.util.KeyedLazyInstanceEP" dynamic="true"/>""")
+      .build(rootDir.resolve(dependencyId))
 
-    // toUnsignedLong - avoid `-` symbol
-    val pluginIdSuffix = Integer.toUnsignedLong(Hashing.komihash5_0().hashCharsToInt(javaClass.name + name.methodName)).toString(36)
-    val dependencyId = "p_dependency_$pluginIdSuffix"
-    plugin(rootDir, """
-      <idea-plugin package="com.bar">
-        <id>$dependencyId</id>
-        <extensionPoints>
-          <extensionPoint qualifiedName="bar.barExtension" beanClass="com.intellij.util.KeyedLazyInstanceEP" dynamic="true"/>"
-        </extensionPoints>
-      </idea-plugin>
-      """)
-
-    val dependentPluginId = "p_dependent_$pluginIdSuffix"
-    plugin(rootDir, """
-      <idea-plugin package="com.example">
-        <id>$dependentPluginId</id>
-        <content>
-          <module name="com.example.sub"/>
-        </content>
-      </idea-plugin>
-    """)
-    module(rootDir, dependentPluginId, "com.example.sub", """
-      <idea-plugin ${modulePackage?.let { """package="$it"""" } ?: ""}>
-        <!-- dependent must not be empty, add some extension -->
-        <extensionPoints>
-          <extensionPoint qualifiedName="bar.barExtension" beanClass="com.intellij.util.KeyedLazyInstanceEP" dynamic="true"/>"
-        </extensionPoints>
-      </idea-plugin>
-    """)
+    val dependentPluginId = "p_dependent"
+    PluginBuilder.empty()
+      .id(dependentPluginId)
+      .packagePrefix("com.example")
+      .module("com.example.sub",
+              PluginBuilder.empty().packagePrefix(modulePackage)
+                .extensionPoints("""<extensionPoint qualifiedName="bar.barExtension" beanClass="com.intellij.util.KeyedLazyInstanceEP" dynamic="true"/>"""))
+      .build(rootDir.resolve(dependentPluginId))
 
     val loadResult = runBlocking { loadDescriptors(rootDir) }
     val plugins = loadResult.enabledPlugins
@@ -181,6 +139,7 @@ internal class ClassLoaderConfiguratorTest {
 }
 
 internal fun loadDescriptors(dir: Path): PluginLoadingResult {
+  val buildNumber = BuildNumber.fromString("2042.0")!!
   val result = PluginLoadingResult()
   val context = DescriptorListLoadingContext(customDisabledPlugins = emptySet(),
                                              customBrokenPluginVersions = emptyMap(),

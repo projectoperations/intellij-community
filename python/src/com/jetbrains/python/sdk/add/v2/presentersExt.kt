@@ -1,7 +1,7 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.sdk.add.v2
 
-import com.intellij.openapi.application.writeAction
+import com.intellij.openapi.application.edtWriteAction
 import com.intellij.openapi.module.ModuleUtil
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.projectRoots.ProjectJdkTable
@@ -15,6 +15,7 @@ import com.jetbrains.python.PyBundle.message
 import com.jetbrains.python.errorProcessing.PyError
 import com.jetbrains.python.failure
 import com.jetbrains.python.sdk.PythonSdkType
+import com.jetbrains.python.sdk.add.v2.conda.isCondaSdk
 import com.jetbrains.python.sdk.conda.createCondaSdkFromExistingEnv
 import com.jetbrains.python.sdk.createSdk
 import com.jetbrains.python.sdk.excludeInnerVirtualEnv
@@ -42,7 +43,7 @@ suspend fun PythonMutableTargetAddInterpreterModel.setupVirtualenv(venvPath: Pat
   if (targetEnvironmentConfiguration != null) error("Remote targets aren't supported")
   val homeFile =
     // refresh needs write action
-    writeAction {
+    edtWriteAction {
       VfsUtil.findFile(venvPython, true)
     }
   if (homeFile == null) {

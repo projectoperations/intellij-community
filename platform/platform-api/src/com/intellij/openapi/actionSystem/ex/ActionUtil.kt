@@ -119,6 +119,19 @@ object ActionUtil {
   @JvmField
   val COMPONENT_PROVIDER: Key<CustomComponentAction> = Key.create("COMPONENT_PROVIDER")
 
+  @ApiStatus.Internal
+  @JvmField
+  val ACTION_GROUP_POPUP_CAPTION: Key<ActionGroupPopupCaption> = Key.create("ACTION_GROUP_POPUP_CAPTION")
+
+  @ApiStatus.Internal
+  enum class ActionGroupPopupCaption {
+    /** No popup caption */
+    NONE,
+
+    /** Use the text of ActionGroup presentation as a popup caption */
+    FROM_ACTION_TEXT,
+  }
+
   // Internal keys
 
   @JvmStatic
@@ -352,8 +365,12 @@ object ActionUtil {
     if (action is ActionGroup && !e.presentation.isPerformGroup) {
       val dataContext = e.dataContext
       val place = ActionPlaces.getActionGroupPopupPlace(e.place)
+      val caption = when (e.presentation.getClientProperty(ACTION_GROUP_POPUP_CAPTION)) {
+        ActionGroupPopupCaption.NONE -> null
+        ActionGroupPopupCaption.FROM_ACTION_TEXT, null -> e.presentation.text
+      }
       val popup: ListPopup = JBPopupFactory.getInstance().createActionGroupPopup(
-        e.presentation.text, action, dataContext,
+        caption, action, dataContext,
         JBPopupFactory.ActionSelectionAid.SPEEDSEARCH,
         false, null, -1, null, place)
       if (popupShow != null) {
@@ -618,7 +635,8 @@ object ActionUtil {
   }
 
   @JvmStatic
-  fun createActionFromSwingAction(action: Action): AnAction {
+  @JvmOverloads
+  fun createActionFromSwingAction(action: Action, dumbAware: Boolean = false): AnAction {
     val anAction: AnAction = object : AnAction(action.getValue(Action.NAME) as String) {
       override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
 
@@ -629,7 +647,10 @@ object ActionUtil {
       override fun actionPerformed(e: AnActionEvent) {
         action.actionPerformed(ActionEvent(this, ActionEvent.ACTION_PERFORMED, null))
       }
+
+      override fun isDumbAware(): Boolean = dumbAware
     }
+
     val value = action.getValue(Action.ACCELERATOR_KEY)
     if (value is KeyStroke) {
       anAction.shortcutSet = CustomShortcutSet(value)

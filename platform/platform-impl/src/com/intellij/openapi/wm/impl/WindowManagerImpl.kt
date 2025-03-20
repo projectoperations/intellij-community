@@ -23,12 +23,14 @@ import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.openapi.wm.IdeFrame
 import com.intellij.openapi.wm.StatusBar
 import com.intellij.openapi.wm.ex.WindowManagerEx
+import com.intellij.openapi.wm.ex.WindowManagerListener
 import com.intellij.openapi.wm.impl.FrameInfoHelper.Companion.isFullScreenSupportedInCurrentOs
 import com.intellij.openapi.wm.impl.FrameInfoHelper.Companion.isMaximized
 import com.intellij.openapi.wm.impl.status.IdeStatusBarImpl
 import com.intellij.openapi.wm.impl.welcomeScreen.WelcomeFrame
 import com.intellij.ui.ComponentUtil
 import com.intellij.ui.ScreenUtil
+import com.intellij.util.application
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.sun.jna.platform.WindowUtils
 import kotlinx.coroutines.Dispatchers
@@ -272,7 +274,8 @@ class WindowManagerImpl : WindowManagerEx(), PersistentStateComponentWithModific
     return null
   }
 
-  internal fun removeAndGetRootFrame(): IdeFrameImpl? {
+  @Internal
+  fun removeAndGetRootFrame(): IdeFrameImpl? {
     return frameToReuse.getAndSet(null)
   }
 
@@ -292,6 +295,8 @@ class WindowManagerImpl : WindowManagerEx(), PersistentStateComponentWithModific
       else {
         projectToFrame.put(project, ProjectItem(frameHelper, null))
       }
+
+      application.messageBus.syncPublisher(WindowManagerListener.TOPIC).onFramesChanged()
     }
   }
 
@@ -311,6 +316,8 @@ class WindowManagerImpl : WindowManagerEx(), PersistentStateComponentWithModific
           JOptionPane.setRootFrame(null)
         }
       }
+
+      application.messageBus.syncPublisher(WindowManagerListener.TOPIC).onFramesChanged()
     }
 
     runCatching {

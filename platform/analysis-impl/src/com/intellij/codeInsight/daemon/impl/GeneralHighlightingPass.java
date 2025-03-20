@@ -49,18 +49,18 @@ public sealed class GeneralHighlightingPass extends ProgressableTextEditorHighli
   permits NasueousGeneralHighlightingPass {
   static final Logger LOG = Logger.getInstance(GeneralHighlightingPass.class);
   private static final Key<Boolean> HAS_ERROR_ELEMENT = Key.create("HAS_ERROR_ELEMENT");
-  public static final Predicate<? super PsiFile> SHOULD_HIGHLIGHT_FILTER = file -> {
+  static final Predicate<? super PsiFile> SHOULD_HIGHLIGHT_FILTER = file -> {
     HighlightingLevelManager manager = HighlightingLevelManager.getInstance(file.getProject());
     return manager != null && manager.shouldHighlight(file);
   };
   private static final Random RESTART_DAEMON_RANDOM = new Random();
 
   private final boolean myUpdateAll;
-  final @NotNull ProperTextRange myPriorityRange;
+  private final @NotNull ProperTextRange myPriorityRange;
 
-  final List<HighlightInfo> myHighlights = Collections.synchronizedList(new ArrayList<>());
+  private final List<HighlightInfo> myHighlights = Collections.synchronizedList(new ArrayList<>());
 
-  protected volatile boolean myHasErrorElement;
+  private volatile boolean myHasErrorElement;
   private volatile boolean myHasErrorSeverity;
   private final boolean myRunAnnotators;
   private final HighlightInfoUpdater myHighlightInfoUpdater;
@@ -93,7 +93,7 @@ public sealed class GeneralHighlightingPass extends ProgressableTextEditorHighli
     myHighlightVisitorRunner = new HighlightVisitorRunner(psiFile, globalScheme, runVisitors, highlightErrorElements);
   }
 
-  public boolean hasErrorElement() {
+  boolean hasErrorElement() {
     return myHasErrorElement;
   }
 
@@ -188,23 +188,30 @@ public sealed class GeneralHighlightingPass extends ProgressableTextEditorHighli
           BiPredicate<? super Object, ? super PsiFile> keepToolIdPredicate = (toolId, __) -> !HighlightInfoUpdaterImpl.isHighlightVisitorToolId(toolId) || liveVisitorClasses.contains(toolId);
           impl.removeHighlightsForObsoleteTools(getHighlightingSession(), List.of(), keepToolIdPredicate);
         }
-        boolean success = collectHighlights(allInsideElements, allInsideRanges, allOutsideElements, allOutsideRanges, filteredVisitors,
-                                            forceHighlightParents, (toolId, psiElement, newInfos) -> {
-            myHighlightInfoUpdater.psiElementVisited(toolId, psiElement, newInfos, getDocument(), getFile(), myProject, getHighlightingSession(), invalidPsiRecycler);
-            myHighlights.addAll(newInfos);
-            if (psiElement instanceof PsiErrorElement) {
-              myHasErrorElement = true;
-            }
-            for (HighlightInfo info : newInfos) {
-              if (info.getSeverity() == HighlightSeverity.ERROR) {
-                myHasErrorSeverity = true;
-                break;
+        boolean success;
+        if (allInsideElements.isEmpty() && allOutsideElements.isEmpty()) {
+          success = true;
+        }
+        else {
+          success = collectHighlights(allInsideElements, allInsideRanges, allOutsideElements, allOutsideRanges, filteredVisitors,
+                                      forceHighlightParents, (toolId, psiElement, newInfos) -> {
+              myHighlightInfoUpdater.psiElementVisited(toolId, psiElement, newInfos, getDocument(), getFile(), myProject,
+                                                       getHighlightingSession(), invalidPsiRecycler);
+              myHighlights.addAll(newInfos);
+              if (psiElement instanceof PsiErrorElement) {
+                myHasErrorElement = true;
               }
-            }
-        });
+              for (HighlightInfo info : newInfos) {
+                if (info.getSeverity() == HighlightSeverity.ERROR) {
+                  myHasErrorSeverity = true;
+                  break;
+                }
+              }
+            });
+        }
         if (success) {
           if (myUpdateAll) {
-            daemonCodeAnalyzer.getFileStatusMap().setErrorFoundFlag(myProject, getDocument(), myHasErrorSeverity);
+            daemonCodeAnalyzer.getFileStatusMap().setErrorFoundFlag(getDocument(), getContext(), myHasErrorSeverity);
             reportErrorsToWolf(myHasErrorSeverity);
           }
         }
@@ -250,7 +257,7 @@ public sealed class GeneralHighlightingPass extends ProgressableTextEditorHighli
     AnnotationSession session = AnnotationSessionImpl.create(getFile());
     setupAnnotationSession(session, myPriorityRange, myRestrictRange,
                            ((HighlightingSessionImpl)getHighlightingSession()).getMinimumSeverity());
-    AnnotatorRunner annotatorRunner = myRunAnnotators ? new AnnotatorRunner(getFile(), false, session) : null;
+    AnnotatorRunner annotatorRunner = myRunAnnotators ? new AnnotatorRunner(session, false) : null;
     if (annotatorRunner == null) {
       runnable.run();
       return true;
@@ -258,7 +265,8 @@ public sealed class GeneralHighlightingPass extends ProgressableTextEditorHighli
     return annotatorRunner.runAnnotatorsAsync(elements1, elements2, runnable, resultSink);
   }
 
-  static final int POST_UPDATE_ALL = 5;
+  @ApiStatus.Internal
+  public static final int POST_UPDATE_ALL = 5;
   private static final AtomicInteger RESTART_REQUESTS = new AtomicInteger();
 
   @TestOnly

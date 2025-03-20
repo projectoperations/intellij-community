@@ -6,7 +6,6 @@ import com.intellij.codeInsight.hint.TooltipController;
 import com.intellij.codeInsight.hint.TooltipGroup;
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.Executor;
-import com.intellij.execution.executors.DefaultDebugExecutor;
 import com.intellij.execution.process.ProcessHandler;
 import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.execution.ui.ExecutionConsole;
@@ -49,6 +48,7 @@ import com.intellij.ui.HintHint;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.util.DocumentUtil;
 import com.intellij.util.concurrency.AppExecutorUtil;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.messages.SimpleMessageBusConnection;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.xdebugger.*;
@@ -57,10 +57,10 @@ import com.intellij.xdebugger.breakpoints.XBreakpointListener;
 import com.intellij.xdebugger.impl.actions.XDebuggerActions;
 import com.intellij.xdebugger.impl.breakpoints.XBreakpointManagerImpl;
 import com.intellij.xdebugger.impl.evaluate.ValueLookupManagerController;
+import com.intellij.xdebugger.impl.frame.XDebugSessionProxy;
 import com.intellij.xdebugger.impl.pinned.items.XDebuggerPinToTopManager;
 import com.intellij.xdebugger.impl.settings.ShowBreakpointsOverLineNumbersAction;
 import com.intellij.xdebugger.impl.settings.XDebuggerSettingManagerImpl;
-import com.intellij.xdebugger.impl.ui.XDebugSessionTab;
 import com.intellij.xdebugger.ui.DebuggerColors;
 import kotlin.Unit;
 import kotlinx.coroutines.CoroutineScope;
@@ -273,7 +273,7 @@ public final class XDebuggerManagerImpl extends XDebuggerManager implements Pers
     XDebugSessionImpl session = startSession(contentToReuse, starter,
       new XDebugSessionImpl(environment, this, sessionName, icon, showToolWindowOnSuspendOnly, contentToReuse));
 
-    if (!showToolWindowOnSuspendOnly) {
+    if (!showToolWindowOnSuspendOnly && !XDebugSessionProxy.useFeProxy()) {
       session.showSessionTab();
     }
     ProcessHandler handler = session.getDebugProcess().getProcessHandler();
@@ -320,15 +320,7 @@ public final class XDebuggerManagerImpl extends XDebuggerManager implements Pers
   }
 
   void removeSession(final @NotNull XDebugSessionImpl session) {
-    XDebugSessionTab sessionTab = session.getSessionTab();
     mySessions.remove(session.getDebugProcess().getProcessHandler());
-    if (sessionTab != null &&
-        !myProject.isDisposed() &&
-        !ApplicationManager.getApplication().isUnitTestMode() &&
-        XDebuggerSettingManagerImpl.getInstanceImpl().getGeneralSettings().isHideDebuggerOnProcessTermination()) {
-      RunContentManager.getInstance(myProject).hideRunContent(DefaultDebugExecutor.getDebugExecutorInstance(),
-                                                              sessionTab.getRunContentDescriptor());
-    }
     if (myActiveSession.compareAndSet(session, null)) {
       onActiveSessionChanged(session, null);
     }
@@ -356,17 +348,8 @@ public final class XDebuggerManagerImpl extends XDebuggerManager implements Pers
   @Override
   public @Nullable XDebugSession getDebugSession(@NotNull ExecutionConsole executionConsole) {
     synchronized (mySessions) {
-      for (final XDebugSessionImpl debuggerSession : mySessions.values()) {
-        XDebugSessionTab sessionTab = debuggerSession.getSessionTab();
-        if (sessionTab != null) {
-          RunContentDescriptor contentDescriptor = sessionTab.getRunContentDescriptor();
-          if (contentDescriptor != null && executionConsole == contentDescriptor.getExecutionConsole()) {
-            return debuggerSession;
-          }
-        }
-      }
+      return ContainerUtil.find(mySessions.values(), session -> session.getConsoleView() == executionConsole);
     }
-    return null;
   }
 
   @Override
@@ -393,10 +376,6 @@ public final class XDebuggerManagerImpl extends XDebuggerManager implements Pers
     boolean sessionChanged = previousSession != session;
     if (sessionChanged) {
       if (session != null) {
-        XDebugSessionTab tab = session.getSessionTab();
-        if (tab != null) {
-          tab.select();
-        }
         myExecutionPointManager.setAlternativeSourceKindFlow(session.getAlternativeSourceKindState());
       }
       else {
@@ -613,7 +592,7 @@ public final class XDebuggerManagerImpl extends XDebuggerManager implements Pers
         for (XDebugSession session : sessions) {
           XDebugProcess process = session.getDebugProcess();
           if (process.dependsOnPlugin(pluginDescriptor)) {
-            return "Plugin is not unload-safe because of the started debug session";
+            return XDebuggerBundle.message("plugin.is.not.unload.safe.because.of.the.started.debug.session");
           }
         }
       }

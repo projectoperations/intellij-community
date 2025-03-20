@@ -1,66 +1,80 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.searchEverywhere.backend.impl
 
+import com.intellij.ide.rpc.DataContextId
+import com.intellij.ide.rpc.dataContext
+import com.intellij.openapi.application.EDT
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
-import com.intellij.platform.kernel.withKernel
-import com.intellij.platform.searchEverywhere.SeItemData
-import com.intellij.platform.searchEverywhere.SeParams
-import com.intellij.platform.searchEverywhere.SeProviderId
-import com.intellij.platform.searchEverywhere.SeSessionEntity
-import com.intellij.platform.searchEverywhere.api.SeItemDataProvider
-import com.intellij.platform.searchEverywhere.api.SeItemsProviderFactory
+import com.intellij.platform.searchEverywhere.*
 import com.intellij.platform.searchEverywhere.backend.impl.SeBackendItemDataProvidersHolderEntity.Companion.Providers
 import com.intellij.platform.searchEverywhere.backend.impl.SeBackendItemDataProvidersHolderEntity.Companion.Session
 import com.jetbrains.rhizomedb.entities
+import com.jetbrains.rhizomedb.exists
 import fleet.kernel.DurableRef
 import fleet.kernel.change
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
 
 @ApiStatus.Internal
 @Service(Service.Level.PROJECT)
 class SeBackendService(val project: Project) {
 
-  suspend fun getItems(sessionRef: DurableRef<SeSessionEntity>, providerId: SeProviderId, params: SeParams): Flow<SeItemData> {
-    val provider = getProviders(sessionRef)[providerId]
+  suspend fun getItems(sessionRef: DurableRef<SeSessionEntity>,
+                       providerId: SeProviderId,
+                       params: SeParams,
+                       dataContextId: DataContextId?
+  ): Flow<SeItemData> {
+    val provider = getProviders(sessionRef, dataContextId)[providerId]
 
     return provider?.getItems(params) ?: emptyFlow()
   }
 
-  private suspend fun getProviders(sessionRef: DurableRef<SeSessionEntity>): Map<SeProviderId, SeItemDataProvider> =
-    withKernel {
-      val session = sessionRef.derefOrNull() ?: return@withKernel null
-      var existingHolderEntities = entities(Session, session)
+  private suspend fun getProviders(sessionRef: DurableRef<SeSessionEntity>,
+                                   dataContextId: DataContextId?): Map<SeProviderId, SeItemDataProvider> {
 
-      if (existingHolderEntities.isEmpty()) {
-        existingHolderEntities = change {
-          val holderEntities = entities(Session, session)
+    val session = sessionRef.derefOrNull() ?: return emptyMap()
+    var existingHolderEntities = entities(Session, session)
 
-          holderEntities.ifEmpty {
-            val providers = SeItemsProviderFactory.EP_NAME.extensionList.associate { factory ->
-              val provider = factory.getItemsProvider(project)
-              val id = SeProviderId(provider.id)
-              id to SeItemDataBackendProvider(id, provider, sessionRef)
-            }
-
-            SeBackendItemDataProvidersHolderEntity.new {
-              it[Providers] = providers
-              it[Session] = session
-            }
-
-            entities(Session, session)
-          }
-        }
+    if (existingHolderEntities.isEmpty()) {
+      if (dataContextId == null) {
+        throw IllegalStateException("Cannot create providers on the backend: no serialized data context")
       }
 
-      existingHolderEntities.first().providers
-    } ?: emptyMap()
+      val dataContext = withContext(Dispatchers.EDT) {
+        dataContextId.dataContext()
+      } ?: throw IllegalStateException("Cannot create providers on the backend: couldn't deserialize data context")
+
+      // We may create providers several times, but only one set of providers will be saved as a property to a session entity
+      val providers = SeItemsProviderFactory.EP_NAME.extensionList.asFlow().map {
+        it.getItemsProvider(project, dataContext)
+      }.toList().associate { provider ->
+        val id = SeProviderId(provider.id)
+        id to SeItemDataBackendProvider(id, provider, sessionRef)
+      }
+
+      existingHolderEntities = change {
+        if (!session.exists()) return@change emptySet()
+
+        entities(Session, session).ifEmpty {
+          val entity = SeBackendItemDataProvidersHolderEntity.new {
+            it[Providers] = providers
+            it[Session] = session
+          }
+
+          setOf(entity)
+        }
+      }
+    }
+
+    return existingHolderEntities.firstOrNull()?.providers ?: emptyMap()
+  }
 
   suspend fun itemSelected(sessionRef: DurableRef<SeSessionEntity>, itemData: SeItemData, modifiers: Int, searchText: String): Boolean {
-    val provider = getProviders(sessionRef)[itemData.providerId] ?: return false
+    val provider = getProviders(sessionRef, null)[itemData.providerId] ?: return false
 
     return provider.itemSelected(itemData, modifiers, searchText)
   }

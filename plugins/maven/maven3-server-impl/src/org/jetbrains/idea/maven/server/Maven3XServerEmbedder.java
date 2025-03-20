@@ -494,6 +494,39 @@ public abstract class Maven3XServerEmbedder extends Maven3ServerEmbedder {
   }
 
   @Override
+  public @NotNull MavenModel interpolateAndAlignModel(@NotNull MavenModel model, @NotNull File dir, @NotNull MavenToken token) {
+    MavenServerUtil.checkToken(token);
+    File baseDir = new File(myEmbedderSettings.getMultiModuleProjectDirectory());
+    return Maven3XProfileUtil.interpolateAndAlignModel(model, baseDir, dir);
+  }
+
+  @Override
+  public @NotNull ProfileApplicationResult applyProfiles(@NotNull MavenModel model,
+                                                         @NotNull File basedir,
+                                                         @NotNull MavenExplicitProfiles explicitProfiles,
+                                                         @NotNull HashSet<@NotNull String> alwaysOnProfiles,
+                                                         @NotNull MavenToken token) {
+    MavenServerUtil.checkToken(token);
+    try {
+      return Maven3XProfileUtil.applyProfiles(model, basedir, explicitProfiles, alwaysOnProfiles);
+    }
+    catch (Exception e) {
+      throw wrapToSerializableRuntimeException(e);
+    }
+  }
+
+  @Override
+  public @NotNull MavenModel assembleInheritance(@NotNull MavenModel model, @NotNull MavenModel parentModel, @NotNull MavenToken token) {
+    MavenServerUtil.checkToken(token);
+    try {
+      return Maven3ModelInheritanceAssembler.assembleInheritance(model, parentModel);
+    }
+    catch (Throwable e) {
+      throw wrapToSerializableRuntimeException(e);
+    }
+  }
+
+  @Override
   public @NotNull MavenServerResponse<ArrayList<MavenServerExecutionResult>> resolveProjects(@NotNull LongRunningTaskInput longRunningTaskInput,
                                                                                              @NotNull ProjectResolutionRequest request,
                                                                                              MavenToken token) {
@@ -933,6 +966,8 @@ public abstract class Maven3XServerEmbedder extends Maven3ServerEmbedder {
       org.eclipse.aether.artifact.Artifact pluginArtifact =
         pluginDependenciesResolver.resolve(plugin, remoteRepos, session);
 
+      mavenPluginArtifact = Maven3ModelConverter.convertArtifact(RepositoryUtils.toArtifact(pluginArtifact), getLocalRepositoryFile());
+
       DependencyFilter dependencyFilter = resolveDependencies ? null : new DependencyFilter() {
         @Override
         public boolean accept(DependencyNode node, List<DependencyNode> parents) {
@@ -951,9 +986,6 @@ public abstract class Maven3XServerEmbedder extends Maven3ServerEmbedder {
         if (!Objects.equals(artifact.getArtifactId(), plugin.getArtifactId()) ||
             !Objects.equals(artifact.getGroupId(), plugin.getGroupId())) {
           artifacts.add(mavenArtifact);
-        }
-        else {
-          mavenPluginArtifact = mavenArtifact;
         }
       }
 

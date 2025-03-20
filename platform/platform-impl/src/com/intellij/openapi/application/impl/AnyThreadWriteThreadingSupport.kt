@@ -1,36 +1,17 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.application.impl
 
-import com.intellij.codeWithMe.ClientId.Companion.decorateCallable
-import com.intellij.codeWithMe.ClientId.Companion.decorateRunnable
 import com.intellij.concurrency.currentThreadContext
 import com.intellij.core.rwmutex.*
-import com.intellij.diagnostic.PerformanceWatcher
-import com.intellij.diagnostic.PluginException
 import com.intellij.openapi.application.*
-import com.intellij.openapi.application.ex.ApplicationManagerEx
-import com.intellij.openapi.application.ex.ApplicationUtil
-import com.intellij.openapi.diagnostic.ControlFlowException
 import com.intellij.openapi.diagnostic.Logger
-import com.intellij.openapi.progress.ProcessCanceledException
-import com.intellij.openapi.progress.ProgressIndicatorProvider
-import com.intellij.openapi.progress.ProgressManager
-import com.intellij.openapi.progress.util.ProgressIndicatorUtils
-import com.intellij.openapi.util.Computable
-import com.intellij.openapi.util.ThrowableComputable
+import com.intellij.openapi.progress.Cancellation
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.platform.util.coroutines.internal.runSuspend
 import com.intellij.util.ReflectionUtil
-import com.intellij.util.concurrency.AppExecutorUtil
-import com.intellij.util.concurrency.ThreadingAssertions
 import com.intellij.util.containers.Stack
-import com.intellij.util.ui.EDT
 import org.jetbrains.annotations.ApiStatus
-import java.util.concurrent.Callable
-import java.util.concurrent.Future
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.function.BooleanSupplier
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
 
@@ -123,6 +104,10 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
 
   private var myReadActionListener: ReadActionListener? = null
   private var myWriteActionListener: WriteActionListener? = null
+  private var myWriteIntentActionListener: WriteIntentReadActionListener? = null
+  private var myLockAcquisitionListener: LockAcquisitionListener? = null
+  private var mySuspendingWriteActionListener: SuspendingWriteActionListener? = null
+  private var myLegacyProgressIndicatorProvider: LegacyProgressIndicatorProvider? = null
 
   private val myWriteActionsStack = Stack<Class<*>>()
   private var myWriteStackBase = 0
@@ -133,22 +118,34 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
   // We approximate "on stack" permits with "thread local" permits for shared main lock
   private val mySecondaryPermits = ThreadLocal.withInitial { ArrayList<Permit>() }
   private val myReadActionsInThread = ThreadLocal.withInitial { 0 }
-  private val myImpatientReader = ThreadLocal.withInitial { false }
+  private val myLockingProhibited: ThreadLocal<Pair<Boolean, String>?> = ThreadLocal.withInitial { null }
+
+  // todo: reimplement with listeners in IJPL-177760
+  private val myTopmostReadAction = ThreadLocal.withInitial { false }
 
   @Volatile
   private var myWriteAcquired: Thread? = null
 
-  override fun getPermitAsContextElement(shared: Boolean): CoroutineContext {
+  @Volatile
+  private var myWriteIntentAcquired: Thread? = null
+
+  override fun getPermitAsContextElement(baseContext: CoroutineContext, shared: Boolean): Pair<CoroutineContext, AccessToken> {
     if (!isLockStoredInContext) {
-      return EmptyCoroutineContext
+      return EmptyCoroutineContext to AccessToken.EMPTY_ACCESS_TOKEN
     }
 
-    val element = currentThreadContext()[LockStateContextElement]
+    val element = baseContext[LockStateContextElement]
     if (element?.threadState?.permit != null) {
       if (shared) {
         element.threadState.fork()
       }
-      return element
+      return element to object : AccessToken() {
+        override fun finish() {
+          if (shared) {
+            element.threadState.join()
+          }
+        }
+      }
     }
 
     val ts = myState.get()
@@ -156,24 +153,28 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
       if (shared) {
         ts.fork()
       }
-      return LockStateContextElement(ts)
+      return LockStateContextElement(ts) to object : AccessToken() {
+        override fun finish() {
+          if (shared) {
+            ts.join()
+          }
+        }
+      }
     }
 
-    return EmptyCoroutineContext
+    return EmptyCoroutineContext to AccessToken.EMPTY_ACCESS_TOKEN
   }
 
-  override fun returnPermitFromContextElement(ctx: CoroutineContext) {
-    if (!isLockStoredInContext) {
-      return
-    }
+  override fun isParallelizedReadAction(context: CoroutineContext): Boolean = isLockStoredInContext && context[LockStateContextElement] != null
 
-    if (ctx is LockStateContextElement) {
-      val ts = ctx.threadState
-      ts.join()
-    }
+  override fun isInTopmostReadAction(): Boolean {
+    // once a read action was requested
+    return myTopmostReadAction.get()
   }
 
-  override fun hasPermitAsContextElement(context: CoroutineContext): Boolean = isLockStoredInContext && context[LockStateContextElement] != null
+  override fun getLockingProhibitedAdvice(): String? {
+    return myLockingProhibited.get()?.second
+  }
 
   private fun getThreadState(): ThreadState {
     val ctxState = if (isLockStoredInContext) currentThreadContext()[LockStateContextElement]?.threadState else null
@@ -212,8 +213,21 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
     }
   }
 
-  // @Throws(E::class)
-  override fun <T, E : Throwable?> runWriteIntentReadAction(computation: ThrowableComputable<T, E>): T {
+  override fun <T> runPreventiveWriteIntentReadAction(computation: () -> T): T {
+    return doRunWriteIntentReadAction(computation)
+  }
+
+  override fun <T> runWriteIntentReadAction(computation: () -> T): T {
+    handleLockAccess("write-intent lock")
+    return doRunWriteIntentReadAction(computation)
+  }
+
+  private fun <T> doRunWriteIntentReadAction(computation: () -> T): T {
+    val listener = myWriteIntentActionListener
+    fireBeforeWriteIntentReadActionStart(listener, computation.javaClass)
+    val currentReadState = myTopmostReadAction.get()
+    myTopmostReadAction.set(false)
+
     val ts = getThreadState()
     var release = true
     var releaseSecondary = false
@@ -234,7 +248,10 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
     }
 
     when (ts.permit) {
-      null -> ts.acquire(getWriteIntentPermit())
+      null -> {
+        ts.acquire(getWriteIntentPermit())
+        myWriteIntentAcquired = Thread.currentThread()
+      }
       is ReadPermit -> error("WriteIntentReadAction can not be called from ReadAction")
       is WriteIntentPermit -> {
         // Volatile read
@@ -247,103 +264,61 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
       }
     }
 
-    val prevImplicitLock = ThreadingAssertions.isImplicitLockOnEDT()
     try {
-      ThreadingAssertions.setImplicitLockOnEDT(false)
-      return runWithTemporaryThreadLocal(ts) { computation.compute() }
+      fireWriteIntentActionStarted(listener, computation.javaClass)
+      return runWithTemporaryThreadLocal(ts) { computation() }
     }
     finally {
-      ThreadingAssertions.setImplicitLockOnEDT(prevImplicitLock)
+      fireWriteIntentActionFinished(listener, computation.javaClass)
       if (release) {
         ts.release()
+        myWriteIntentAcquired = null
       }
       if (releaseSecondary) {
         mySecondaryPermits.get().removeLast().release()
       }
+      myTopmostReadAction.set(currentReadState)
+      afterWriteIntentReadActionFinished(listener, computation.javaClass)
     }
   }
 
   override fun isWriteIntentLocked(): Boolean {
     val ts = myState.get()
-    return ts.hasWrite || ts.hasWriteIntent
-  }
-
-  override fun isReadAccessAllowed(): Boolean = getThreadState().hasPermit
-
-  override fun executeOnPooledThread(action: Runnable, expired: BooleanSupplier): Future<*> {
-    val actionDecorated = decorateRunnable(action)
-    return AppExecutorUtil.getAppExecutorService().submit(object : Runnable {
-      override fun run() {
-        if (expired.asBoolean) {
-          return
-        }
-
-        try {
-          actionDecorated.run()
-        }
-        catch (e: ProcessCanceledException) {
-          // ignore
-        }
-        catch (e: Throwable) {
-          logger.error(e)
-        }
-        finally {
-          Thread.interrupted() // reset interrupted status
-        }
-      }
-
-      override fun toString(): String {
-        return action.toString()
-      }
-    })
-  }
-
-  override fun <T> executeOnPooledThread(action: Callable<T>, expired: BooleanSupplier): Future<T> {
-    val actionDecorated = decorateCallable(action)
-    return AppExecutorUtil.getAppExecutorService().submit<T>(object : Callable<T?> {
-      override fun call(): T? {
-        if (expired.asBoolean) {
-          return null
-        }
-
-        try {
-          return actionDecorated.call()
-        }
-        catch (e: ProcessCanceledException) {
-          // ignore
-        }
-        catch (e: Throwable) {
-          logger.error(e)
-        }
-        finally {
-          Thread.interrupted() // reset interrupted status
-        }
-        return null
-      }
-
-      override fun toString(): String {
-        return action.toString()
-      }
-    })
-  }
-
-  override fun runIntendedWriteActionOnCurrentThread(action: Runnable) {
-    runWriteIntentReadAction<Unit, Throwable> {
-      action.run()
+    val shared = ts.sharedLock
+    if (shared == null) {
+      return ts.hasWrite || ts.hasWriteIntent
+    }
+    else {
+      return myWriteIntentAcquired == Thread.currentThread()
     }
   }
 
-  // @Throws(E::class)
-  override fun <T, E : Throwable?> runUnlockingIntendedWrite(action: ThrowableComputable<T, E>): T {
+  override fun isReadAccessAllowed(): Boolean {
+    val threadState = getThreadState()
+    val shared = threadState.sharedLock
+    if (shared == null) {
+      // Having any permit (r/w/wi) without the presence of the second lock means that this thread has _some_ permission,
+      // and even the weakest possible permission allows read access
+      return threadState.hasPermit
+    }
+    else {
+      // When there is the second lock installed, it is not enough to look at the primary lock:
+      // the current thread now has inherited write intent permit, which should not give read access.
+      // Otherwise, it would be impossible to upgrade WI to W
+      return !mySecondaryPermits.get().isNullOrEmpty()
+    }
+  }
+
+  override fun <T> runUnlockingIntendedWrite(action: () -> T): T {
     if (isLockStoredInContext) {
-      return action.compute()
+      return action()
     }
 
     val ts = getThreadState()
     if (!ts.hasWriteIntent) {
       try {
         ts.writeIntentReleased = true
-        return action.compute()
+        return action()
       }
       finally {
         ts.writeIntentReleased = false
@@ -353,7 +328,7 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
     ts.writeIntentReleased = true
     ts.release()
     try {
-      return action.compute()
+      return action()
     }
     finally {
       ts.writeIntentReleased = false
@@ -375,37 +350,25 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
     myReadActionListener = null
   }
 
-  override fun runReadAction(action: Runnable) = runReadAction<Unit, Throwable>(action.javaClass) { action.run() }
-
-  override fun <T> runReadAction(computation: Computable<T>): T  = runReadAction<T, Throwable>(computation.javaClass) { computation.compute() }
-
-  override fun <T, E : Throwable?> runReadAction(computation: ThrowableComputable<T, E>): T = runReadAction(computation.javaClass, computation)
-
   private fun acquireReadPermit(lock: RWMutexIdea): Permit {
     var permit = tryGetReadPermit(lock)
     if (permit != null) {
       return permit
     }
 
-    val progress = ProgressManager.getInstance()
-    // Impatient reader not in non-cancellable session will not wait
-    if (myImpatientReader.get() && !progress.isInNonCancelableSection) {
-      throw ApplicationUtil.CannotRunReadActionException.create()
-    }
+    myReadActionListener?.fastPathAcquisitionFailed()
 
     // Check for cancellation
-    val indicator = ProgressIndicatorProvider.getGlobalProgressIndicator()
+    val indicator = myLegacyProgressIndicatorProvider?.obtainProgressIndicator()
     // Nothing to check or cannot be canceled
-    if (indicator == null || progress.isInNonCancelableSection) {
+    if (indicator == null || Cancellation.isInNonCancelableSection()) {
       return getReadPermit(lock)
     }
 
     // Spin & sleep with checking for cancellation
     var iter = 0
     do {
-      if (indicator.isCanceled) {
-        throw ProcessCanceledException()
-      }
+      indicator.checkCanceled()
       if (iter++ < SPIN_TO_WAIT_FOR_LOCK) {
         Thread.yield()
         permit = tryGetReadPermit(lock)
@@ -417,8 +380,27 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
     return permit
   }
 
-  private fun <T, E : Throwable?> runReadAction(clazz: Class<*>, block: ThrowableComputable<T, E>): T {
-    fireBeforeReadActionStart(clazz)
+  private fun handleLockAccess(culprit: String) {
+    val lockProhibition = myLockingProhibited.get()
+    if (lockProhibition != null) {
+      val exception = ThreadingSupport.LockAccessDisallowed("Attempt to take $culprit was prevented\n${lockProhibition.second}")
+      if (lockProhibition.first) {
+        logger.error(exception)
+      }
+      else {
+        throw exception
+      }
+    }
+  }
+
+  override fun <T> runReadAction(clazz: Class<*>, action: () -> T): T {
+    handleLockAccess("read lock")
+
+    val listener = myReadActionListener
+    fireBeforeReadActionStart(listener, clazz)
+
+    val currentReadState = myTopmostReadAction.get()
+    myTopmostReadAction.set(true)
 
     val ts = getThreadState()
     var release = false
@@ -450,16 +432,13 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
     // For diagnostic purposes register that we in read action, even if we use stronger lock
     myReadActionsInThread.set(myReadActionsInThread.get() + 1)
 
-    val prevImplicitLock = ThreadingAssertions.isImplicitLockOnEDT()
-    ThreadingAssertions.setImplicitLockOnEDT(false)
     try {
-      fireReadActionStarted(clazz)
-      val rv = runWithTemporaryThreadLocal(ts) { block.compute() }
-      fireReadActionFinished(clazz)
+      fireReadActionStarted(listener, clazz)
+      val rv = runWithTemporaryThreadLocal(ts) { action() }
       return rv
     }
     finally {
-      ThreadingAssertions.setImplicitLockOnEDT(prevImplicitLock)
+      fireReadActionFinished(listener, clazz)
 
       myReadActionsInThread.set(myReadActionsInThread.get() - 1)
       if (release) {
@@ -468,12 +447,19 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
       if (releaseSecondary) {
         mySecondaryPermits.get().removeLast().release()
       }
-      fireAfterReadActionFinished(clazz)
+      myTopmostReadAction.set(currentReadState)
+      fireAfterReadActionFinished(listener, clazz)
     }
   }
 
   override fun tryRunReadAction(action: Runnable): Boolean {
-    fireBeforeReadActionStart(action.javaClass)
+    handleLockAccess("fail-fast read lock")
+
+    val listener = myReadActionListener
+    fireBeforeReadActionStart(listener, action.javaClass)
+
+    val currentReadState = myTopmostReadAction.get()
+    myTopmostReadAction.set(true)
 
     val ts = getThreadState()
     var release = false
@@ -513,16 +499,14 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
     // For diagnostic purposes register that we in read action, even if we use stronger lock
     myReadActionsInThread.set(myReadActionsInThread.get() + 1)
 
-    val prevImplicitLock = ThreadingAssertions.isImplicitLockOnEDT()
-    ThreadingAssertions.setImplicitLockOnEDT(false)
     try {
-      fireReadActionStarted(action.javaClass)
+      fireReadActionStarted(listener, action.javaClass)
       runWithTemporaryThreadLocal(ts) { action.run() }
-      fireReadActionFinished(action.javaClass)
       return true
     }
     finally {
-      ThreadingAssertions.setImplicitLockOnEDT(prevImplicitLock)
+      fireReadActionFinished(listener, action.javaClass)
+
       myReadActionsInThread.set(myReadActionsInThread.get() - 1)
       if (release) {
         ts.release()
@@ -530,7 +514,9 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
       if (releaseSecondary) {
         mySecondaryPermits.get().removeLast().release()
       }
-      fireAfterReadActionFinished(action.javaClass)
+
+      myTopmostReadAction.set(currentReadState)
+      fireAfterReadActionFinished(listener, action.javaClass)
     }
   }
 
@@ -547,37 +533,81 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
   }
 
   @ApiStatus.Internal
+  override fun setWriteIntentReadActionListener(listener: WriteIntentReadActionListener) {
+    if (myWriteIntentActionListener != null)
+      error("WriteActionListener already registered")
+    myWriteIntentActionListener = listener
+  }
+
+  @ApiStatus.Internal
   override fun removeWriteActionListener(listener: WriteActionListener) {
     if (myWriteActionListener != listener)
       error("WriteActionListener is not registered")
     myWriteActionListener = null
   }
 
-  override fun <T> runWriteAction(clazz: Class<*>, action: () -> T): T {
-    return runWriteAction(clazz, ThrowableComputable(action))
+  @ApiStatus.Internal
+  override fun setLockAcquisitionListener(listener: LockAcquisitionListener) {
+    if (myLockAcquisitionListener != null)
+      error("WriteActionListener already registered")
+    myLockAcquisitionListener = listener
   }
 
-  override fun runWriteAction(action: Runnable) = runWriteAction<Unit, Throwable>(action.javaClass) { action.run() }
+  @ApiStatus.Internal
+  override fun setSuspendingWriteActionListener(listener: SuspendingWriteActionListener) {
+    if (mySuspendingWriteActionListener != null)
+      error("SuspendingWriteActionListener already registered")
+    mySuspendingWriteActionListener = listener
+  }
 
-  override fun <T> runWriteAction(computation: Computable<T>): T = runWriteAction<T, Throwable>(computation.javaClass) { computation.compute() }
+  @ApiStatus.Internal
+  override fun removeSuspendingWriteActionListener(listener: SuspendingWriteActionListener) {
+    if (mySuspendingWriteActionListener != listener)
+      error("SuspendingWriteActionListener is not registered")
+    mySuspendingWriteActionListener = null
+  }
 
-  override fun <T, E : Throwable?> runWriteAction(computation: ThrowableComputable<T, E>): T = runWriteAction(computation.javaClass, computation)
+  @ApiStatus.Internal
+  override fun setLegacyIndicatorProvider(provider: LegacyProgressIndicatorProvider) {
+    if (myLegacyProgressIndicatorProvider != null)
+      error("LegacyProgressIndicatorProvider already registered")
+    myLegacyProgressIndicatorProvider = provider
+  }
 
-  private fun <T, E : Throwable?> runWriteAction(clazz: Class<*>, block: ThrowableComputable<T, E>): T {
+  @ApiStatus.Internal
+  override fun removeLegacyIndicatorProvider(provider: LegacyProgressIndicatorProvider) {
+    if (myLegacyProgressIndicatorProvider != provider)
+      error("LegacyProgressIndicatorProvider is not registered")
+    myLegacyProgressIndicatorProvider = null
+  }
+
+  @ApiStatus.Internal
+  override fun removeLockAcquisitionListener(listener: LockAcquisitionListener) {
+    if (myLockAcquisitionListener != listener)
+      error("WriteActionListener is not registered")
+    myLockAcquisitionListener = null
+  }
+
+  override fun <T> runWriteAction(clazz: Class<*>, action: () -> T): T {
     val ts = getThreadState()
     val releases = startWrite(ts, clazz)
-    val prevImplicitLock = ThreadingAssertions.isImplicitLockOnEDT()
     return try {
-      ThreadingAssertions.setImplicitLockOnEDT(false)
-      runWithTemporaryThreadLocal(ts) { block.compute() }
+      runWithTemporaryThreadLocal(ts) { action() }
     }
     finally {
       endWrite(ts, clazz, releases)
-      ThreadingAssertions.setImplicitLockOnEDT(prevImplicitLock)
     }
   }
 
-  private fun startWrite(ts: ThreadState, clazz: Class<*>): Pair<Boolean, Boolean> {
+  private data class WriteListenerInitResult(
+    val releasePrime: Boolean,
+    val releaseSecondary: Boolean,
+    val currentReadState: Boolean,
+    val listener: WriteActionListener?,
+  )
+
+  private fun startWrite(ts: ThreadState, clazz: Class<*>): WriteListenerInitResult {
+    val listener = myWriteActionListener
     // Read permit is incompatible
     check(!ts.hasRead) { "WriteAction can not be called from ReadAction" }
 
@@ -588,13 +618,17 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
       throwCannotWriteException()
     }
 
+    handleLockAccess("write lock")
+
     myWriteActionPending.incrementAndGet()
     if (myWriteActionsStack.isEmpty()) {
-      fireBeforeWriteActionStart(ts, clazz)
+      fireBeforeWriteActionStart(listener, ts, clazz)
     }
 
     var release = false
     var releaseSecondary = false
+    val currentReadState = myTopmostReadAction.get()
+    myTopmostReadAction.set(false)
 
     val sharedLock = ts.sharedLock
     // If the shared lock is present, then the primary lock is at least in WIL state;
@@ -607,11 +641,11 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
       val last = sps.lastOrNull()
       when (last) {
         null -> {
-          sps.add(measureWriteLock { getWritePermit(sharedLock) })
+          sps.add(processWriteLockAcquisition { getWritePermit(sharedLock) })
           releaseSecondary = true
         }
         is WriteIntentPermit -> {
-          sps.add(measureWriteLock { runSuspend { last.acquireWritePermit() } })
+          sps.add(processWriteLockAcquisition { runSuspend { last.acquireWritePermit() } })
           releaseSecondary = true
         }
         is ReadPermit -> {
@@ -625,14 +659,14 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
 
     when (ts.permit) {
       null -> {
-        ts.acquire(measureWriteLock { getWritePermit(ts) })
+        ts.acquire(processWriteLockAcquisition { getWritePermit(ts) })
         release = true
       }
       // Read permit is impossible here, as it is first check before all "pendings"
       is ReadPermit -> {}
       is WriteIntentPermit -> {
         // Upgrade main permit
-        ts.acquire(measureWriteLock { getWritePermit(ts) })
+        ts.acquire(processWriteLockAcquisition { getWritePermit(ts) })
         release = true
         checkWriteFromRead("Write", "Write Intent")
       }
@@ -645,28 +679,28 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
     myWriteActionPending.decrementAndGet()
 
     myWriteActionsStack.push(clazz)
-    fireWriteActionStarted(ts, clazz)
+    fireWriteActionStarted(listener, ts, clazz)
 
-    return Pair(release, releaseSecondary)
+    return WriteListenerInitResult(release, releaseSecondary, currentReadState, listener)
   }
 
-  private fun endWrite(ts: ThreadState, clazz: Class<*>, releases: Pair<Boolean, Boolean>) {
-    fireWriteActionFinished(ts, clazz)
+  private fun endWrite(ts: ThreadState, clazz: Class<*>, initResult: WriteListenerInitResult) {
+    fireWriteActionFinished(initResult.listener, ts, clazz)
     myWriteActionsStack.pop()
-    if (releases.first) {
+    if (initResult.releasePrime) {
       ts.release()
       myWriteAcquired = null
     }
-    if (releases.second) {
+    if (initResult.releaseSecondary) {
       mySecondaryPermits.get().removeLast().release()
     }
-    if (releases.first) {
-      fireAfterWriteActionFinished(ts, clazz)
+    myTopmostReadAction.set(initResult.currentReadState)
+    if (initResult.releasePrime) {
+      fireAfterWriteActionFinished(initResult.listener, ts, clazz)
     }
   }
 
   override fun executeSuspendingWriteAction(action: () -> Unit) {
-    ThreadingAssertions.assertWriteIntentReadAccess()
     val ts = getThreadState()
     if (ts.hasWriteIntent) {
       action()
@@ -682,7 +716,7 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
       runWithTemporaryThreadLocal(ts) { action() }
     }
     finally {
-      ProgressIndicatorUtils.cancelActionsToBeCancelledBeforeWrite()
+      mySuspendingWriteActionListener?.beforeWriteLockReacquired()
       ts.acquire(getWritePermit(ts))
       myWriteAcquired = Thread.currentThread()
       myWriteStackBase = prevBase
@@ -696,8 +730,6 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
   override fun isWriteAccessAllowed(): Boolean = myWriteAcquired == Thread.currentThread()
 
   override fun hasWriteAction(actionClass: Class<*>): Boolean {
-    ThreadingAssertions.softAssertReadAccess()
-
     for (i in myWriteActionsStack.size - 1 downTo 0) {
       val action = myWriteActionsStack[i]
       if (actionClass == action || ReflectionUtil.isAssignable(actionClass, action)) {
@@ -709,7 +741,7 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
 
   @Deprecated("Use `runReadAction` instead")
   override fun acquireReadActionLock(): AccessToken {
-    PluginException.reportDeprecatedUsage("ThreadingSupport.acquireReadActionLock", "Use `runReadAction()` instead")
+    logger.error("`ThreadingSupport.acquireReadActionLock` is deprecated and going to be removed soon. Use `runReadAction()` instead")
     val ts = getThreadState()
     if (ts.hasWrite) {
       throw IllegalStateException("Write Action can not request Read Access Token")
@@ -723,7 +755,7 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
 
   @Deprecated("Use `runWriteAction`, `WriteAction.run`, or `WriteAction.compute` instead")
   override fun acquireWriteActionLock(marker: Class<*>): AccessToken {
-    PluginException.reportDeprecatedUsage("ThreadingSupport.acquireWriteActionLock", "Use `runWriteAction()` instead")
+    logger.error("`ThreadingSupport.acquireWriteActionLock` is deprecated and going to be removed soon. Use `runWriteAction()` instead")
     return WriteAccessToken(marker)
   }
 
@@ -736,22 +768,27 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
     }
   }
 
-  override fun executeByImpatientReader(runnable: Runnable) {
-    if (EDT.isCurrentThreadEdt()) {
-      runnable.run()
-      return
-    }
-
-    myImpatientReader.set(true)
+  override fun prohibitTakingLocksInsideAndRun(action: Runnable, failSoftly: Boolean, advice: String) {
+    val currentValue = myLockingProhibited.get()
+    myLockingProhibited.set(failSoftly to advice)
     try {
-      runnable.run()
+      action.run()
     }
     finally {
-      myImpatientReader.set(false)
+      myLockingProhibited.set(currentValue)
     }
   }
 
-  override fun isInImpatientReader(): Boolean = myImpatientReader.get()
+  override fun allowTakingLocksInsideAndRun(action: Runnable) {
+    val currentValue = myLockingProhibited.get()
+    myLockingProhibited.set(null)
+    try {
+      action.run()
+    }
+    finally {
+      myLockingProhibited.set(currentValue)
+    }
+  }
 
   override fun isInsideUnlockedWriteIntentLock(): Boolean {
     if (isLockStoredInContext) {
@@ -760,76 +797,52 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
     return getThreadState().writeIntentReleased
   }
 
-  private fun measureWriteLock(acquisitor: () -> WritePermit) : WritePermit {
-    val delay = ApplicationImpl.Holder.ourDumpThreadsOnLongWriteActionWaiting
-    val reportSlowWrite: Future<*>? = if (delay <= 0 || PerformanceWatcher.getInstanceIfCreated() == null) null
-    else AppExecutorUtil.getAppScheduledExecutorService()
-      .scheduleWithFixedDelay({
-                                val path = PerformanceWatcher.getInstance().dumpThreads("waiting", true, true)
-                                if (path != null && ApplicationManagerEx.isInIntegrationTest()) {
-                                  val message = "Long write action takes more than ${ApplicationImpl.Holder.ourDumpThreadsOnLongWriteActionWaiting}ms, details saved to $path"
-                                  logger.error(message)
-                                }
-                              },
-                              delay.toLong(), delay.toLong(), TimeUnit.MILLISECONDS)
-    val t = System.currentTimeMillis()
-    val permit = acquisitor()
-    val elapsed = System.currentTimeMillis() - t
+  private fun processWriteLockAcquisition(acquisitor: () -> WritePermit): WritePermit {
+    myLockAcquisitionListener?.beforeWriteLockAcquired()
     try {
-      WriteDelayDiagnostics.registerWrite(elapsed)
+      return acquisitor()
     }
-    catch (thr: Throwable) {
-      // we can be canceled here, it is an expected behavior
-      if (thr !is ControlFlowException) {
-        // Warn instead of error to avoid breaking acquiring the lock
-        logger.warn("Failed to register write lock in diagnostics service", thr)
-      }
+    finally {
+      myLockAcquisitionListener?.afterWriteLockAcquired()
     }
-    if (logger.isDebugEnabled) {
-      if (elapsed != 0L) {
-        logger.debug("Write action wait time: $elapsed")
-      }
-    }
-    reportSlowWrite?.cancel(false)
-    return permit
   }
 
-  private fun fireBeforeReadActionStart(clazz: Class<*>) {
+  private fun fireBeforeReadActionStart(listener: ReadActionListener?, clazz: Class<*>) {
     try {
-      myReadActionListener?.beforeReadActionStart(clazz)
+      listener?.beforeReadActionStart(clazz)
     }
     catch (_: Throwable) {
     }
   }
 
-  private fun fireReadActionStarted(clazz: Class<*>) {
+  private fun fireReadActionStarted(listener: ReadActionListener?, clazz: Class<*>) {
     try {
-      myReadActionListener?.readActionStarted(clazz)
+      listener?.readActionStarted(clazz)
     }
     catch (_: Throwable) {
     }
   }
 
-  private fun fireReadActionFinished(clazz: Class<*>) {
+  private fun fireReadActionFinished(listener: ReadActionListener?, clazz: Class<*>) {
     try {
-      myReadActionListener?.readActionFinished(clazz)
+      listener?.readActionFinished(clazz)
     }
     catch (_: Throwable) {
     }
   }
 
-  private fun fireAfterReadActionFinished(clazz: Class<*>) {
+  private fun fireAfterReadActionFinished(listener: ReadActionListener?, clazz: Class<*>) {
     try {
-      myReadActionListener?.afterReadActionFinished(clazz)
+      listener?.afterReadActionFinished(clazz)
     }
     catch (_: Throwable) {
     }
   }
 
-  private fun fireBeforeWriteActionStart(ts: ThreadState, clazz: Class<*>) {
+  private fun fireBeforeWriteActionStart(listener: WriteActionListener?, ts: ThreadState, clazz: Class<*>) {
     ts.inListener = true
     try {
-      myWriteActionListener?.beforeWriteActionStart(clazz)
+      listener?.beforeWriteActionStart(clazz)
     }
     catch (_: Throwable) {
     }
@@ -838,10 +851,10 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
     }
   }
 
-  private fun fireWriteActionStarted(ts: ThreadState, clazz: Class<*>) {
+  private fun fireWriteActionStarted(listener: WriteActionListener?, ts: ThreadState, clazz: Class<*>) {
     ts.inListener = true
     try {
-      myWriteActionListener?.writeActionStarted(clazz)
+      listener?.writeActionStarted(clazz)
     }
     catch (_: Throwable) {
     }
@@ -850,10 +863,10 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
     }
   }
 
-  private fun fireWriteActionFinished(ts: ThreadState, clazz: Class<*>) {
+  private fun fireWriteActionFinished(listener: WriteActionListener?, ts: ThreadState, clazz: Class<*>) {
     ts.inListener = true
     try {
-      myWriteActionListener?.writeActionFinished(clazz)
+      listener?.writeActionFinished(clazz)
     }
     catch (_: Throwable) {
     }
@@ -862,15 +875,47 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
     }
   }
 
-  private fun fireAfterWriteActionFinished(ts: ThreadState, clazz: Class<*>) {
+  private fun fireAfterWriteActionFinished(listener: WriteActionListener?, ts: ThreadState, clazz: Class<*>) {
     ts.inListener = true
     try {
-      myWriteActionListener?.afterWriteActionFinished(clazz)
+      listener?.afterWriteActionFinished(clazz)
     }
     catch (_: Throwable) {
     }
     finally {
       ts.inListener = false
+    }
+  }
+
+  private fun fireBeforeWriteIntentReadActionStart(listener: WriteIntentReadActionListener?, clazz: Class<*>) {
+    try {
+      listener?.beforeWriteIntentReadActionStart(clazz)
+    }
+    catch (_: Throwable) {
+    }
+  }
+
+  private fun fireWriteIntentActionStarted(listener: WriteIntentReadActionListener?, clazz: Class<*>) {
+    try {
+      listener?.writeIntentReadActionStarted(clazz)
+    }
+    catch (_: Throwable) {
+    }
+  }
+
+  private fun fireWriteIntentActionFinished(listener: WriteIntentReadActionListener?, clazz: Class<*>) {
+    try {
+      listener?.writeIntentReadActionFinished(clazz)
+    }
+    catch (_: Throwable) {
+    }
+  }
+
+  private fun afterWriteIntentReadActionFinished(listener: WriteIntentReadActionListener?, clazz: Class<*>) {
+    try {
+      listener?.afterWriteIntentReadActionFinished(clazz)
+    }
+    catch (_: Throwable) {
     }
   }
 
@@ -901,7 +946,7 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
   }
 
   private fun getReadPermit(lock: RWMutexIdea): ReadPermit {
-    return runSuspend {
+    return acquireReadLockWithCompensation {
       lock.acquireReadPermit(false)
     }
   }
@@ -912,17 +957,18 @@ internal object AnyThreadWriteThreadingSupport: ThreadingSupport {
 
   @Deprecated("")
   private class ReadAccessToken : AccessToken() {
+    private val capturedListener = myReadActionListener
     private val myPermit = run {
-      fireBeforeReadActionStart(javaClass)
+      fireBeforeReadActionStart(capturedListener, javaClass)
       val p = getReadPermit(lock)
-      fireReadActionStarted(javaClass)
+      fireReadActionStarted(capturedListener, javaClass)
       p
     }
 
     override fun finish() {
-      fireReadActionFinished(javaClass)
+      fireReadActionFinished(capturedListener, javaClass)
       myPermit.release()
-      fireAfterReadActionFinished(javaClass)
+      fireAfterReadActionFinished(capturedListener, javaClass)
     }
   }
 

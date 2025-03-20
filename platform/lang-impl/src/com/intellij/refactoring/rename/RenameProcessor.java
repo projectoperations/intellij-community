@@ -278,9 +278,10 @@ public class RenameProcessor extends BaseRefactoringProcessor {
   private void setNewName(@NotNull String newName) {
     myNewName = newName;
     myAllRenames.put(myPrimaryElement, newName);
-    myCommandName = RefactoringBundle
-      .message("renaming.0.1.to.2", UsageViewUtil.getType(myPrimaryElement), DescriptiveNameUtil.getDescriptiveName(myPrimaryElement),
-               newName);
+    myCommandName = RefactoringBundle.message("renaming.0.1.to.2",
+                                              UsageViewUtil.getType(myPrimaryElement),
+                                              DescriptiveNameUtil.getDescriptiveName(myPrimaryElement),
+                                              newName);
   }
 
   @Override
@@ -391,9 +392,9 @@ public class RenameProcessor extends BaseRefactoringProcessor {
       String newName = myAllRenames.get(element);
 
       final RefactoringElementListener elementListener = getTransaction().getElementListener(element);
-      final RenamePsiElementProcessor renamePsiElementProcessor = RenamePsiElementProcessor.forElement(element);
-      Runnable postRenameCallback = renamePsiElementProcessor.getPostRenameCallback(element, newName, elementListener);
       Collection<UsageInfo> infos = classified.get(element);
+      final RenamePsiElementProcessor renamePsiElementProcessor = RenamePsiElementProcessor.forElement(element);
+      Runnable postRenameCallback = renamePsiElementProcessor.getPostRenameCallback(element, newName, infos, myAllRenames, elementListener);
       try {
         RenameUtil.registerUndoableRename(element, elementListener);
         renamePsiElementProcessor.renameElement(element, newName, infos.toArray(UsageInfo.EMPTY_ARRAY), new RefactoringElementListener() {

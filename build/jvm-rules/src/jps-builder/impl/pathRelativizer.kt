@@ -1,3 +1,4 @@
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("UnstableApiUsage")
 
 package org.jetbrains.bazel.jvm.jps.impl
@@ -11,57 +12,70 @@ import java.nio.file.Path
 import kotlin.io.path.invariantSeparatorsPathString
 
 private const val BASE_ID_PREFIX = "#"
-private const val OUT_ID_PREFIX = "@"
 
-internal fun createPathRelativizer(baseDir: Path, classOutDir: Path): PathRelativizerService {
+internal class BazelPathTypeAwareRelativizer(
+  private val baseDir: Path,
+  private val baseDirPrefix: String,
+  private val baseDirParent: Path,
+  private val parentOfBaseDirPrefix: String,
+) : PathTypeAwareRelativizer {
+  @JvmField val sourceRelativizer = object : org.jetbrains.bazel.jvm.jps.state.PathRelativizer {
+    override fun toRelative(file: Path): String {
+      return sourcePathToRelative(file.invariantSeparatorsPathString)
+    }
+
+    override fun toAbsoluteFile(path: String): Path = sourceRelativePathToSourceFile(path)
+  }
+
+  private fun sourcePathToRelative(p: String): String {
+    return when {
+      p.startsWith(baseDirPrefix) -> p.substring(baseDirPrefix.length)
+      p.startsWith(parentOfBaseDirPrefix) -> "../" + p.substring(parentOfBaseDirPrefix.length)
+      else -> error("Unexpected path: $p (baseDirPrefix=$baseDirPrefix, parentOfBaseDirPrefix=$parentOfBaseDirPrefix)")
+    }
+  }
+
+  private fun sourceRelativePathToSourceFile(path: String): Path {
+    return if (path.startsWith("../")) baseDirParent.resolve(path.substring(3)) else baseDir.resolve(path)
+  }
+
+  override fun toRelative(path: String, type: RelativePathType): String {
+    val p = path.replace(File.separatorChar, '/')
+    when (type) {
+      RelativePathType.SOURCE -> return sourcePathToRelative(p)
+      RelativePathType.OUTPUT -> throw IllegalStateException("OUTPUT must be registered via raw API")
+    }
+  }
+
+  override fun toRelative(path: Path, type: RelativePathType): String {
+    return toRelative(path.invariantSeparatorsPathString, type)
+  }
+
+  override fun toAbsoluteFile(path: String, type: RelativePathType): Path {
+    return when (type) {
+      RelativePathType.SOURCE -> sourceRelativePathToSourceFile(path)
+      RelativePathType.OUTPUT -> Path.of(path)
+    }
+  }
+
+  override fun toAbsolute(path: String, type: RelativePathType): String {
+    return when (type) {
+      RelativePathType.SOURCE -> baseDirPrefix + path
+      RelativePathType.OUTPUT -> path
+    }
+  }
+}
+
+internal fun createPathRelativizer(baseDir: Path): PathRelativizerService {
   val baseDirPrefix = "${baseDir.invariantSeparatorsPathString}/"
   // Bazel may use paths with `../`
   val baseDirParent = baseDir.parent
   val parentOfBaseDirPrefix = "${baseDirParent.invariantSeparatorsPathString}/"
-  val outBaseDirPrefix = "${classOutDir.invariantSeparatorsPathString}/"
-
-  val typeAwareRelativizer = object : PathTypeAwareRelativizer {
-    override fun toRelative(path: String, type: RelativePathType): String {
-      val p = path.replace(File.separatorChar, '/')
-      when (type) {
-        RelativePathType.SOURCE -> {
-          return when {
-            p.startsWith(baseDirPrefix) -> p.substring(baseDirPrefix.length)
-            p.startsWith(parentOfBaseDirPrefix) -> "../" + p.substring(parentOfBaseDirPrefix.length)
-            else -> error("Unexpected path: $p (baseDirPrefix=$baseDirPrefix, parentOfBaseDirPrefix=$parentOfBaseDirPrefix)")
-          }
-        }
-        RelativePathType.OUTPUT -> {
-          require(p.startsWith(outBaseDirPrefix)) { "Unexpected path: $p" }
-          return p.substring(outBaseDirPrefix.length)
-        }
-      }
-    }
-
-    override fun toRelative(path: Path, type: RelativePathType): String {
-      return toRelative(path.invariantSeparatorsPathString, type)
-    }
-
-    override fun toAbsoluteFile(path: String, type: RelativePathType): Path {
-      return when (type) {
-        RelativePathType.SOURCE -> if (path.startsWith("../")) baseDirParent.resolve(path.substring(3)) else baseDir.resolve(path)
-        RelativePathType.OUTPUT -> classOutDir.resolve(path)
-      }
-    }
-
-    override fun toAbsolute(path: String, type: RelativePathType): String {
-      return when (type) {
-        RelativePathType.SOURCE -> baseDirPrefix + path
-        RelativePathType.OUTPUT -> outBaseDirPrefix + path
-      }
-    }
-  }
 
   return PathRelativizerService(arrayOf(object : PathRelativizer {
     override fun toRelativePath(path: String): String? {
       return when {
-        path.startsWith(outBaseDirPrefix) -> OUT_ID_PREFIX + path.substring(outBaseDirPrefix.length)
-        path.startsWith(parentOfBaseDirPrefix) -> OUT_ID_PREFIX + "../" + path.substring(parentOfBaseDirPrefix.length)
+        path.startsWith(parentOfBaseDirPrefix) -> BASE_ID_PREFIX + "../" + path.substring(parentOfBaseDirPrefix.length)
         path.startsWith(baseDirPrefix) -> BASE_ID_PREFIX + path.substring(baseDirPrefix.length)
         else -> null
       }
@@ -69,10 +83,14 @@ internal fun createPathRelativizer(baseDir: Path, classOutDir: Path): PathRelati
 
     override fun toAbsolutePath(path: String): String? {
       return when {
-        path.startsWith(OUT_ID_PREFIX) -> outBaseDirPrefix + path.substring(OUT_ID_PREFIX.length)
         path.startsWith(BASE_ID_PREFIX) -> baseDirPrefix + path.substring(BASE_ID_PREFIX.length)
         else -> null
       }
     }
-  }), typeAwareRelativizer)
+  }), BazelPathTypeAwareRelativizer(
+    baseDir = baseDir,
+    baseDirPrefix = baseDirPrefix,
+    baseDirParent = baseDirParent,
+    parentOfBaseDirPrefix = parentOfBaseDirPrefix,
+  ))
 }

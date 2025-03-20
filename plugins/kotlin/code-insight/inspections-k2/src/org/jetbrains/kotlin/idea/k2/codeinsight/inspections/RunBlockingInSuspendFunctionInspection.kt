@@ -21,9 +21,9 @@ import org.jetbrains.kotlin.idea.base.resources.BUNDLE
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinApplicableInspectionBase
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinModCommandQuickFix
+import org.jetbrains.kotlin.idea.codeinsight.utils.resolveExpression
 import org.jetbrains.kotlin.idea.codeinsights.impl.base.applicators.ApplicabilityRanges
 import org.jetbrains.kotlin.idea.k2.codeinsight.inspections.RunBlockingInSuspendFunctionInspection.Context
-import org.jetbrains.kotlin.idea.k2.codeinsight.quickFixes.createFromUsage.K2CreateFunctionFromUsageUtil.resolveExpression
 import org.jetbrains.kotlin.idea.refactoring.singleLambdaArgumentExpression
 import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.lexer.KtTokens
@@ -102,10 +102,10 @@ internal class RunBlockingInSuspendFunctionInspection : KotlinApplicableInspecti
         )
     }
 
-    override fun createQuickFixes(
+    override fun createQuickFix(
         element: KtCallExpression,
         context: Context,
-    ): Array<KotlinModCommandQuickFix<KtCallExpression>> = arrayOf(object : KotlinModCommandQuickFix<KtCallExpression>() {
+    ): KotlinModCommandQuickFix<KtCallExpression> = object : KotlinModCommandQuickFix<KtCallExpression>() {
         override fun getName(): String = KotlinBundle.message(context.fixType.key)
 
         override fun getFamilyName(): @IntentionFamilyName String = KotlinBundle.message("fix.replace.run.family")
@@ -148,7 +148,7 @@ internal class RunBlockingInSuspendFunctionInspection : KotlinApplicableInspecti
 
             callNameExpression.replace(psiFactory.createExpression(replacement))
         }
-    })
+    }
 }
 
 private fun KaSession.isRunBlocking(function: KaNamedFunctionSymbol): Boolean {

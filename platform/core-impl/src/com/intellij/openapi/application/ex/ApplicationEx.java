@@ -1,14 +1,15 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.application.ex;
 
-import com.intellij.openapi.application.Application;
-import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.Disposable;
+import com.intellij.openapi.application.*;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Conditions;
 import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.ThrowableComputable;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nls;
@@ -206,5 +207,31 @@ public interface ApplicationEx extends Application {
   @ApiStatus.Internal
   default void dispatchCoroutineOnEDT(Runnable runnable, ModalityState state) {
     invokeLater(runnable, state, Conditions.alwaysFalse());
+  }
+
+  @ApiStatus.Internal
+  default void addReadActionListener(@NotNull ReadActionListener listener, @NotNull Disposable parentDisposable) { }
+
+  @ApiStatus.Experimental
+  default void addWriteActionListener(@NotNull WriteActionListener listener, @NotNull Disposable parentDisposable) { }
+
+  @ApiStatus.Internal
+  default void addWriteIntentReadActionListener(@NotNull WriteIntentReadActionListener listener, @NotNull Disposable parentDisposable) { }
+
+  @ApiStatus.Internal
+  default void addLockAcquisitionListener(@NotNull LockAcquisitionListener listener, @NotNull Disposable parentDisposable) { }
+
+  @ApiStatus.Internal
+  @ApiStatus.Obsolete
+  default void addSuspendingWriteActionListener(@NotNull SuspendingWriteActionListener listener, @NotNull Disposable parentDisposable) { }
+
+  @ApiStatus.Internal
+  default void prohibitTakingLocksInsideAndRun(@NotNull Runnable runnable, boolean failSoftly, @NlsSafe String advice) {
+    runnable.run();
+  }
+
+  @ApiStatus.Internal
+  default void allowTakingLocksInsideAndRun(@NotNull Runnable runnable) {
+    runnable.run();
   }
 }

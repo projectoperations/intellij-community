@@ -3,6 +3,8 @@ package com.intellij.core;
 
 import com.intellij.DynamicBundle;
 import com.intellij.codeInsight.folding.CodeFoldingSettings;
+import com.intellij.codeInsight.multiverse.CodeInsightContextProvider;
+import com.intellij.codeInsight.multiverse.MultiverseEnabler;
 import com.intellij.concurrency.JobLauncher;
 import com.intellij.ide.plugins.IdeaPluginDescriptorImpl;
 import com.intellij.ide.plugins.PluginDescriptorLoader;
@@ -27,6 +29,7 @@ import com.intellij.openapi.extensions.impl.ExtensionsAreaImpl;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.FileTypeExtension;
+import com.intellij.openapi.fileTypes.FileTypeRegistry;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.impl.CoreProgressManager;
 import com.intellij.openapi.util.ClassExtension;
@@ -80,12 +83,10 @@ public class CoreApplicationEnvironment {
 
     PluginEnabler.HEADLESS.setIgnoredDisabledPlugins(true);
 
+    application = createApplication(parentDisposable);
+    ApplicationManager.setApplication(application, parentDisposable);
     myFileTypeRegistry = new CoreFileTypeRegistry();
-
-    application = createApplication(myParentDisposable);
-    ApplicationManager.setApplication(application,
-                                      () -> myFileTypeRegistry,
-                                      myParentDisposable);
+    FileTypeRegistry.setInstanceSupplier(() -> myFileTypeRegistry, parentDisposable);
     myLocalFileSystem = createLocalFileSystem();
     myJarFileSystem = createJarFileSystem();
     myJrtFileSystem = createJrtFileSystem();
@@ -100,6 +101,9 @@ public class CoreApplicationEnvironment {
 
     // fake EP for cleaning resources after area disposing (otherwise KeyedExtensionCollector listener will be copied to the next area)
     registerApplicationExtensionPoint(new ExtensionPointName<>("com.intellij.virtualFileSystem"), KeyedLazyInstanceEP.class);
+
+    registerApplicationExtensionPoint(new ExtensionPointName<>("com.intellij.multiverseEnabler"), MultiverseEnabler.class);
+    registerApplicationExtensionPoint(new ExtensionPointName<>("com.intellij.multiverse.codeInsightContextProvider"), CodeInsightContextProvider.class);
 
     registerApplicationService(EncodingManager.class, new CoreEncodingRegistry());
     registerApplicationService(VirtualFilePointerManager.class, createVirtualFilePointerManager());
@@ -244,7 +248,7 @@ public class CoreApplicationEnvironment {
       return;
     }
 
-    List<ExtensionPointDescriptor> extensionPoints = descriptor.appContainerDescriptor.extensionPoints;
+    List<ExtensionPointDescriptor> extensionPoints = descriptor.appContainerDescriptor.getExtensionPoints();
     ExtensionsAreaImpl areaImpl = (ExtensionsAreaImpl)area;
     if (!extensionPoints.isEmpty()) {
       areaImpl.registerExtensionPoints(extensionPoints, descriptor);

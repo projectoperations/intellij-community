@@ -2238,6 +2238,11 @@ public abstract class K2JvmBasicCompletionTestGenerated extends AbstractK2JvmBas
                 runTest("../../completion/testData/basic/common/primaryConstructor/KTIJ-30490.kt");
             }
 
+            @TestMetadata("Modifier.kt")
+            public void testModifier() throws Exception {
+                runTest("../../completion/testData/basic/common/primaryConstructor/Modifier.kt");
+            }
+
             @TestMetadata("parameterDefaultValue.kt")
             public void testParameterDefaultValue() throws Exception {
                 runTest("../../completion/testData/basic/common/primaryConstructor/parameterDefaultValue.kt");
@@ -2380,11 +2385,6 @@ public abstract class K2JvmBasicCompletionTestGenerated extends AbstractK2JvmBas
             @TestMetadata("noCompletionAfterNumberLiteral1.kt")
             public void testNoCompletionAfterNumberLiteral1() throws Exception {
                 runTest("../../completion/testData/basic/common/primitiveCompletion/noCompletionAfterNumberLiteral1.kt");
-            }
-
-            @TestMetadata("noCompletionAfterNumberLiteral2.kt")
-            public void testNoCompletionAfterNumberLiteral2() throws Exception {
-                runTest("../../completion/testData/basic/common/primitiveCompletion/noCompletionAfterNumberLiteral2.kt");
             }
 
             @TestMetadata("nullableCompletion.kt")
@@ -2939,6 +2939,16 @@ public abstract class K2JvmBasicCompletionTestGenerated extends AbstractK2JvmBas
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
 
+            @TestMetadata("AbsentReceiver1.kt")
+            public void testAbsentReceiver1() throws Exception {
+                runTest("../../completion/testData/basic/common/AbsentReceiver1.kt");
+            }
+
+            @TestMetadata("AbsentReceiver2.kt")
+            public void testAbsentReceiver2() throws Exception {
+                runTest("../../completion/testData/basic/common/AbsentReceiver2.kt");
+            }
+
             @TestMetadata("AfterFloatOnNewLine.kt")
             public void testAfterFloatOnNewLine() throws Exception {
                 runTest("../../completion/testData/basic/common/AfterFloatOnNewLine.kt");
@@ -3042,6 +3052,11 @@ public abstract class K2JvmBasicCompletionTestGenerated extends AbstractK2JvmBas
             @TestMetadata("DataClassMembers2.kt")
             public void testDataClassMembers2() throws Exception {
                 runTest("../../completion/testData/basic/common/DataClassMembers2.kt");
+            }
+
+            @TestMetadata("DoWhile.kt")
+            public void testDoWhile() throws Exception {
+                runTest("../../completion/testData/basic/common/DoWhile.kt");
             }
 
             @TestMetadata("EnumEntriesInsideAbsentWhenFeatureDisabled.kt")
@@ -3389,6 +3404,11 @@ public abstract class K2JvmBasicCompletionTestGenerated extends AbstractK2JvmBas
                 runTest("../../completion/testData/basic/common/InsideAnonymousClass.kt");
             }
 
+            @TestMetadata("InsideAnonymousObject.kt")
+            public void testInsideAnonymousObject() throws Exception {
+                runTest("../../completion/testData/basic/common/InsideAnonymousObject.kt");
+            }
+
             @TestMetadata("InterfaceNameBeforeRunBug.kt")
             public void testInterfaceNameBeforeRunBug() throws Exception {
                 runTest("../../completion/testData/basic/common/InterfaceNameBeforeRunBug.kt");
@@ -3437,6 +3457,11 @@ public abstract class K2JvmBasicCompletionTestGenerated extends AbstractK2JvmBas
             @TestMetadata("KTIJ-26747.kt")
             public void testKTIJ_26747() throws Exception {
                 runTest("../../completion/testData/basic/common/KTIJ-26747.kt");
+            }
+
+            @TestMetadata("KTIJ-28837.kt")
+            public void testKTIJ_28837() throws Exception {
+                runTest("../../completion/testData/basic/common/KTIJ-28837.kt");
             }
 
             @TestMetadata("KTIJ-28919.kt")
@@ -3964,6 +3989,11 @@ public abstract class K2JvmBasicCompletionTestGenerated extends AbstractK2JvmBas
             @TestMetadata("enumInWhenWithPackage.kt")
             public void testEnumInWhenWithPackage() throws Exception {
                 runTest("../../completion/testData/basic/common/when/enumInWhenWithPackage.kt");
+            }
+
+            @TestMetadata("InnerSealedClassInWhen.kt")
+            public void testInnerSealedClassInWhen() throws Exception {
+                runTest("../../completion/testData/basic/common/when/InnerSealedClassInWhen.kt");
             }
 
             @TestMetadata("nestedSealedClassInWhen.kt")

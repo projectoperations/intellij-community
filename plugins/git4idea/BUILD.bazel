@@ -4,7 +4,6 @@ load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources", "jvm_test")
 
 create_kotlinc_options(
   name = "custom",
-  jvm_target = 17,
   opt_in = ["kotlin.RequiresOptIn"]
 )
 
@@ -18,6 +17,12 @@ jvm_resources(
   name = "vcs-git_resources_1",
   files = glob(["compatibilityResources/**/*"]),
   strip_prefix = "compatibilityResources"
+)
+
+jvm_resources(
+  name = "vcs-git_test_resources",
+  files = glob(["testResources/**/*"]),
+  strip_prefix = "testResources"
 )
 
 jvm_library(
@@ -80,6 +85,12 @@ jvm_library(
     "//plugins/terminal/completion",
     "@lib//:http-client",
     "//platform/platform-impl/ui:ide-ui",
+    "//platform/dvcs-impl/shared:vcs-dvcs-impl-shared",
+    "//plugins/git4idea/shared:vcs-git-shared",
+    "//plugins/git4idea/frontend:vcs-git-frontend",
+    "//platform/kernel/backend",
+    "//platform/platform-impl/rpc:ide-rpc",
+    "//platform/project/shared:project",
   ],
   exports = [
     "//platform/dvcs-api:vcs-dvcs",
@@ -178,10 +189,18 @@ jvm_library(
     "//plugins/terminal/completion:completion_test_lib",
     "@lib//:http-client",
     "//platform/platform-impl/ui:ide-ui",
+    "//platform/dvcs-impl/shared:vcs-dvcs-impl-shared",
+    "//plugins/git4idea/shared:vcs-git-shared",
+    "//plugins/git4idea/frontend:vcs-git-frontend",
+    "//platform/kernel/backend",
+    "//platform/platform-impl/rpc:ide-rpc",
+    "//platform/project/shared:project",
+    "//platform/testFramework/extensions:testExtensions",
   ],
   runtime_deps = [
     ":vcs-git_resources",
     ":vcs-git_resources_1",
+    ":vcs-git_test_resources",
   ]
 )
 

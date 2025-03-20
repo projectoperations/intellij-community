@@ -10,11 +10,10 @@ import com.intellij.openapi.util.ThrowableComputable;
 import com.intellij.util.ThrowableRunnable;
 import com.intellij.util.concurrency.ThreadingAssertions;
 import com.intellij.util.concurrency.annotations.*;
+import kotlin.Pair;
 import kotlin.coroutines.CoroutineContext;
 import kotlin.coroutines.EmptyCoroutineContext;
-import org.jetbrains.annotations.ApiStatus;
-import org.jetbrains.annotations.Contract;
-import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.*;
 
 import java.awt.*;
 import java.util.concurrent.Callable;
@@ -160,7 +159,7 @@ public interface Application extends ComponentManager {
    * See also {@link WriteAction#run} for a more lambda-friendly version.
    *
    * @param action the action to run
-   * @see CoroutinesKt#writeAction
+   * @see CoroutinesKt#edtWriteAction
    */
   @RequiresBlockingContext
   void runWriteAction(@NotNull Runnable action);
@@ -174,7 +173,7 @@ public interface Application extends ComponentManager {
    *
    * @param computation the computation to run
    * @return the result returned by the computation.
-   * @see CoroutinesKt#writeAction
+   * @see CoroutinesKt#edtWriteAction
    */
   @SuppressWarnings("LambdaUnfriendlyMethodOverload")
   @RequiresBlockingContext
@@ -190,7 +189,7 @@ public interface Application extends ComponentManager {
    * @param computation the computation to run
    * @return the result returned by the computation.
    * @throws E re-frown from ThrowableComputable
-   * @see CoroutinesKt#writeAction
+   * @see CoroutinesKt#edtWriteAction
    */
   @SuppressWarnings("LambdaUnfriendlyMethodOverload")
   @RequiresBlockingContext
@@ -687,18 +686,27 @@ public interface Application extends ComponentManager {
 
   @ApiStatus.Experimental
   @ApiStatus.Internal
-  default CoroutineContext getLockStateAsCoroutineContext(boolean shared) {
-    return EmptyCoroutineContext.INSTANCE;
+  default Pair<CoroutineContext, AccessToken> getLockStateAsCoroutineContext(CoroutineContext context, boolean shared) {
+    return new Pair<>(EmptyCoroutineContext.INSTANCE, AccessToken.EMPTY_ACCESS_TOKEN);
   }
 
   @ApiStatus.Experimental
   @ApiStatus.Internal
-  default void returnPermitFromContextElement(CoroutineContext ctx) {
-  }
-
-  @ApiStatus.Experimental
-  @ApiStatus.Internal
-  default boolean hasLockStateInContext(CoroutineContext context) {
+  default boolean isParallelizedReadAction(CoroutineContext context) {
     return false;
+  }
+
+  /**
+   * TODO: IJPL-177760 We need to revoke read access from a runnable properly
+   */
+  @ApiStatus.Internal
+  @ApiStatus.Obsolete
+  default boolean isTopmostReadAccessAllowed() {
+    return isReadAccessAllowed();
+  }
+
+  @ApiStatus.Internal
+  default @NonNls @Nullable String isLockingProhibited() {
+    return null;
   }
 }

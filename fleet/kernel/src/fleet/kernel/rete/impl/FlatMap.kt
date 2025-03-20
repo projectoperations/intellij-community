@@ -5,20 +5,11 @@ import com.jetbrains.rhizomedb.DbContext
 import com.jetbrains.rhizomedb.Q
 import com.jetbrains.rhizomedb.ReadTrackingContext
 import com.jetbrains.rhizomedb.withReadTrackingContext
-import fleet.kernel.rete.*
-import fleet.preferences.FleetFromSourcesPaths
-import fleet.preferences.isFleetTestMode
-import fleet.util.logging.logger
 import fleet.fastutil.longs.LongOpenHashSet
 import fleet.fastutil.longs.LongSet
+import fleet.kernel.rete.*
 
-private object FlatMap {
-  val logger = logger<FlatMap>()
-}
-
-private val assertionsEnabled = FleetFromSourcesPaths.isRunningFromSources || isFleetTestMode
-
-internal fun <T, U> SubscriptionScope.flatMap(producer: Producer<T>, f: (Match<T>) -> Set<U>): Producer<U> {
+internal fun <T, U> QueryScope.flatMap(producer: Producer<T>, f: (Match<T>) -> Set<U>): Producer<U> {
   data class MatchInfo(
     val matches: AdaptiveMap<U, Match<U>>,
     val subscription: Subscription,
@@ -40,18 +31,12 @@ internal fun <T, U> SubscriptionScope.flatMap(producer: Producer<T>, f: (Match<T
       }
       true -> {
         val (us, patterns) = trackReads { f(input) }
-        if (assertionsEnabled) {
+        if (performAdditionalChecks) {
           val us2 = f(input)
           val funIsPure = us.size == us2.size && us.all { it in us2 }
-          //          check(funIsPure) {
-          //            "Function ${f::class} produces different results on the same input, this will lead to bugs in production\n" +
-          //            "first invocation: $us, second: $us2"
-          //          }
-          if (!funIsPure) {
-            FlatMap.logger.warn(Throwable()) {
-              "Function ${f::class} produces different results on the same input, this will lead to bugs in production\n" +
-              "first invocation: $us, second: $us2"
-            }
+          check(funIsPure) {
+            "Function ${f::class} produces different results on the same input, this will lead to bugs in production\n" +
+            "first invocation: $us, second: $us2"
           }
         }
         val matches = adaptiveMapOf<U, Match<U>>()

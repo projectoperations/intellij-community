@@ -6,6 +6,7 @@ import com.intellij.codeInsight.daemon.impl.HighlightInfoType
 import com.intellij.codeInsight.daemon.impl.analysis.HighlightInfoHolder
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.util.PsiTreeUtil
+import com.intellij.psi.util.parentOfType
 import com.intellij.psi.util.parentOfTypes
 import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.psi.*
@@ -36,7 +37,13 @@ internal class TypeKindHighlightingVisitor(holder: HighlightInfoHolder, bindingC
         val key = attributeKeyForObjectAccess(expression) ?: calculateDeclarationReferenceAttributes(referenceTarget) ?: return
         if (key != KotlinHighlightInfoTypeSemanticNames.ANNOTATION
             || parent?.parentOfTypes(KtImportDirective::class, KtPackageDirective::class, KtTypeAlias::class) != null) { // annotation was highlighted in AnnoEntryHighVisitor
-            highlightName(expression.project, textRange, key)
+            val parentAnno = PsiTreeUtil.getParentOfType(
+                expression, KtAnnotationEntry::class.java, /* strict = */false, KtValueArgumentList::class.java
+            )
+            val toHighlight = parentAnno ?: expression
+            if (toHighlight !is KtAnnotationEntry) {
+                highlightName(expression.project, toHighlight, textRange, key)
+            }
         }
     }
 

@@ -10,6 +10,7 @@ import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.module.Module;
+import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
@@ -41,6 +42,10 @@ public abstract class CreateTemplateInPackageAction<T extends PsiElement> extend
   public static final String JAVA_NEW_FILE_CATEGORY = "Java";
 
   private final @Nullable Set<? extends JpsModuleSourceRootType<?>> mySourceRootTypes;
+
+  protected CreateTemplateInPackageAction(@Nullable Set<? extends JpsModuleSourceRootType<?>> sourceRootTypes) {
+    mySourceRootTypes = sourceRootTypes;
+  }
 
   protected CreateTemplateInPackageAction(String text, String description, Icon icon,
                                           Set<? extends JpsModuleSourceRootType<?>> rootTypes) {
@@ -89,7 +94,7 @@ public abstract class CreateTemplateInPackageAction<T extends PsiElement> extend
   }
 
   @Override
-  protected boolean isAvailable(final DataContext dataContext) {
+  protected boolean isAvailable(@NotNull DataContext dataContext) {
     return isAvailable(dataContext, mySourceRootTypes, this::checkPackageExists);
   }
 
@@ -144,7 +149,18 @@ public abstract class CreateTemplateInPackageAction<T extends PsiElement> extend
   }
 
   public static boolean isInContentRoot(VirtualFile file, ProjectFileIndex index) {
-    return file.equals(index.getContentRootForFile(file));
+    return file.equals(index.getContentRootForFile(file)) &&
+           projectHasNoSourceRoots(file, index);
+  }
+
+  private static boolean projectHasNoSourceRoots(VirtualFile file, ProjectFileIndex index) {
+    Module module = index.getModuleForFile(file);
+    if (module != null) {
+      return ContainerUtil.or(ModuleManager.getInstance(module.getProject()).getModules(), m -> {
+        return ModuleRootManager.getInstance(module).getSourceRoots().length > 0;
+      });
+    }
+    return false;
   }
 
   protected abstract boolean checkPackageExists(PsiDirectory directory);

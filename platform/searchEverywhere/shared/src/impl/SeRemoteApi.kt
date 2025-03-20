@@ -1,6 +1,7 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.searchEverywhere.impl
 
+import com.intellij.ide.rpc.DataContextId
 import com.intellij.platform.project.ProjectId
 import com.intellij.platform.rpc.RemoteApiProviderService
 import com.intellij.platform.searchEverywhere.SeItemData
@@ -20,7 +21,8 @@ interface SeRemoteApi: RemoteApi<Unit> {
   suspend fun getItems(projectId: ProjectId,
                        sessionRef: DurableRef<SeSessionEntity>,
                        providerId: SeProviderId,
-                       params: SeParams): Flow<SeItemData>
+                       params: SeParams,
+                       dataContextId: DataContextId?): Flow<SeItemData>
 
   suspend fun itemSelected(projectId: ProjectId,
                            sessionRef: DurableRef<SeSessionEntity>,

@@ -1,6 +1,12 @@
 ### auto-generated section `build intellij.devkit.java.tests` start
 load("@rules_java//java:defs.bzl", "java_library")
-load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_test")
+load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources", "jvm_test")
+
+jvm_resources(
+  name = "java-tests_test_resources",
+  files = glob(["testData/**/*"]),
+  strip_prefix = "testData"
+)
 
 java_library(
   name = "java-tests",
@@ -33,9 +39,9 @@ jvm_library(
     "//java/compiler:compiler-tests_test_lib",
     "//java/testFramework",
     "//xml/dom-tests:dom-tests_test_lib",
-    "//plugins/properties",
+    "//plugins/properties:properties-backend",
     "//platform/core-ui",
-    "//plugins/properties/properties-psi-impl:psi-impl",
+    "//plugins/properties/properties-psi-impl:backend-psi",
     "//plugins/devkit/intellij.devkit.themes:themes",
     "//plugins/devkit/intellij.devkit.themes:themes_test_lib",
     "//platform/platform-util-io:ide-util-io",
@@ -50,8 +56,12 @@ jvm_library(
     "//plugins/kotlin/base/test:kotlin-base-test_test_lib",
     "//plugins/kotlin/base/plugin:kotlin-base-plugin",
     "//plugins/kotlin/base/plugin:kotlin-base-plugin_test_lib",
+    "//java/codeserver/highlighting:java-codeserver-highlighting",
   ],
-  runtime_deps = ["//plugins/devkit/intellij.devkit:devkit"]
+  runtime_deps = [
+    ":java-tests_test_resources",
+    "//plugins/devkit/intellij.devkit:devkit",
+  ]
 )
 
 jvm_test(

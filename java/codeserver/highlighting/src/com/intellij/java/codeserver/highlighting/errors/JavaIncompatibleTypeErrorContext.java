@@ -9,7 +9,6 @@ import com.intellij.openapi.util.text.HtmlChunk;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.psi.util.TypeConversionUtil;
-import com.intellij.xml.util.XmlStringUtil;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -49,27 +48,23 @@ public record JavaIncompatibleTypeErrorContext(@NotNull PsiType lType, @Nullable
   }
 
   @NotNull HtmlChunk createTooltip() {
-    return createTooltip(
-      reasonForIncompatibleTypes == null ? getReasonForIncompatibleTypes() : XmlStringUtil.escapeString(reasonForIncompatibleTypes));
-  }
-
-  private @NotNull HtmlChunk createTooltip(@NotNull @Nls String reason) {
+    String reason = reasonForIncompatibleTypes == null ? getReasonForIncompatibleTypes() : reasonForIncompatibleTypes;
     HtmlChunk styledReason = reason.isEmpty() ? empty() :
                              tag("table").child(
                                tag("tr").child(
-                                 tag("td").style("padding-top: 10px; padding-left: 4px;").addRaw(reason)));
+                                 tag("td").style("padding-top: 10px; padding-left: 4px;").addText(reason)));
     IncompatibleTypesTooltipComposer tooltipComposer = (lTypeString, lTypeArguments, rTypeString, rTypeArguments) ->
       createRequiredProvidedTypeMessage(lTypeString, lTypeArguments, rTypeString, rTypeArguments, styledReason);
     return createIncompatibleTypesTooltip(tooltipComposer);
   }
 
-  @NotNull HtmlChunk createDescription() {
+  @NotNull @Nls String createDescription() {
     PsiType baseLType = PsiUtil.convertAnonymousToBaseType(lType);
     PsiType baseRType = rType == null ? null : PsiUtil.convertAnonymousToBaseType(rType);
     boolean leftAnonymous = PsiUtil.resolveClassInClassTypeOnly(lType) instanceof PsiAnonymousClass;
     String lTypeString = JavaErrorFormatUtil.formatType(leftAnonymous ? lType : baseLType);
     String rTypeString = JavaErrorFormatUtil.formatType(leftAnonymous ? rType : baseRType);
-    return raw(JavaCompilationErrorBundle.message("type.incompatible", lTypeString, rTypeString));
+    return JavaCompilationErrorBundle.message("type.incompatible", lTypeString, rTypeString);
   }
 
   static @NotNull HtmlChunk createRequiredProvidedTypeMessage(@NotNull HtmlChunk lType,

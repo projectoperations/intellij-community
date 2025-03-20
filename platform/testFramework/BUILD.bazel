@@ -1,10 +1,27 @@
 ### auto-generated section `build intellij.platform.testFramework` start
-load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources", "jvm_test")
+load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_provided_library", "jvm_resources", "jvm_test")
 
 jvm_resources(
   name = "testFramework_resources",
   files = glob(["resources/**/*"]),
   strip_prefix = "resources"
+)
+
+jvm_resources(
+  name = "testFramework_test_resources",
+  files = glob(["testData/**/*"]),
+  strip_prefix = "testData"
+)
+
+jvm_resources(
+  name = "testFramework_test_resources_1",
+  files = glob(["testResources/**/*"]),
+  strip_prefix = "testResources"
+)
+
+jvm_provided_library(
+  name = "junit4_provided",
+  lib = "//libraries/junit4"
 )
 
 jvm_library(
@@ -19,7 +36,6 @@ jvm_library(
     "//platform/execution-impl",
     "//platform/editor-ui-ex:editor-ex",
     "//platform/indexing-impl",
-    "@lib//:junit4",
     "//platform/usageView",
     "//platform/ide-core-impl",
     "//platform/refactoring",
@@ -52,10 +68,12 @@ jvm_library(
     "//platform/util/coroutines",
     "@lib//:assert_j",
     "//platform/todo",
+    "//platform/syntax/syntax-api:syntax",
+    ":junit4_provided",
   ],
   exports = [
     "//platform/execution-impl",
-    "@lib//:junit4",
+    "//libraries/junit4",
     "//platform/ide-core-impl",
     "//platform/platform-impl:ide-impl",
     "@lib//:jet_check",
@@ -86,7 +104,7 @@ jvm_library(
     "//platform/execution-impl",
     "//platform/editor-ui-ex:editor-ex",
     "//platform/indexing-impl",
-    "@lib//:junit4",
+    "//libraries/junit4",
     "//platform/usageView",
     "//platform/ide-core-impl",
     "//platform/refactoring",
@@ -130,8 +148,14 @@ jvm_library(
     "//platform/testFramework/junit5",
     "//platform/testFramework/junit5:junit5_test_lib",
     "//platform/todo",
+    "//platform/syntax/syntax-api:syntax",
+    "//platform/syntax/syntax-api:syntax_test_lib",
   ],
-  runtime_deps = [":testFramework_resources"]
+  runtime_deps = [
+    ":testFramework_resources",
+    ":testFramework_test_resources",
+    ":testFramework_test_resources_1",
+  ]
 )
 
 jvm_test(

@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:JvmName("JarBuilder")
 @file:Suppress("ReplaceJavaStaticMethodWithKotlinAnalog")
 
@@ -102,7 +102,7 @@ private suspend fun writeSource(
   when (source) {
     is DirSource -> {
       val includeManifest = sources.size == 1
-      val archiver = ZipArchiver(zipCreator = zipCreator, fileAdded = { name, file ->
+      val archiver = ZipArchiver(fileAdded = { name, file ->
         if (name == listOfEntitiesFileName) {
           filesToMerge.add(Files.readString(file))
           false
@@ -120,7 +120,7 @@ private suspend fun writeSource(
       indexWriter
       archiveDir(
         startDir = normalizedDir,
-        addFile = { archiver.addFile(it)},
+        addFile = { archiver.addFile(it, zipCreator) },
         excludes = source.excludes.takeIf(List<PathMatcher>::isNotEmpty)
       )
     }
@@ -332,12 +332,10 @@ private fun getIgnoredNames(): Set<String> {
   // compilation cache on TC
   set.add(".hash")
   set.add("classpath.index")
-  @Suppress("SpellCheckingInspection")
   set.add(".gitattributes")
   set.add("pom.xml")
   set.add("about.html")
   set.add("module-info.class")
-  set.add("META-INF/versions/9/module-info.class")
   // default is ok (modules not used)
   set.add("META-INF/versions/9/kotlin/reflect/jvm/internal/impl/serialization/deserialization/builtins/BuiltInsResourceLoader.class")
   set.add("META-INF/versions/9/org/apache/xmlbeans/impl/tool/MavenPluginResolver.class")
@@ -386,15 +384,17 @@ private fun getIgnoredNames(): Set<String> {
    * merging build politic breaks Graal VM Truffle-based plugins in an inconsistant way, so it's better
    * to provide a correctly merged version in plugin.
    */
-  set.add("META-INF/services/com.oracle.truffle.api.TruffleLanguage${'$'}Provider")
+  set.add("META-INF/services/com.oracle.truffle.api.provider.TruffleLanguageProvider")
   return java.util.Set.copyOf(set)
 }
 
 private val ignoredNames = getIgnoredNames()
+private val moduleInfoPattern = Regex("META-INF/versions/\\d+/module-info\\.class")
 
 fun defaultLibrarySourcesNamesFilter(name: String): Boolean {
   @Suppress("SpellCheckingInspection")
   return !ignoredNames.contains(name) &&
+         !name.matches(moduleInfoPattern) &&
          !name.endsWith(".kotlin_metadata") &&
          !name.startsWith("license/") &&
          !name.startsWith("META-INF/license/") &&

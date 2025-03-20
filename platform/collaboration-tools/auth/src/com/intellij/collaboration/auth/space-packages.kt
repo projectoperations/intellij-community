@@ -13,7 +13,6 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.jvm.optionals.getOrNull
 
 private val spacePackagePathRegex = Regex(".*/p/(?<project>[\\w-]+)/(?<repository>[\\w-]+)")
 
@@ -24,9 +23,14 @@ suspend fun isSpacePrivatePackageUrl(url: String): Boolean {
     // don't do request if fast check returned false
     return false
   }
-  val parsedUrl = URL(url)
-  return (parsedUrl.host.endsWith(".jetbrains.team") || parsedUrl.host.endsWith(".jetbrains.space")) &&
-         serviceAsync<SpacePackagesCheckerService>().isSpacePrivatePackageUrl(url)
+  try {
+    val parsedUrl = URL(url)
+    return (parsedUrl.host.endsWith(".jetbrains.team") || parsedUrl.host.endsWith(".jetbrains.space")) &&
+           serviceAsync<SpacePackagesCheckerService>().isSpacePrivatePackageUrl(url)
+  }
+  catch (e: Exception) {
+    return false
+  }
 }
 
 @ApiStatus.Internal

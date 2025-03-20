@@ -30,7 +30,10 @@ import com.intellij.execution.CantRunException;
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.ExecutionResult;
 import com.intellij.execution.configurations.RemoteConnection;
-import com.intellij.execution.process.*;
+import com.intellij.execution.process.ProcessEvent;
+import com.intellij.execution.process.ProcessHandler;
+import com.intellij.execution.process.ProcessListener;
+import com.intellij.execution.process.ProcessOutputTypes;
 import com.intellij.execution.runners.ExecutionUtil;
 import com.intellij.idea.ActionsBundle;
 import com.intellij.openapi.Disposable;
@@ -176,9 +179,9 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     NodeRendererSettings.getInstance().addListener(this::reloadRenderers, disposable);
     NodeRenderer.EP_NAME.addChangeListener(this::reloadRenderers, disposable);
     CompoundRendererProvider.EP_NAME.addChangeListener(this::reloadRenderers, disposable);
-    addDebugProcessListener(new DebugProcessAdapterImpl() {
+    addDebugProcessListener(new DebugProcessListener() {
       @Override
-      public void processAttached(DebugProcessImpl process) {
+      public void processAttached(@NotNull DebugProcess process) {
         reloadRenderers();
       }
     }, disposable);
@@ -205,7 +208,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
 
   private DebuggerManagerThreadImpl createManagerThread() {
     CoroutineScope projectScope = ((XDebuggerManagerImpl)XDebuggerManager.getInstance(project)).getCoroutineScope();
-    return new DebuggerManagerThreadImpl(disposable, projectScope);
+    return new DebuggerManagerThreadImpl(disposable, projectScope, this);
   }
 
   private void reloadRenderers() {
@@ -774,12 +777,12 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
           .sorted(Comparator.comparing(sdk -> !(sdk.getSdkType() instanceof JavaSdk))) // prefer regular jdks
           .filter(sdk -> versionMatch(sdk, version))
           .findFirst().ifPresent(sdk -> {
-            XDebuggerManagerImpl.getNotificationGroup().createNotification(
+            LOG.info(
               JavaDebuggerBundle.message("message.remote.jre.version.mismatch",
                                          versionString,
                                          runjre != null ? runjre.getVersionString() : "unknown",
                                          sdk.getName())
-              , MessageType.INFO).notify(project);
+            );
             getSession().setAlternativeJre(sdk);
           });
       }
@@ -980,7 +983,6 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
           myReturnValueWatcher = null;
           myNodeRenderersMap.clear();
           myRenderers.clear();
-          DebuggerUtils.cleanupAfterProcessFinish(this);
           myState.compareAndSet(State.DETACHING, State.DETACHED);
           try {
             forEachSafe(myDebugProcessListeners, it -> it.processDetached(this, closedByUser));
@@ -2636,7 +2638,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
   }
 
   private void afterProcessStarted(final Runnable run) {
-    class MyProcessAdapter extends ProcessAdapter {
+    class MyProcessAdapter implements ProcessListener {
       private boolean alreadyRun = false;
 
       public synchronized void run() {
@@ -2802,6 +2804,13 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
   public boolean isEvaluationPossible() {
     return getSuspendManager().getPausedContext() != null
            || DebuggerImplicitEvaluationContextUtil.getImplicitEvaluationThread(this) != null;
+  }
+
+  public static boolean isInSuspendCommand(SuspendContextImpl suspendContext) {
+    DebuggerManagerThreadImpl.assertIsManagerThread();
+    DebuggerCommandImpl command = DebuggerManagerThreadImpl.getCurrentCommand();
+    return command instanceof SuspendContextCommandImpl suspendContextCommand
+           && suspendContextCommand.getSuspendContext() == suspendContext;
   }
 
   public boolean isEvaluationPossible(SuspendContextImpl suspendContext) {

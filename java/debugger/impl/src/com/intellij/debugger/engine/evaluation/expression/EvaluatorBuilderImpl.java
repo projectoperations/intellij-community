@@ -20,6 +20,7 @@ import com.intellij.debugger.impl.DebuggerUtilsEx;
 import com.intellij.ide.highlighter.JavaFileType;
 import com.intellij.java.codeserver.highlighting.JavaErrorCollector;
 import com.intellij.java.codeserver.highlighting.errors.JavaCompilationError;
+import com.intellij.java.codeserver.highlighting.errors.JavaErrorKinds;
 import com.intellij.lang.java.parser.BasicExpressionParser;
 import com.intellij.lang.jvm.JvmModifier;
 import com.intellij.openapi.diagnostic.Logger;
@@ -193,7 +194,7 @@ public final class EvaluatorBuilderImpl implements EvaluatorBuilder {
     @Override
     public void visitTryStatement(@NotNull PsiTryStatement statement) {
       if (statement.getResourceList() != null) {
-        throw unsupportedExpression("Try with resources is not yet supported");
+        throw unsupportedExpression("'try-with-resources' statement is not supported");
       }
       Evaluator bodyEvaluator = accept(statement.getTryBlock());
       if (bodyEvaluator != null) {
@@ -243,7 +244,7 @@ public final class EvaluatorBuilderImpl implements EvaluatorBuilder {
 
     @Override
     public void visitSynchronizedStatement(@NotNull PsiSynchronizedStatement statement) {
-      throw unsupportedExpression("Synchronized is not yet supported");
+      throw unsupportedExpression("'synchronized' statement is not supported");
     }
 
     @Override
@@ -707,10 +708,8 @@ public final class EvaluatorBuilderImpl implements EvaluatorBuilder {
 
       PsiElement[] declaredElements = statement.getDeclaredElements();
       for (PsiElement declaredElement : declaredElements) {
-        if (declaredElement instanceof PsiLocalVariable) {
+        if (declaredElement instanceof PsiLocalVariable localVariable) {
           if (myCurrentFragmentEvaluator != null) {
-            final PsiLocalVariable localVariable = (PsiLocalVariable)declaredElement;
-
             final PsiType lType = localVariable.getType();
 
             PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(localVariable.getProject());
@@ -776,6 +775,9 @@ public final class EvaluatorBuilderImpl implements EvaluatorBuilder {
         LOG.debug("visitConditionalExpression " + expression);
       }
       final PsiType expectedType = expression.getType();
+      if (expectedType == null) {
+        throw evaluateException(JavaDebuggerBundle.message("evaluation.error.unknown.expression.type", expression.getText()));
+      }
       final PsiExpression thenExpression = expression.getThenExpression();
       final PsiExpression elseExpression = expression.getElseExpression();
       if (thenExpression == null || elseExpression == null) {
@@ -1126,6 +1128,11 @@ public final class EvaluatorBuilderImpl implements EvaluatorBuilder {
       final PsiType operandType = operandExpression.getType();
       final @Nullable PsiType unboxedOperandType = PsiPrimitiveType.getUnboxedType(operandType);
 
+      if (operandType == null) {
+        // Usually operandType == expression.getType, but better safe than sorry.
+        throw evaluateException(JavaDebuggerBundle.message("evaluation.error.unknown.expression.type", operandExpression.getText()));
+      }
+
       Evaluator incrementImpl = createBinaryEvaluator(
         operandEvaluator, operandType,
         new LiteralEvaluator(1, "int"), PsiTypes.intType(),
@@ -1161,6 +1168,11 @@ public final class EvaluatorBuilderImpl implements EvaluatorBuilder {
 
       if (operation == JavaTokenType.PLUSPLUS || operation == JavaTokenType.MINUSMINUS) {
         try {
+          if (operandType == null) {
+            // Usually operandType == expression.getType, but better safe than sorry.
+            throw evaluateException(JavaDebuggerBundle.message("evaluation.error.unknown.expression.type", operandExpression.getText()));
+          }
+
           final Evaluator rightEval = createBinaryEvaluator(
             operandEvaluator, operandType,
             new LiteralEvaluator(Integer.valueOf(1), "int"), PsiTypes.intType(),
@@ -1305,8 +1317,8 @@ public final class EvaluatorBuilderImpl implements EvaluatorBuilder {
     @Override
     public void visitLiteralExpression(@NotNull PsiLiteralExpression expression) {
       JavaCompilationError<?, ?> error = JavaErrorCollector.findSingleError(expression);
-      if (error != null) {
-        throw evaluateException(error.description().toString());
+      if (error != null && error.kind() != JavaErrorKinds.UNSUPPORTED_FEATURE) {
+        throw evaluateException(error.description());
       }
 
       final PsiType type = expression.getType();
@@ -1405,7 +1417,7 @@ public final class EvaluatorBuilderImpl implements EvaluatorBuilder {
       }
     }
 
-    private static TypeCastEvaluator createTypeCastEvaluator(Evaluator operandEvaluator, PsiType castType) {
+    private static TypeCastEvaluator createTypeCastEvaluator(Evaluator operandEvaluator, @NotNull PsiType castType) {
       if (castType instanceof PsiPrimitiveType) {
         return new TypeCastEvaluator(operandEvaluator, castType.getCanonicalText());
       }

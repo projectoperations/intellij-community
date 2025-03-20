@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("LiftReturnOrAssignment", "ReplaceJavaStaticMethodWithKotlinAnalog")
 
 package org.jetbrains.intellij.build
@@ -8,7 +8,7 @@ import kotlinx.collections.immutable.persistentListOf
 import org.jetbrains.intellij.build.impl.*
 import org.jetbrains.intellij.build.impl.PluginLayout.Companion.plugin
 import org.jetbrains.intellij.build.impl.PluginLayout.Companion.pluginAuto
-import org.jetbrains.intellij.build.impl.PluginLayout.Companion.pluginAutoWithDeprecatedCustomDirName
+import org.jetbrains.intellij.build.impl.PluginLayout.Companion.pluginAutoWithCustomDirName
 import org.jetbrains.intellij.build.impl.projectStructureMapping.DistributionFileEntry
 import org.jetbrains.intellij.build.impl.projectStructureMapping.ProjectLibraryEntry
 import org.jetbrains.intellij.build.io.copyDir
@@ -26,9 +26,6 @@ object CommunityRepositoryModules {
    * Specifies non-trivial layout for all plugins that sources are located in 'community' and 'contrib' repositories
    */
   val COMMUNITY_REPOSITORY_PLUGINS: PersistentList<PluginLayout> = persistentListOf(
-    pluginAuto("intellij.json") { spec ->
-      spec.withModule("intellij.json.split", "json-split.jar")
-    },
     plugin("intellij.ant") { spec ->
       spec.mainJarName = "antIntegration.jar"
       spec.withModule("intellij.ant.jps", "ant-jps.jar")
@@ -70,7 +67,7 @@ object CommunityRepositoryModules {
     pluginAuto(listOf("intellij.platform.langInjection", "intellij.java.langInjection", "intellij.xml.langInjection")) { spec ->
       spec.withModule("intellij.java.langInjection.jps")
     },
-    pluginAutoWithDeprecatedCustomDirName("intellij.tasks.core") { spec ->
+    pluginAutoWithCustomDirName("intellij.tasks.core") { spec ->
       spec.directoryName = "tasks"
       spec.withModule("intellij.tasks")
       spec.withModule("intellij.tasks.compatibility")
@@ -203,15 +200,6 @@ object CommunityRepositoryModules {
       spec.withModuleLibrary("intellij.remoterobot.robot.server.core", spec.mainModule, "")
       spec.withProjectLibrary("okhttp")
     },
-    pluginAuto(
-      listOf(
-        "intellij.performanceTesting",
-        "intellij.tools.ide.starter.bus",
-        "intellij.driver.model",
-        "intellij.driver.impl",
-        "intellij.driver.client"
-      )
-    ),
     pluginAuto(listOf("intellij.performanceTesting.ui")),
     githubPlugin("intellij.vcs.github.community", productCode = "IC"),
     gitlabPlugin("intellij.vcs.gitlab.community", productCode = "IC"),
@@ -233,10 +221,7 @@ object CommunityRepositoryModules {
   )
 
   private fun androidDesignPlugin(mainModuleName: String = "intellij.android.design-plugin.descriptor"): PluginLayout {
-    return pluginAutoWithDeprecatedCustomDirName(mainModuleName) { spec ->
-      spec.directoryName = "design-tools"
-      spec.mainJarName = "design-tools.jar"
-
+    return pluginAutoWithCustomDirName(mainModuleName, "design-tools") { spec ->
       // modules:
       // design-tools.jar
       spec.withModule("intellij.android.compose-designer")
@@ -285,9 +270,7 @@ object CommunityRepositoryModules {
     allPlatforms: Boolean,
     addition: ((PluginLayout.PluginLayoutSpec) -> Unit)?,
   ): PluginLayout =
-    pluginAutoWithDeprecatedCustomDirName(mainModuleName) { spec ->
-      spec.directoryName = "android"
-      spec.mainJarName = "android.jar"
+    pluginAutoWithCustomDirName(mainModuleName, "android") { spec ->
       spec.semanticVersioning = true
       spec.withCustomVersion { pluginXmlSupplier, ideBuildVersion, _ ->
         val pluginXml = pluginXmlSupplier()
@@ -625,9 +608,7 @@ object CommunityRepositoryModules {
     }
 
   fun javaFXPlugin(mainModuleName: String): PluginLayout {
-    return pluginAutoWithDeprecatedCustomDirName(mainModuleName) { spec ->
-      spec.directoryName = "javaFX"
-      spec.mainJarName = "javaFX.jar"
+    return pluginAutoWithCustomDirName(mainModuleName, "javaFX") { spec ->
       spec.withModule("intellij.javaFX.jps")
       spec.withModule("intellij.javaFX.common", "javaFX-common.jar")
       spec.withModule("intellij.javaFX.sceneBuilder", "rt/sceneBuilderBridge.jar")

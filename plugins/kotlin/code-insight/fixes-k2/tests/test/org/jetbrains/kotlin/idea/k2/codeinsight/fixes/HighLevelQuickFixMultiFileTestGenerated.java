@@ -158,14 +158,29 @@ public abstract class HighLevelQuickFixMultiFileTestGenerated extends AbstractHi
                 runTest("../../../idea/tests/testData/quickfix/autoImports/innerClass/innerClassInCallableReference.test");
             }
 
+            @TestMetadata("innerClassInCallableReference_fromJava.test")
+            public void testInnerClassInCallableReference_fromJava() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/autoImports/innerClass/innerClassInCallableReference_fromJava.test");
+            }
+
             @TestMetadata("innerClassInExpression.test")
             public void testInnerClassInExpression() throws Exception {
                 runTest("../../../idea/tests/testData/quickfix/autoImports/innerClass/innerClassInExpression.test");
             }
 
+            @TestMetadata("innerClassInExpression_fromJava.test")
+            public void testInnerClassInExpression_fromJava() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/autoImports/innerClass/innerClassInExpression_fromJava.test");
+            }
+
             @TestMetadata("innerClassInTypeReference.test")
             public void testInnerClassInTypeReference() throws Exception {
                 runTest("../../../idea/tests/testData/quickfix/autoImports/innerClass/innerClassInTypeReference.test");
+            }
+
+            @TestMetadata("innerClassInTypeReference_fromJava.test")
+            public void testInnerClassInTypeReference_fromJava() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/autoImports/innerClass/innerClassInTypeReference_fromJava.test");
             }
         }
 
@@ -250,6 +265,11 @@ public abstract class HighLevelQuickFixMultiFileTestGenerated extends AbstractHi
                 runTest("../../../idea/tests/testData/quickfix/autoImports/mismatchingArgs/expectedTypeRequired.test");
             }
 
+            @TestMetadata("expectedTypeRequired2.test")
+            public void testExpectedTypeRequired2() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/autoImports/mismatchingArgs/expectedTypeRequired2.test");
+            }
+
             @TestMetadata("extensionExplicitReceiver.test")
             public void testExtensionExplicitReceiver() throws Exception {
                 runTest("../../../idea/tests/testData/quickfix/autoImports/mismatchingArgs/extensionExplicitReceiver.test");
@@ -278,6 +298,16 @@ public abstract class HighLevelQuickFixMultiFileTestGenerated extends AbstractHi
             @TestMetadata("extensionWrongTypeParam2.test")
             public void testExtensionWrongTypeParam2() throws Exception {
                 runTest("../../../idea/tests/testData/quickfix/autoImports/mismatchingArgs/extensionWrongTypeParam2.test");
+            }
+
+            @TestMetadata("extensionWrongTypeParam2_class.test")
+            public void testExtensionWrongTypeParam2_class() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/autoImports/mismatchingArgs/extensionWrongTypeParam2_class.test");
+            }
+
+            @TestMetadata("extensionWrongTypeParam2_rootPackage.test")
+            public void testExtensionWrongTypeParam2_rootPackage() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/autoImports/mismatchingArgs/extensionWrongTypeParam2_rootPackage.test");
             }
 
             @TestMetadata("extensionWrongTypeParam3.test")
@@ -379,6 +409,16 @@ public abstract class HighLevelQuickFixMultiFileTestGenerated extends AbstractHi
                 runTest("../../../idea/tests/testData/quickfix/autoImports/constructorParameterAnnotation.test");
             }
 
+            @TestMetadata("containsOperator.test")
+            public void testContainsOperator() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/autoImports/containsOperator.test");
+            }
+
+            @TestMetadata("containsOperator_withStdlib.test")
+            public void testContainsOperator_withStdlib() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/autoImports/containsOperator_withStdlib.test");
+            }
+
             @TestMetadata("delegateExtensionBoth.test")
             public void testDelegateExtensionBoth() throws Exception {
                 runTest("../../../idea/tests/testData/quickfix/autoImports/delegateExtensionBoth.test");
@@ -407,6 +447,16 @@ public abstract class HighLevelQuickFixMultiFileTestGenerated extends AbstractHi
             @TestMetadata("delegateNoOperator.test")
             public void testDelegateNoOperator() throws Exception {
                 runTest("../../../idea/tests/testData/quickfix/autoImports/delegateNoOperator.test");
+            }
+
+            @TestMetadata("delegateToBinaryExpression.test")
+            public void testDelegateToBinaryExpression() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/autoImports/delegateToBinaryExpression.test");
+            }
+
+            @TestMetadata("delegateToStringLiteral.test")
+            public void testDelegateToStringLiteral() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/autoImports/delegateToStringLiteral.test");
             }
 
             @TestMetadata("divOperator.before.Main.kt")
@@ -719,9 +769,19 @@ public abstract class HighLevelQuickFixMultiFileTestGenerated extends AbstractHi
                 runTest("../../../idea/tests/testData/quickfix/autoImports/invokeExtensionNoOperator.test");
             }
 
-            @TestMetadata("iteratorOperator.before.Main.kt")
+            @TestMetadata("iteratorOperator.test")
             public void testIteratorOperator() throws Exception {
-                runTest("../../../idea/tests/testData/quickfix/autoImports/iteratorOperator.before.Main.kt");
+                runTest("../../../idea/tests/testData/quickfix/autoImports/iteratorOperator.test");
+            }
+
+            @TestMetadata("iteratorOperator_literalReceiver.test")
+            public void testIteratorOperator_literalReceiver() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/autoImports/iteratorOperator_literalReceiver.test");
+            }
+
+            @TestMetadata("iteratorOperator_wrongReceiverType.test")
+            public void testIteratorOperator_wrongReceiverType() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/autoImports/iteratorOperator_wrongReceiverType.test");
             }
 
             @TestMetadata("ktij27440.test")

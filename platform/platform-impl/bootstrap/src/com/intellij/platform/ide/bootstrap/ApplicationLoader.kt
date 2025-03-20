@@ -4,10 +4,7 @@
 @file:Suppress("RAW_RUN_BLOCKING", "ReplaceJavaStaticMethodWithKotlinAnalog")
 package com.intellij.platform.ide.bootstrap
 
-import com.intellij.diagnostic.COROUTINE_DUMP_HEADER
-import com.intellij.diagnostic.LoadingState
-import com.intellij.diagnostic.PluginException
-import com.intellij.diagnostic.dumpCoroutines
+import com.intellij.diagnostic.*
 import com.intellij.diagnostic.logs.LogLevelConfigurationManager
 import com.intellij.ide.*
 import com.intellij.ide.bootstrap.InitAppContext
@@ -59,7 +56,6 @@ import com.intellij.ui.ExperimentalUI
 import com.intellij.util.PlatformUtils
 import com.intellij.util.io.URLUtil
 import com.intellij.util.io.createDirectories
-import com.intellij.util.lang.ZipFilePool
 import com.jetbrains.JBR
 import kotlinx.coroutines.*
 import org.jetbrains.annotations.ApiStatus.Internal
@@ -218,6 +214,7 @@ internal suspend fun loadApp(
 
     asyncScope.launch {
       enableCoroutineDumpAndJstack()
+      enableLockMonitoring(app)
     }
 
     launch {
@@ -359,6 +356,10 @@ private suspend fun enableCoroutineDumpAndJstack() {
   }
 }
 
+private suspend fun enableLockMonitoring(application: ApplicationImpl) {
+  application.serviceAsync<WriteLockMeasurer>()
+}
+
 private suspend fun enableJstack() {
   span("coroutine jstack configuration") {
     JBR.getJstack()?.includeInfoFrom {
@@ -457,8 +458,6 @@ internal suspend fun executeApplicationStarter(starter: ApplicationStarter, args
       }
     }
   }
-  // no need to use a pool once started
-  ZipFilePool.POOL = null
 }
 
 @VisibleForTesting

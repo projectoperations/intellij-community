@@ -148,7 +148,6 @@ f:com.intellij.analysis.problemsView.toolWindow.HighlightingPanel
 - f:selectHighlighter(com.intellij.openapi.editor.ex.RangeHighlighterEx):V
 - selectionChanged(com.intellij.openapi.fileEditor.FileEditorManagerEvent):V
 - selectionChangedTo(Z):V
-- f:setCurrentFile(kotlin.Pair):V
 - uiDataSnapshot(com.intellij.openapi.actionSystem.DataSink):V
 - f:updateSelectedFile():org.jetbrains.concurrency.CancellablePromise
 f:com.intellij.analysis.problemsView.toolWindow.HighlightingPanel$Companion
@@ -172,16 +171,16 @@ f:com.intellij.analysis.problemsView.toolWindow.ProblemNode
 - com.intellij.analysis.problemsView.toolWindow.Node
 - <init>(com.intellij.analysis.problemsView.toolWindow.Node,com.intellij.openapi.vfs.VirtualFile,com.intellij.analysis.problemsView.Problem):V
 - equals(java.lang.Object):Z
-- f:getColumn():I
+- getColumn():I
 - getDescriptor():com.intellij.openapi.fileEditor.OpenFileDescriptor
 - f:getFile():com.intellij.openapi.vfs.VirtualFile
 - getLeafState():com.intellij.ui.tree.LeafState
-- f:getLine():I
+- getLine():I
 - getName():java.lang.String
 - getNavigatable():com.intellij.pom.Navigatable
-- f:getProblem():com.intellij.analysis.problemsView.Problem
-- f:getSeverity():I
-- f:getText():java.lang.String
+- getProblem():com.intellij.analysis.problemsView.Problem
+- getSeverity():I
+- getText():java.lang.String
 - getVirtualFile():com.intellij.openapi.vfs.VirtualFile
 - hashCode():I
 f:com.intellij.analysis.problemsView.toolWindow.ProblemsTreeModel
@@ -420,7 +419,6 @@ c:com.intellij.application.options.CodeStyleConfigurableWrapper
 - disposeUIResources():V
 - enableSearch(java.lang.String):java.lang.Runnable
 - focusOn(java.lang.String):V
-- s:getConfigurableId(java.lang.String):java.lang.String
 - getDisplayName():java.lang.String
 - getHelpTopic():java.lang.String
 - getId():java.lang.String
@@ -3918,36 +3916,6 @@ f:com.intellij.codeInsight.hints.declarative.impl.DeclarativeInlayHintsPassFacto
 - f:getSuitableToFileProviders(com.intellij.psi.PsiFile):java.util.List
 - f:scheduleRecompute(com.intellij.openapi.editor.Editor,com.intellij.openapi.project.Project):V
 - f:updateModificationStamp(com.intellij.openapi.editor.Editor,com.intellij.psi.PsiFile):V
-f:com.intellij.codeInsight.hints.declarative.impl.InlayData
-- <init>(com.intellij.codeInsight.hints.declarative.InlayPosition,java.lang.String,com.intellij.codeInsight.hints.declarative.HintFormat,com.intellij.codeInsight.hints.declarative.impl.util.TinyTree,java.lang.String,Z,java.util.List,java.lang.Class,java.lang.String):V
-- f:component1():com.intellij.codeInsight.hints.declarative.InlayPosition
-- f:component2():java.lang.String
-- f:component3():com.intellij.codeInsight.hints.declarative.HintFormat
-- f:component4():com.intellij.codeInsight.hints.declarative.impl.util.TinyTree
-- f:component5():java.lang.String
-- f:component6():Z
-- f:component7():java.util.List
-- f:component8():java.lang.Class
-- f:component9():java.lang.String
-- f:copy(com.intellij.codeInsight.hints.declarative.InlayPosition,java.lang.String,com.intellij.codeInsight.hints.declarative.HintFormat,com.intellij.codeInsight.hints.declarative.impl.util.TinyTree,java.lang.String,Z,java.util.List,java.lang.Class,java.lang.String):com.intellij.codeInsight.hints.declarative.impl.InlayData
-- bs:copy$default(com.intellij.codeInsight.hints.declarative.impl.InlayData,com.intellij.codeInsight.hints.declarative.InlayPosition,java.lang.String,com.intellij.codeInsight.hints.declarative.HintFormat,com.intellij.codeInsight.hints.declarative.impl.util.TinyTree,java.lang.String,Z,java.util.List,java.lang.Class,java.lang.String,I,java.lang.Object):com.intellij.codeInsight.hints.declarative.impl.InlayData
-- equals(java.lang.Object):Z
-- f:getDisabled():Z
-- f:getHintFormat():com.intellij.codeInsight.hints.declarative.HintFormat
-- f:getPayloads():java.util.List
-- f:getPosition():com.intellij.codeInsight.hints.declarative.InlayPosition
-- f:getProviderClass():java.lang.Class
-- f:getProviderId():java.lang.String
-- f:getSourceId():java.lang.String
-- f:getTooltip():java.lang.String
-- f:getTree():com.intellij.codeInsight.hints.declarative.impl.util.TinyTree
-- hashCode():I
-f:com.intellij.codeInsight.hints.declarative.impl.InlayTreeSinkImpl
-- com.intellij.codeInsight.hints.declarative.InlayTreeSink
-- <init>(java.lang.String,java.util.Map,Z,Z,java.lang.Class,java.lang.String):V
-- addPresentation(com.intellij.codeInsight.hints.declarative.InlayPosition,java.util.List,java.lang.String,com.intellij.codeInsight.hints.declarative.HintFormat,kotlin.jvm.functions.Function1):V
-- f:finish():java.util.List
-- whenOptionEnabled(java.lang.String,kotlin.jvm.functions.Function0):V
 f:com.intellij.codeInsight.hints.declarative.impl.util.TinyTree
 - sf:Companion:com.intellij.codeInsight.hints.declarative.impl.util.TinyTree$Companion
 - <init>(B,java.lang.Object):V
@@ -3955,9 +3923,12 @@ f:com.intellij.codeInsight.hints.declarative.impl.util.TinyTree
 - f:getBytePayload(B):B
 - f:getDataPayload(B):java.lang.Object
 - f:getSize():I
+- f:isSameAs(com.intellij.codeInsight.hints.declarative.impl.util.TinyTree,kotlin.jvm.functions.Function2,kotlin.jvm.functions.Function2):Z
+- bs:isSameAs$default(com.intellij.codeInsight.hints.declarative.impl.util.TinyTree,com.intellij.codeInsight.hints.declarative.impl.util.TinyTree,kotlin.jvm.functions.Function2,kotlin.jvm.functions.Function2,I,java.lang.Object):Z
 - f:processChildren(B,kotlin.jvm.functions.Function1):V
 - f:reverseChildren():V
 - f:setBytePayload(B,B):V
+- f:setDataPayload(java.lang.Object,B):V
 - f:syncProcessChildren(B,B,com.intellij.codeInsight.hints.declarative.impl.util.TinyTree,kotlin.jvm.functions.Function2):V
 f:com.intellij.codeInsight.hints.declarative.impl.util.TinyTree$Companion
 a:com.intellij.codeInsight.hints.declarative.impl.util.TinyTree$Externalizer
@@ -4094,6 +4065,12 @@ f:com.intellij.codeInsight.hints.presentation.OnHoverPresentation
 - <init>(com.intellij.codeInsight.hints.presentation.InlayPresentation,com.intellij.codeInsight.hints.InlayPresentationFactory$HoverListener):V
 - mouseExited():V
 - mouseMoved(java.awt.event.MouseEvent,java.awt.Point):V
+f:com.intellij.codeInsight.hints.presentation.PillWithBackgroundPresentation
+- com.intellij.codeInsight.hints.presentation.RoundWithBackgroundPresentation
+- <init>(com.intellij.codeInsight.hints.presentation.InlayPresentation,java.awt.Color,F):V
+- b:<init>(com.intellij.codeInsight.hints.presentation.InlayPresentation,java.awt.Color,F,I,kotlin.jvm.internal.DefaultConstructorMarker):V
+- getArcHeight():I
+- getArcWidth():I
 f:com.intellij.codeInsight.hints.presentation.PresentationFactory
 - com.intellij.codeInsight.hints.InlayPresentationFactory
 - sf:Companion:com.intellij.codeInsight.hints.presentation.PresentationFactory$Companion
@@ -4152,12 +4129,19 @@ f:com.intellij.codeInsight.hints.presentation.PresentationRenderer
 - mouseReleased(java.awt.event.MouseEvent,java.awt.Point):V
 - paint(com.intellij.openapi.editor.Inlay,java.awt.Graphics,java.awt.Rectangle,com.intellij.openapi.editor.markup.TextAttributes):V
 - translatePoint(java.awt.Point):java.awt.Point
-f:com.intellij.codeInsight.hints.presentation.RoundWithBackgroundPresentation
+f:com.intellij.codeInsight.hints.presentation.RoundWithBackgroundBorderedPresentation
+- com.intellij.codeInsight.hints.presentation.StaticDelegatePresentation
+- <init>(com.intellij.codeInsight.hints.presentation.RoundWithBackgroundPresentation,java.awt.Color,I):V
+- b:<init>(com.intellij.codeInsight.hints.presentation.RoundWithBackgroundPresentation,java.awt.Color,I,I,kotlin.jvm.internal.DefaultConstructorMarker):V
+- f:getBorderColor():java.awt.Color
+- f:getBorderWidth():I
+- paint(java.awt.Graphics2D,com.intellij.openapi.editor.markup.TextAttributes):V
+c:com.intellij.codeInsight.hints.presentation.RoundWithBackgroundPresentation
 - com.intellij.codeInsight.hints.presentation.StaticDelegatePresentation
 - <init>(com.intellij.codeInsight.hints.presentation.InlayPresentation,I,I,java.awt.Color,F):V
 - b:<init>(com.intellij.codeInsight.hints.presentation.InlayPresentation,I,I,java.awt.Color,F,I,kotlin.jvm.internal.DefaultConstructorMarker):V
-- f:getArcHeight():I
-- f:getArcWidth():I
+- getArcHeight():I
+- getArcWidth():I
 - f:getBackgroundAlpha():F
 - f:getColor():java.awt.Color
 - paint(java.awt.Graphics2D,com.intellij.openapi.editor.markup.TextAttributes):V
@@ -4297,11 +4281,9 @@ f:com.intellij.codeInsight.hints.settings.InlayHintsConfigurable
 - reset():V
 - sf:showSettingsDialogForLanguage(com.intellij.openapi.project.Project,com.intellij.lang.Language):V
 - sf:showSettingsDialogForLanguage(com.intellij.openapi.project.Project,com.intellij.lang.Language,java.util.function.Predicate):V
-- sf:updateInlayHintsUI():V
 f:com.intellij.codeInsight.hints.settings.InlayHintsConfigurable$Companion
 - f:showSettingsDialogForLanguage(com.intellij.openapi.project.Project,com.intellij.lang.Language):V
 - f:showSettingsDialogForLanguage(com.intellij.openapi.project.Project,com.intellij.lang.Language,java.util.function.Predicate):V
-- f:updateInlayHintsUI():V
 f:com.intellij.codeInsight.hints.settings.InlaySettingsConfigurable
 - com.intellij.openapi.options.Configurable
 - com.intellij.openapi.options.Configurable$NoScroll
@@ -5032,7 +5014,7 @@ f:com.intellij.codeInsight.navigation.IncrementalSearchHandler$UpHandler
 - <init>(com.intellij.openapi.editor.actionSystem.EditorActionHandler):V
 - doExecute(com.intellij.openapi.editor.Editor,com.intellij.openapi.editor.Caret,com.intellij.openapi.actionSystem.DataContext):V
 - isEnabledForCaret(com.intellij.openapi.editor.Editor,com.intellij.openapi.editor.Caret,com.intellij.openapi.actionSystem.DataContext):Z
-f:com.intellij.codeInsight.navigation.ItemWithPresentation
+Fc:com.intellij.codeInsight.navigation.ItemWithPresentation
 - com.intellij.model.Pointer
 - <init>(java.lang.Object,com.intellij.platform.backend.presentation.TargetPresentation):V
 - dereference():com.intellij.psi.PsiElement
@@ -5133,6 +5115,7 @@ com.intellij.codeInsight.navigation.TargetPresentationProvider
 a:com.intellij.codeInsight.navigation.TargetUpdaterTask
 - com.intellij.openapi.progress.Task$Backgroundable
 - <init>(com.intellij.openapi.project.Project,java.lang.String):V
+- <init>(com.intellij.openapi.project.Project,java.lang.String,java.util.Comparator):V
 - p:createUsage(com.intellij.codeInsight.navigation.ItemWithPresentation):com.intellij.usages.Usage
 - f:updateComponent(com.intellij.psi.PsiElement):Z
 f:com.intellij.codeInsight.navigation.UtilKt
@@ -7223,6 +7206,7 @@ f:com.intellij.find.FindUtil
 - s:searchBack(com.intellij.openapi.project.Project,com.intellij.openapi.editor.Editor,com.intellij.openapi.actionSystem.DataContext):V
 - s:selectSearchResultInEditor(com.intellij.openapi.editor.Editor,com.intellij.find.FindResult,I):Z
 - s:selectSearchResultsInEditor(com.intellij.openapi.editor.Editor,java.util.Iterator,I):V
+- s:selectSearchResultsInEditor(com.intellij.openapi.editor.Editor,java.util.Iterator,I,Z):V
 - s:showInUsageView(com.intellij.psi.PsiElement,java.lang.String,com.intellij.openapi.project.Project,com.intellij.psi.SmartPsiElementPointer[]):com.intellij.usages.UsageView
 - s:showInUsageView(com.intellij.psi.PsiElement,com.intellij.psi.PsiElement[],java.lang.String,com.intellij.openapi.project.Project):com.intellij.usages.UsageView
 - s:showInUsageView(com.intellij.psi.PsiElement,java.lang.Object[],com.intellij.util.Function,java.lang.String,com.intellij.util.Consumer,com.intellij.openapi.project.Project):com.intellij.usages.UsageView
@@ -8224,6 +8208,7 @@ a:com.intellij.ide.actions.CreateFromTemplateAction
 - p:getErrorTitle():java.lang.String
 - p:isAvailable(com.intellij.openapi.actionSystem.DataContext):Z
 - s:moveCaretAfterNameIdentifier(com.intellij.psi.PsiNameIdentifierOwner):V
+- p:postProcess(com.intellij.psi.PsiElement,com.intellij.openapi.actionSystem.DataContext,java.lang.String,java.util.Map):V
 - p:postProcess(com.intellij.psi.PsiElement,java.lang.String,java.util.Map):V
 - update(com.intellij.openapi.actionSystem.AnActionEvent):V
 a:com.intellij.ide.actions.CreateTemplateInPackageAction
@@ -8231,6 +8216,7 @@ a:com.intellij.ide.actions.CreateTemplateInPackageAction
 - com.intellij.ide.actions.NewFileActionWithCategory
 - sf:JAVA_NEW_FILE_CATEGORY:java.lang.String
 - p:<init>(java.lang.String,java.lang.String,javax.swing.Icon,java.util.Set):V
+- p:<init>(java.util.Set):V
 - p:<init>(java.util.function.Supplier,java.util.function.Supplier,java.util.function.Supplier,java.util.Set):V
 - p:<init>(java.util.function.Supplier,java.util.function.Supplier,javax.swing.Icon,java.util.Set):V
 - p:adjustDirectory(com.intellij.psi.PsiDirectory):com.intellij.psi.PsiDirectory
@@ -8277,7 +8263,7 @@ c:com.intellij.ide.actions.GotoActionAction
 - com.intellij.openapi.project.DumbAware
 - <init>():V
 - actionPerformed(com.intellij.openapi.actionSystem.AnActionEvent):V
-- s:openOptionOrPerformAction(java.lang.Object,java.lang.String,com.intellij.openapi.project.Project,java.awt.Component,I):V
+- s:openOptionOrPerformAction(java.lang.Object,java.lang.String,com.intellij.openapi.project.Project,java.awt.Component,I,com.intellij.openapi.util.Computable):V
 - s:performAction(java.lang.Object,java.awt.Component,com.intellij.openapi.actionSystem.AnActionEvent):V
 - p:requiresProject():Z
 a:com.intellij.ide.actions.GotoActionBase
@@ -9294,6 +9280,17 @@ f:com.intellij.ide.extensionResources.ExtensionsRootType
 - getOwner(com.intellij.openapi.vfs.VirtualFile):com.intellij.openapi.extensions.PluginId
 - s:regularFileFilter():java.util.function.Predicate
 - substituteName(com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile):java.lang.String
+- updateBundledResources(com.intellij.openapi.extensions.PluginId):V
+- updatePluginResources(com.intellij.openapi.extensions.PluginId):V
+f:com.intellij.ide.extensionResources.ExternalResourcesUnpackExtensionBean
+- com.intellij.openapi.extensions.PluginAware
+- unpackTo:java.lang.String
+- <init>():V
+- s:allPluginsWithExtension():java.util.List
+- s:getPluginBeans(com.intellij.openapi.extensions.PluginId):java.util.List
+- getPluginDescriptor():com.intellij.openapi.extensions.PluginDescriptor
+- s:getPluginsBeUnpackedTo(com.intellij.openapi.extensions.PluginId):java.util.List
+- setPluginDescriptor(com.intellij.openapi.extensions.PluginDescriptor):V
 com.intellij.ide.fileTemplates.CreateFromTemplateActionReplacer
 - sf:CREATE_FROM_TEMPLATE_REPLACER:com.intellij.openapi.extensions.ExtensionPointName
 - a:replaceCreateFromFileTemplateAction(com.intellij.ide.fileTemplates.FileTemplate):com.intellij.openapi.actionSystem.AnAction
@@ -9359,6 +9356,8 @@ f:com.intellij.ide.fileTemplates.actions.AttributesDefaults
 - isFixedName():Z
 - setAttributeVisibleNames(java.util.Map):V
 - withFixedName(Z):com.intellij.ide.fileTemplates.actions.AttributesDefaults
+com.intellij.ide.fileTemplates.actions.CreateFromBundledTemplateAction
+- a:getTemplate():com.intellij.ide.fileTemplates.FileTemplate
 c:com.intellij.ide.fileTemplates.actions.CreateFromTemplateAction
 - com.intellij.ide.fileTemplates.actions.CreateFromTemplateActionBase
 - <init>(com.intellij.ide.fileTemplates.FileTemplate):V
@@ -9379,6 +9378,10 @@ a:com.intellij.ide.fileTemplates.actions.CreateFromTemplateActionBase
 - p:getReplacedAction(com.intellij.ide.fileTemplates.FileTemplate):com.intellij.openapi.actionSystem.AnAction
 - p:getTargetDirectory(com.intellij.openapi.actionSystem.DataContext,com.intellij.ide.IdeView):com.intellij.psi.PsiDirectory
 - pa:getTemplate(com.intellij.openapi.project.Project,com.intellij.psi.PsiDirectory):com.intellij.ide.fileTemplates.FileTemplate
+- s:startLiveTemplate(com.intellij.psi.PsiFile):V
+- s:startLiveTemplate(com.intellij.psi.PsiFile,java.util.Map):V
+f:com.intellij.ide.fileTemplates.actions.CreateFromTemplateManager
+- <init>():V
 - s:startLiveTemplate(com.intellij.psi.PsiFile):V
 - s:startLiveTemplate(com.intellij.psi.PsiFile,java.util.Map):V
 f:com.intellij.ide.fileTemplates.actions.FileTemplateSeparator
@@ -9908,40 +9911,6 @@ f:com.intellij.ide.impl.dataRules.VirtualFileRule
 - com.intellij.ide.impl.dataRules.GetDataRule
 - <init>():V
 - getData(com.intellij.openapi.actionSystem.DataProvider):java.lang.Object
-a:com.intellij.ide.navigationToolbar.AbstractNavBarModelExtension
-- com.intellij.ide.navigationToolbar.NavBarModelExtension
-- <init>():V
-- additionalRoots(com.intellij.openapi.project.Project):java.util.Collection
-- adjustElement(com.intellij.psi.PsiElement):com.intellij.psi.PsiElement
-- getParent(com.intellij.psi.PsiElement):com.intellij.psi.PsiElement
-- a:getPresentableText(java.lang.Object):java.lang.String
-c:com.intellij.ide.navigationToolbar.DefaultNavBarExtension
-- com.intellij.ide.navigationToolbar.AbstractNavBarModelExtension
-- <init>():V
-- adjustElement(com.intellij.psi.PsiElement):com.intellij.psi.PsiElement
-- getParent(com.intellij.psi.PsiElement):com.intellij.psi.PsiElement
-- getPresentableText(java.lang.Object):java.lang.String
-- processChildren(java.lang.Object,java.lang.Object,com.intellij.util.Processor):Z
-com.intellij.ide.navigationToolbar.NavBarModelExtension
-- sf:EP_NAME:com.intellij.openapi.extensions.ExtensionPointName
-- a:additionalRoots(com.intellij.openapi.project.Project):java.util.Collection
-- a:adjustElement(com.intellij.psi.PsiElement):com.intellij.psi.PsiElement
-- getData(java.lang.String,com.intellij.openapi.actionSystem.DataProvider):java.lang.Object
-- getIcon(java.lang.Object):javax.swing.Icon
-- getLeafElement(com.intellij.openapi.actionSystem.DataContext):com.intellij.psi.PsiElement
-- a:getParent(com.intellij.psi.PsiElement):com.intellij.psi.PsiElement
-- getPopupMenuGroup(com.intellij.openapi.actionSystem.DataProvider):java.lang.String
-- a:getPresentableText(java.lang.Object):java.lang.String
-- getPresentableText(java.lang.Object,Z):java.lang.String
-- normalizeChildren():Z
-- processChildren(java.lang.Object,java.lang.Object,com.intellij.util.Processor):Z
-f:com.intellij.ide.navigationToolbar.NavBarRootPaneExtension
-- <init>():V
-a:com.intellij.ide.navigationToolbar.NavBarRootPaneExtension$NavBarWrapperPanel
-- javax.swing.JPanel
-- com.intellij.ide.ui.UISettingsListener
-- <init>(java.awt.LayoutManager):V
-- p:getComponentGraphics(java.awt.Graphics):java.awt.Graphics
 a:com.intellij.ide.navigationToolbar.StructureAwareNavBarModelExtension
 - com.intellij.ide.navigationToolbar.AbstractNavBarModelExtension
 - sf:Companion:com.intellij.ide.navigationToolbar.StructureAwareNavBarModelExtension$Companion
@@ -10604,7 +10573,6 @@ c:com.intellij.ide.projectView.impl.ProjectViewTree
 - com.intellij.ide.dnd.aware.DnDAwareTree
 - com.intellij.openapi.actionSystem.UiCompatibleDataProvider
 - com.intellij.ui.speedSearch.SpeedSearchSupply$SpeedSearchLocator
-- p:<init>(com.intellij.openapi.project.Project,javax.swing.tree.TreeModel):V
 - <init>(javax.swing.tree.TreeModel):V
 - p:createCellRenderer():javax.swing.tree.TreeCellRenderer
 - expandPath(javax.swing.tree.TreePath):V
@@ -10955,6 +10923,7 @@ a:com.intellij.ide.scratch.LRUPopupBuilder
 f:com.intellij.ide.scratch.ScratchFileActions
 - <init>():V
 - s:doCreateNewScratch(com.intellij.openapi.project.Project,com.intellij.ide.scratch.ScratchFileCreationHelper$Context):com.intellij.psi.PsiFile
+- s:doCreateNewScratch(com.intellij.openapi.project.Project,com.intellij.ide.scratch.ScratchFileCreationHelper$Context,com.intellij.openapi.actionSystem.DataContext):com.intellij.psi.PsiFile
 c:com.intellij.ide.scratch.ScratchFileActions$ChangeLanguageAction
 - com.intellij.openapi.project.DumbAwareAction
 - <init>():V
@@ -10976,6 +10945,7 @@ a:com.intellij.ide.scratch.ScratchFileCreationHelper
 f:com.intellij.ide.scratch.ScratchFileCreationHelper$Context
 - caretOffset:I
 - createOption:com.intellij.ide.scratch.ScratchFileService$Option
+- defaultRootType:com.intellij.ide.scratch.RootType
 - fileCounter:com.intellij.openapi.util.Factory
 - fileExtension:java.lang.String
 - filePrefix:java.lang.String
@@ -11358,6 +11328,7 @@ c:com.intellij.ide.util.MemberChooser
 - p:fillToolbarActions(com.intellij.openapi.actionSystem.DefaultActionGroup):V
 - p:getAllContainersNodeName():java.lang.String
 - p:getDimensionServiceKey():java.lang.String
+- getInitialSize():java.awt.Dimension
 - getOptionControls():javax.swing.JComponent[]
 - getPreferredFocusedComponent():javax.swing.JComponent
 - p:getRootNode():javax.swing.tree.DefaultMutableTreeNode
@@ -11790,7 +11761,7 @@ f:com.intellij.ide.util.gotoByName.GotoActionModel
 - getElementsByName(java.lang.String,Z,java.lang.String):java.lang.Object[]
 - getFullName(java.lang.Object):java.lang.String
 - getGroupMapping(com.intellij.openapi.actionSystem.AnAction):com.intellij.ide.util.gotoByName.GroupMapping
-- getGroupName(com.intellij.ide.ui.search.OptionDescription):java.lang.String
+- s:getGroupName(com.intellij.ide.ui.search.OptionDescription):java.lang.String
 - getHelpId():java.lang.String
 - getListCellRenderer():javax.swing.ListCellRenderer
 - getNames(Z):java.lang.String[]
@@ -11819,8 +11790,8 @@ c:com.intellij.ide.util.gotoByName.GotoActionModel$ActionWrapper
 f:com.intellij.ide.util.gotoByName.GotoActionModel$GotoActionListCellRenderer
 - javax.swing.DefaultListCellRenderer
 - sf:TOGGLE_BUTTON_BORDER:javax.swing.border.Border
-- <init>(com.intellij.util.Function):V
-- <init>(com.intellij.util.Function,Z):V
+- <init>():V
+- <init>(Z):V
 - s:calcHit(com.intellij.ide.ui.search.OptionDescription):java.lang.String
 - getListCellRendererComponent(javax.swing.JList,java.lang.Object,I,Z,Z):java.awt.Component
 c:com.intellij.ide.util.gotoByName.GotoActionModel$MatchedValue
@@ -13899,8 +13870,8 @@ c:com.intellij.openapi.roots.ui.configuration.SdkDetector
 - getDetectedSdksWithUpdate(com.intellij.openapi.project.Project,com.intellij.openapi.Disposable,com.intellij.openapi.application.ModalityState,com.intellij.openapi.roots.ui.configuration.SdkDetector$DetectedSdkListener):V
 - s:getInstance():com.intellij.openapi.roots.ui.configuration.SdkDetector
 com.intellij.openapi.roots.ui.configuration.SdkDetector$DetectedSdkListener
+- onSdkDetected(com.intellij.openapi.projectRoots.SdkType,com.intellij.openapi.projectRoots.SdkType$SdkEntry):V
 - a:onSdkDetected(com.intellij.openapi.projectRoots.SdkType,java.lang.String,java.lang.String):V
-- onSdkDetected(com.intellij.openapi.projectRoots.SdkType,java.lang.String,java.lang.String,com.intellij.util.keyFMap.KeyFMap):V
 - onSearchCompleted():V
 - onSearchStarted():V
 a:com.intellij.openapi.roots.ui.configuration.SdkListItem
@@ -13951,7 +13922,7 @@ f:com.intellij.openapi.roots.ui.configuration.SdkListItem$SdkReferenceItem
 f:com.intellij.openapi.roots.ui.configuration.SdkListItem$SuggestedItem
 - com.intellij.openapi.roots.ui.configuration.SdkListItem
 - f:homePath:java.lang.String
-- f:info:com.intellij.util.keyFMap.KeyFMap
+- f:isSymlink:java.lang.Boolean
 - f:sdkType:com.intellij.openapi.projectRoots.SdkType
 - f:version:java.lang.String
 f:com.intellij.openapi.roots.ui.configuration.SdkListModel
@@ -14311,14 +14282,6 @@ c:com.intellij.openapi.util.registry.RegistryUi
 - <init>():V
 - dispose():V
 - show():Z
-f:com.intellij.openapi.util.registry.ShowRegistryAction
-- com.intellij.openapi.actionSystem.AnAction
-- com.intellij.ide.lightEdit.LightEditCompatible
-- com.intellij.openapi.project.DumbAware
-- <init>():V
-- actionPerformed(com.intellij.openapi.actionSystem.AnActionEvent):V
-- getActionUpdateThread():com.intellij.openapi.actionSystem.ActionUpdateThread
-- update(com.intellij.openapi.actionSystem.AnActionEvent):V
 f:com.intellij.openapi.vcs.changes.PsiChangeTracker
 - s:getElementsChanged(com.intellij.psi.PsiElement,com.intellij.psi.PsiElement,com.intellij.psi.util.PsiFilter):java.util.Map
 com.intellij.openapi.vcs.impl.LineStatusTrackerSettingListener
@@ -16718,6 +16681,7 @@ c:com.intellij.refactoring.rename.AutomaticRenamingDialog
 - p:dispose():V
 - p:doOKAction():V
 - p:getDimensionServiceKey():java.lang.String
+- getInitialSize():java.awt.Dimension
 - getPreferredFocusedComponent():javax.swing.JComponent
 - isSearchInComments():Z
 - isSearchTextOccurrences():Z

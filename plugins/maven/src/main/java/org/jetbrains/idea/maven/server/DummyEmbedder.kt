@@ -11,8 +11,6 @@ import org.jetbrains.idea.maven.project.MavenProjectsManager
 import org.jetbrains.idea.maven.server.security.MavenToken
 import java.io.File
 
-private val emptyByteArray = ByteArray(0)
-
 abstract class DummyEmbedder : MavenServerEmbedder {
   override fun evaluateEffectivePom(file: File,
                                     activeProfiles: ArrayList<String>,
@@ -78,6 +76,14 @@ abstract class DummyEmbedder : MavenServerEmbedder {
   override fun cancelLongRunningTask(longRunningTaskId: String, token: MavenToken?) = true
 
   override fun ping(token: MavenToken?) = true
+
+  override fun interpolateAndAlignModel(model: MavenModel, dir: File, token: MavenToken) = model
+
+  override fun applyProfiles(model: MavenModel, basedir: File, explicitProfiles: MavenExplicitProfiles, alwaysOnProfiles: java.util.HashSet<String>, token: MavenToken): ProfileApplicationResult {
+    return ProfileApplicationResult(model, explicitProfiles)
+  }
+
+  override fun assembleInheritance(model: MavenModel, parentModel: MavenModel, token: MavenToken) = model
 }
 
 class UntrustedDummyEmbedder(val myProject: Project) : DummyEmbedder() {

@@ -14,11 +14,14 @@ import com.intellij.codeInsight.hints.codeVision.CodeVisionProjectSettings
 import com.intellij.codeInsight.hints.codeVision.ModificationStampUtil
 import com.intellij.codeInsight.hints.settings.language.isInlaySettingsEditor
 import com.intellij.codeInsight.hints.settings.showInlaySettings
+import com.intellij.codeInsight.multiverse.EditorContextManager
+import com.intellij.codeInsight.multiverse.isSharedSourceSupportEnabled
 import com.intellij.codeWithMe.ClientId
 import com.intellij.ide.plugins.DynamicPluginListener
 import com.intellij.ide.plugins.IdeaPluginDescriptor
 import com.intellij.lang.Language
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.application.*
 import com.intellij.openapi.components.ComponentManagerEx
 import com.intellij.openapi.components.service
@@ -50,7 +53,7 @@ import com.intellij.ui.SimpleTextAttributes
 import com.intellij.util.Alarm
 import com.intellij.util.application
 import com.intellij.util.concurrency.AppExecutorUtil
-import com.intellij.util.concurrency.annotations.RequiresReadLock
+import com.intellij.util.ui.EDT
 import com.intellij.util.ui.update.MergingUpdateQueue
 import com.intellij.util.ui.update.Update
 import com.jetbrains.rd.util.error
@@ -65,6 +68,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.jetbrains.annotations.TestOnly
 import java.util.concurrent.CompletableFuture
+import javax.swing.SwingUtilities
 import kotlin.time.Duration.Companion.milliseconds
 
 open class CodeVisionHost(val project: Project) {
@@ -178,7 +182,23 @@ open class CodeVisionHost(val project: Project) {
   @TestOnly
   fun calculateCodeVisionSync(editor: Editor, testRootDisposable: Disposable) {
     calculateFrontendLenses(testRootDisposable.createLifetime(), editor, inTestSyncMode = true) { lenses, _ ->
-      editor.lensContext?.setResults(lenses)
+      if (EDT.isCurrentThreadEdt()) {
+        ReadAction.run<Throwable> {
+          editor.lensContext?.setResults(lenses)
+        }
+      }
+      else {
+        // This code runs under modal progress
+        // We have no guarantees whether the scheduled event will be completed inside or outside the modal progress
+        // So here we forcibly wait for its completion
+        // This is a test method anyway, so it is acceptable to hold the read lock
+        val future = CompletableFuture<Unit>()
+        ApplicationManager.getApplication().invokeLater {
+          editor.lensContext?.setResults(lenses)
+          future.complete(Unit)
+        }
+        future.join()
+      }
     }
   }
 
@@ -203,6 +223,20 @@ open class CodeVisionHost(val project: Project) {
     val allProviders = collectAllProviders()
     defaultSortedProvidersList.clear()
     defaultSortedProvidersList.addAll(allProviders.getTopSortedIdList())
+  }
+
+  private fun subscribeForContextChanged(editor: Editor, editorLifetime: Lifetime, onContextChanged: () -> Unit) {
+    val project = editor.project ?: return
+    if (!isSharedSourceSupportEnabled(project)) return
+    project.messageBus.connect(editorLifetime.createNestedDisposable()).subscribe(EditorContextManager.topic, object : EditorContextManager.ChangeEventListener {
+      override fun editorContextsChanged(event: EditorContextManager.ChangeEvent) {
+        if (editor == event.editor) {
+          application.invokeLater {
+            onContextChanged()
+          }
+        }
+      }
+    })
   }
 
   private fun subscribeEditorCreated(enableCodeVisionLifetime: Lifetime) {
@@ -410,6 +444,10 @@ open class CodeVisionHost(val project: Project) {
       pokeEditor()
     }
 
+    subscribeForContextChanged(editor, editorLifetime) {
+      pokeEditor()
+    }
+
     editorLifetime.onTermination {
       context.clearLenses()
     }
@@ -534,7 +572,7 @@ open class CodeVisionHost(val project: Project) {
       }
     }
     else {
-      runnable()
+      ActionUtil.underModalProgress(project, "") { runnable() }
     }
 
     return indicator

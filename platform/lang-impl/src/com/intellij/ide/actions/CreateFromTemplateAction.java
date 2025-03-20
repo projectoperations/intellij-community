@@ -108,7 +108,7 @@ public abstract class CreateFromTemplateAction<T extends PsiElement> extends AnA
                        editor.getCaretModel().moveToOffset(offset);
                      }
                      try (var ignored = SlowOperations.startSection(SlowOperations.ACTION_PERFORM)) {
-                       postProcess(createdElement, selectedTemplateName.get(), builder.getCustomProperties());
+                       postProcess(createdElement, dataContext, selectedTemplateName.get(), builder.getCustomProperties());
                      }
                    }
                  });
@@ -131,6 +131,11 @@ public abstract class CreateFromTemplateAction<T extends PsiElement> extends AnA
       }
     }
     return CreateFileFromTemplateDialog.createDialog(project);
+  }
+
+  protected void postProcess(@NotNull T createdElement, @NotNull DataContext dataContext,
+                             String templateName, Map<String, String> customProperties) {
+    postProcess(createdElement, templateName, customProperties);
   }
 
   protected void postProcess(@NotNull T createdElement, String templateName, Map<String, String> customProperties) {
@@ -160,7 +165,7 @@ public abstract class CreateFromTemplateAction<T extends PsiElement> extends AnA
     presentation.setEnabledAndVisible(enabled);
   }
 
-  protected boolean isAvailable(DataContext dataContext) {
+  protected boolean isAvailable(@NotNull DataContext dataContext) {
     Editor editor = CommonDataKeys.EDITOR.getData(dataContext);
     if (editor != null && editor.getSelectionModel().hasSelection()) {
       return false;

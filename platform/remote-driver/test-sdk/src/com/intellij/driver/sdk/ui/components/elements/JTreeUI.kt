@@ -7,10 +7,13 @@ import com.intellij.driver.model.TreePath
 import com.intellij.driver.model.TreePathToRow
 import com.intellij.driver.model.TreePathToRowList
 import com.intellij.driver.sdk.remoteDev.*
+import com.intellij.driver.sdk.ui.AccessibleNameCellRendererReader
 import com.intellij.driver.sdk.ui.CellRendererReader
 import com.intellij.driver.sdk.ui.Finder
+import com.intellij.driver.sdk.ui.QueryBuilder
 import com.intellij.driver.sdk.ui.components.ComponentData
 import com.intellij.driver.sdk.ui.components.UiComponent
+import com.intellij.driver.sdk.ui.components.common.Icon
 import com.intellij.driver.sdk.ui.remote.Component
 import com.intellij.driver.sdk.ui.remote.REMOTE_ROBOT_MODULE_ID
 import com.intellij.driver.sdk.ui.xQuery
@@ -24,6 +27,11 @@ import kotlin.time.Duration.Companion.seconds
 
 fun Finder.tree(@Language("xpath") xpath: String? = null) =
   x(xpath ?: xQuery { byType(JTree::class.java) }, JTreeUiComponent::class.java)
+
+fun Finder.accessibleTree(locator: QueryBuilder.() -> String = { byType(JTree::class.java) }) =
+  x(xQuery { locator() }, JTreeUiComponent::class.java).apply {
+    replaceCellRendererReader(driver.new(AccessibleNameCellRendererReader::class))
+  }
 
 open class JTreeUiComponent(data: ComponentData) : UiComponent(data) {
   private val treeComponent get() = driver.cast(component, JTreeComponent::class)
@@ -151,6 +159,8 @@ open class JTreeUiComponent(data: ComponentData) : UiComponent(data) {
     click(fixture.getRowPoint(row).apply { translate(shift.x, shift.y) })
   }
 
+  fun collectIconsAtRow(row: Int): List<Icon> = fixture.collectIconsAtRow(row)
+
   fun getComponentAtRow(row: Int): Component = fixture.getComponentAtRow(row)
 
   class PathNotFoundException(message: String? = null) : Exception(message) {
@@ -181,6 +191,7 @@ interface JTreeFixtureRef : Component {
   fun getRowPoint(row: Int): Point
   fun replaceCellRendererReader(reader: CellRendererReader)
   fun getComponentAtRow(row: Int): Component
+  fun collectIconsAtRow(row: Int): List<Icon>
 }
 
 @Remote("javax.swing.JTree")

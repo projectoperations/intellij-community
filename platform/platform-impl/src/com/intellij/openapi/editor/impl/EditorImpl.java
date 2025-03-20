@@ -37,12 +37,15 @@ import com.intellij.openapi.editor.ex.util.EditorUtil;
 import com.intellij.openapi.editor.ex.util.EmptyEditorHighlighter;
 import com.intellij.openapi.editor.highlighter.EditorHighlighter;
 import com.intellij.openapi.editor.highlighter.HighlighterClient;
+import com.intellij.openapi.editor.impl.ad.AdTheManager;
 import com.intellij.openapi.editor.impl.event.MarkupModelListener;
 import com.intellij.openapi.editor.impl.stickyLines.StickyLinesManager;
 import com.intellij.openapi.editor.impl.stickyLines.StickyLinesModel;
 import com.intellij.openapi.editor.impl.stickyLines.VisualStickyLines;
 import com.intellij.openapi.editor.impl.stickyLines.ui.StickyLineShadowPainter;
 import com.intellij.openapi.editor.impl.stickyLines.ui.StickyLinesPanel;
+import com.intellij.openapi.editor.impl.view.CharacterGrid;
+import com.intellij.openapi.editor.impl.view.CharacterGridImpl;
 import com.intellij.openapi.editor.impl.view.EditorView;
 import com.intellij.openapi.editor.markup.GutterDraggableObject;
 import com.intellij.openapi.editor.markup.GutterIconRenderer;
@@ -342,6 +345,8 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   final EditorView myView;
   final @Nullable EditorView myAdView;
 
+  private @Nullable CharacterGridImpl myCharacterGrid;
+
   private boolean myCharKeyPressed;
   private boolean myNeedToSelectPreviousChar;
 
@@ -476,7 +481,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     Disposer.register(myDisposable, myFocusModeModel);
 
     myEditorModel = new EditorModelImpl(this);
-    myAdEditorModel = project == null ? null : AdTheManager.getInstance(project).createEditorModel(this);
+    myAdEditorModel = AdTheManager.getInstance().getEditorModel(this);
 
     myView = new EditorView(this, myEditorModel);
     myAdView = myAdEditorModel == null ? null : new EditorView(this, myAdEditorModel);
@@ -508,6 +513,10 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     Disposer.register(myDisposable, myScrollingPositionKeeper);
 
     addListeners();
+
+    if (myAdEditorModel != null) {
+      AdTheManager.getInstance().bindEditor(this);
+    }
   }
 
   private void addListeners() {
@@ -1159,7 +1168,10 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
       Disposer.dispose(myCaretModel);
       Disposer.dispose(mySoftWrapModel);
       Disposer.dispose(myView);
-      if (myAdView != null) Disposer.dispose(myAdView);
+      if (myAdView != null) {
+        Disposer.dispose(myAdView);
+        Disposer.dispose(myAdEditorModel);
+      }
       clearCaretThread();
 
       myFocusListeners.clear();
@@ -1744,8 +1756,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     return myGutterComponent.isShowing();
   }
 
-  @ApiStatus.Internal
-  public void repaintToScreenBottom(int startLine) {
+  private void repaintToScreenBottom(int startLine) {
     int yStartLine = logicalLineToY(startLine);
     repaintToScreenBottomStartingFrom(yStartLine);
   }
@@ -3566,6 +3577,28 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     return getViewer();
   }
 
+  /**
+   * Returns the instance of the character grid corresponding to this editor
+   * <p>
+   *   A non-{@code null} value is only returned when the character grid mode is enabled,
+   *   see {@link EditorSettings#setCharacterGridWidthMultiplier(Float)}.
+   * </p>
+   * @return the current character grid instance or {@code null} if the editor is not in the grid mode
+   */
+  @ApiStatus.Internal
+  public @Nullable CharacterGrid getCharacterGrid() {
+    if (getSettings().getCharacterGridWidthMultiplier() == null) {
+      myCharacterGrid = null;
+      return null;
+    }
+    else {
+      if (myCharacterGrid == null) {
+        myCharacterGrid = new CharacterGridImpl(this);
+      }
+      return myCharacterGrid;
+    }
+  }
+
   private final class MyEditable implements CutProvider, CopyProvider, PasteProvider, DeleteProvider, DumbAware {
     @Override
     public @NotNull ActionUpdateThread getActionUpdateThread() {
@@ -3658,26 +3691,10 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
         LOG.info("Skipping attempt to set color scheme without EditorColorsManager");
         return;
       }
-      final EditorColorsScheme globalScheme = colorsManager.getGlobalScheme();
-      EditorColorsScheme rawScheme = scheme;
-      boolean isGlobal = (rawScheme == globalScheme);
-      boolean isBounded = (rawScheme instanceof MyColorSchemeDelegate);
-      while (!isGlobal && !isBounded && rawScheme instanceof DelegateColorScheme) {
-        rawScheme = ((DelegateColorScheme)rawScheme).getDelegate();
-        if (rawScheme == globalScheme) isGlobal = true;
-        if (rawScheme instanceof MyColorSchemeDelegate) {
-          isBounded = true;
-        }
-      }
-      if (isGlobal && !isBounded) {
-        LOG.warn("Attempted to set unbounded global scheme to editor '%s' (presentationMode=%b)"
-                    .formatted(finalEditor, UISettings.getInstance().getPresentationMode()));
-        LOG.debug(ExceptionUtil.currentStackTrace());
-      }
-      if (rawScheme instanceof MyColorSchemeDelegate) {
-        myScheme = (MyColorSchemeDelegate)rawScheme;
+      if (scheme instanceof MyColorSchemeDelegate) {
+        myScheme = (MyColorSchemeDelegate)scheme;
       } else {
-        myScheme = new MyColorSchemeDelegate(rawScheme);
+        myScheme = new MyColorSchemeDelegate(scheme);
       }
       reinitSettings();
     });

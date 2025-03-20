@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.lang.impl.modcommand;
 
 import com.intellij.analysis.AnalysisBundle;
@@ -293,7 +293,7 @@ final class PsiUpdateImpl {
       // TODO: lazily get the tracker for the current file
       myTracker = tracker(actionContext.file());
       myTracker.myPositionDocument.addDocumentListener(this, this);
-      myNavigationFile = Objects.requireNonNull(myTracker.myOrigFile.getOriginalFile().getVirtualFile());
+      myNavigationFile = myTracker.myOrigFile.getViewProvider().getVirtualFile();
     }
 
     private @NotNull FileTracker tracker(@NotNull PsiFile file) {
@@ -350,7 +350,7 @@ final class PsiUpdateImpl {
     }
 
     private @Nullable TextRange getRange(@NotNull PsiElement element) {
-      if (!element.isValid()) throw new IllegalArgumentException();
+      if (!element.isValid()) throw new IllegalArgumentException("Element " + element + " is not valid");
       if (!PsiTreeUtil.isAncestor(myTracker.myCopyFile, element, false)) {
         PsiFile file = element.getContainingFile();
         // allow navigating to the beginning of files

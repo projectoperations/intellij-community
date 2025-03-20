@@ -6,13 +6,12 @@ import com.intellij.collaboration.async.collectScoped
 import com.intellij.collaboration.async.launchNow
 import com.intellij.collaboration.async.mapScoped
 import com.intellij.collaboration.ui.codereview.details.model.CodeReviewChangeListViewModelBase
-import com.intellij.collaboration.ui.codereview.diff.CodeReviewDiffRequestProducer
+import com.intellij.collaboration.ui.util.selectedItem
 import com.intellij.collaboration.util.ChangesSelection
 import com.intellij.collaboration.util.getOrNull
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.project.Project
 import com.intellij.platform.util.coroutines.childScope
-import com.intellij.util.asSafely
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
@@ -36,7 +35,6 @@ import org.jetbrains.plugins.github.pullrequest.ui.review.GHPRReviewViewModelHel
 import org.jetbrains.plugins.github.pullrequest.ui.timeline.GHPRTimelineViewModel
 import org.jetbrains.plugins.github.pullrequest.ui.timeline.GHPRTimelineViewModelImpl
 import org.jetbrains.plugins.github.pullrequest.ui.toolwindow.model.GHPRInfoViewModel
-import org.jetbrains.plugins.github.pullrequest.ui.toolwindow.model.GHPRToolWindowProjectViewModel
 
 @ApiStatus.Internal
 internal interface GHPRViewModelContainer {
@@ -55,9 +53,12 @@ internal class GHPRViewModelContainerImpl(
   project: Project,
   parentCs: CoroutineScope,
   dataContext: GHPRDataContext,
-  private val projectVm: GHPRToolWindowProjectViewModel,
   private val pullRequestId: GHPRIdentifier,
   cancelWith: Disposable,
+  private val viewPullRequest: (GHPRIdentifier) -> Unit,
+  private val viewPullRequestOnCommit: (GHPRIdentifier, String) -> Unit,
+  private val openPullRequestDiff: (GHPRIdentifier?, Boolean) -> Unit,
+  private val refreshPrOnCurrentBranch: () -> Unit,
 ) : GHPRViewModelContainer {
   private val cs = parentCs.childScope(javaClass.name).cancelledWith(cancelWith)
 
@@ -66,7 +67,7 @@ internal class GHPRViewModelContainerImpl(
   private val diffSelectionRequests = MutableSharedFlow<ChangesSelection>(1)
 
   private val lazyInfoVm = lazy {
-    GHPRInfoViewModel(project, cs, dataContext, dataProvider).apply {
+    GHPRInfoViewModel(project, cs, dataContext, dataProvider, openPullRequestDiff).apply {
       setup()
     }
   }
@@ -90,7 +91,7 @@ internal class GHPRViewModelContainerImpl(
   }
   private val settings = GithubPullRequestsProjectUISettings.getInstance(project)
   override val branchWidgetVm: GHPRBranchWidgetViewModel by lazy {
-    GHPRBranchWidgetViewModelImpl(cs, settings, dataProvider, projectVm, branchStateVm, reviewVmHelper, pullRequestId)
+    GHPRBranchWidgetViewModelImpl(cs, settings, dataProvider, branchStateVm, reviewVmHelper, pullRequestId, viewPullRequest)
   }
 
   private val threadsVms = GHPRThreadsViewModels(project, cs, dataContext, dataProvider)
@@ -103,7 +104,7 @@ internal class GHPRViewModelContainerImpl(
   override val editorVm: GHPRReviewInEditorViewModel by lazy {
     GHPRReviewInEditorViewModelImpl(project, cs, settings, dataContext, dataProvider, branchStateVm, threadsVms) {
       diffSelectionRequests.tryEmit(it)
-      projectVm.openPullRequestDiff(pullRequestId, true)
+      openPullRequestDiff(pullRequestId, true)
     }
   }
 
@@ -116,7 +117,7 @@ internal class GHPRViewModelContainerImpl(
   init {
     cs.launchNow {
       dataProvider.detailsData.stateChangeSignal.collectLatest {
-        projectVm.refreshPrOnCurrentBranch()
+        refreshPrOnCurrentBranch()
       }
     }
   }
@@ -145,12 +146,10 @@ internal class GHPRViewModelContainerImpl(
     }
 
     cs.launchNow {
-      diffVm.collectScoped {
-        it.getOrNull()?.handleSelection { producer ->
-          val change = producer?.asSafely<CodeReviewDiffRequestProducer>()?.change
-          if (lazyInfoVm.isInitialized() && change != null) {
-            lazyInfoVm.value.detailsVm.value.getOrNull()?.changesVm?.selectChange(change)
-          }
+      handleSelection {
+        val change = it?.selectedItem ?: return@handleSelection
+        if (lazyInfoVm.isInitialized()) {
+          lazyInfoVm.value.detailsVm.value.getOrNull()?.changesVm?.selectChange(change)
         }
       }
     }
@@ -159,14 +158,14 @@ internal class GHPRViewModelContainerImpl(
   private fun GHPRTimelineViewModelImpl.setup() {
     cs.launchNow {
       showCommitRequests.collect {
-        projectVm.viewPullRequest(pullRequestId, it)
+        viewPullRequestOnCommit(pullRequestId, it)
       }
     }
 
     cs.launchNow {
       showDiffRequests.collect {
         diffVm.showDiffFor(it)
-        projectVm.openPullRequestDiff(pullRequestId, true)
+        openPullRequestDiff(pullRequestId, true)
       }
     }
   }

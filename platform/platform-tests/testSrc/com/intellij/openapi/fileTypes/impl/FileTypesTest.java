@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.fileTypes.impl;
 
 import com.intellij.concurrency.ConcurrentCollectionFactory;
@@ -8,7 +8,7 @@ import com.intellij.ide.highlighter.ModuleFileType;
 import com.intellij.ide.highlighter.ProjectFileType;
 import com.intellij.ide.highlighter.WorkspaceFileType;
 import com.intellij.ide.plugins.IdeaPluginDescriptorImpl;
-import com.intellij.ide.plugins.PluginDescriptorTestKt;
+import com.intellij.ide.plugins.PluginDescriptorLoadUtilsKt;
 import com.intellij.ide.plugins.PluginManagerCore;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
@@ -119,7 +119,7 @@ public class FileTypesTest extends HeavyPlatformTestCase {
       myFileTypeManager.reDetectAsync(false);
       assertNull(myFileTypeManager.findFileTypeByName("x." + MyTestFileType.EXTENSION));
       assertNull(myFileTypeManager.getExtensionMap().findByExtension(MyTestFileType.EXTENSION));
-      myFileTypeManager.myDetectionService.drainReDetectQueue();
+      myFileTypeManager.detectionService.drainReDetectQueue();
       Disposer.dispose(myFileTypeManager);
       FileTypeManagerImpl globalFileTypeManager = (FileTypeManagerImpl)FileTypeManagerEx.getInstanceEx();
       Element globalStateAfter = globalFileTypeManager.getState();
@@ -682,7 +682,7 @@ public class FileTypesTest extends HeavyPlatformTestCase {
     bean.implementationClass = MyTestFileType.class.getName();
     bean.extensions = MyTestFileType.EXTENSION;
     IdeaPluginDescriptorImpl pluginDescriptor =
-      PluginDescriptorTestKt.readDescriptorForTest(Path.of(""), false, "<idea-plugin/>".getBytes(StandardCharsets.UTF_8), PluginId.getId("myPlugin"));
+      PluginDescriptorLoadUtilsKt.readDescriptorForTest(Path.of(""), false, "<idea-plugin/>".getBytes(StandardCharsets.UTF_8), PluginId.getId("myPlugin"));
     Disposable disposable = registerFileType(bean, pluginDescriptor);
     try {
       reInitFileTypeManagerComponent(element);
@@ -1667,6 +1667,6 @@ public class FileTypesTest extends HeavyPlatformTestCase {
     VirtualFile vFile = createChildData(vDir, "X.html");
     setFileText(vFile, "<c></c>");
     assertEquals("HTML", getFileType(vFile).getName());
-    assertFalse(myFileTypeManager.myDetectionService.wasAutoDetectedBefore(vFile));
+    assertFalse(myFileTypeManager.detectionService.wasAutoDetectedBefore(vFile));
   }
 }

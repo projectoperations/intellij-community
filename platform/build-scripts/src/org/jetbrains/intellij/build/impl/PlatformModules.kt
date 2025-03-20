@@ -1,8 +1,9 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("ReplaceJavaStaticMethodWithKotlinAnalog", "RedundantSuppression", "ReplaceGetOrSet")
 package org.jetbrains.intellij.build.impl
 
 import com.intellij.openapi.util.JDOMUtil
+import io.opentelemetry.api.trace.Span
 import it.unimi.dsi.fastutil.objects.ObjectLinkedOpenHashSet
 import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.persistentListOf
@@ -164,10 +165,12 @@ internal suspend fun createPlatformLayout(projectLibrariesUsedByPlugins: SortedS
     "intellij.platform.util.xmlDom",
     "intellij.platform.tracing.rt",
     "intellij.platform.util.base",
+    "intellij.platform.util.base.kmp",
     "intellij.platform.diagnostic",
     // it contains common telemetry related code (utils, TelemetryContext) for OpenTelemetry
     "intellij.platform.diagnostic.telemetry.rt",
     "intellij.platform.util",
+    "intellij.platform.util.kmp",
     "intellij.platform.core",
     // it has package `kotlin.coroutines.jvm.internal` - should be packed into the same JAR as coroutine lib,
     // to ensure that package index will not report one more JAR in a search path
@@ -267,10 +270,7 @@ internal suspend fun createPlatformLayout(projectLibrariesUsedByPlugins: SortedS
     explicit.add(
       ModuleItem(
         moduleName = moduleName,
-        relativeOutputFile = when {
-          isModuleCloseSource(moduleName, context = context) -> if (frontendModuleFilter.isModuleIncluded(moduleName)) PRODUCT_CLIENT_JAR else PRODUCT_JAR
-          else -> PlatformJarNames.getPlatformModuleJarName(moduleName, frontendModuleFilter)
-        },
+        relativeOutputFile = getProductModuleJarName(moduleName, context, frontendModuleFilter),
         reason = "productImplementationModules",
       )
     )
@@ -347,6 +347,13 @@ internal suspend fun createPlatformLayout(projectLibrariesUsedByPlugins: SortedS
   }
 
   return layout
+}
+
+private fun getProductModuleJarName(moduleName: String, context: BuildContext, frontendModuleFilter: FrontendModuleFilter): String {
+  return when {
+    isModuleCloseSource(moduleName, context = context) -> if (frontendModuleFilter.isModuleIncluded(moduleName)) PRODUCT_CLIENT_JAR else PRODUCT_JAR
+    else -> PlatformJarNames.getPlatformModuleJarName(moduleName, frontendModuleFilter)
+  }
 }
 
 internal fun computeProjectLibsUsedByPlugins(enabledPluginModules: Set<String>, context: BuildContext): SortedSet<ProjectLibraryData> {
@@ -526,10 +533,11 @@ private suspend fun processAndGetProductPluginContentModules(
 @Suppress("RemoveRedundantQualifierName")
 private val excludedPaths = java.util.Set.of(
   "/META-INF/ultimate.xml",
+  "/META-INF/ultimate-services.xml",
   "/META-INF/RdServer.xml",
   "/META-INF/unattendedHost.xml",
-  "/META-INF/codeWithMe.xml",
-  "/META-INF/codeWithMeFrontend.xml",
+  "/META-INF/cwmBackendConnection.xml",
+  "/META-INF/cwmConnectionFrontend.xml",
 )
 
 private val COMMUNITY_IMPL_EXTENSIONS = setOf(
@@ -571,22 +579,33 @@ fun createXIncludePathResolver(includedPlatformModulesPartialList: List<String>,
   }
 }
 
-private fun embedAndCollectProductModules(file: Path, xIncludePathResolver: XIncludePathResolver, xml: Element, context: BuildContext): Set<ModuleItem> {
+private suspend fun embedAndCollectProductModules(file: Path, xIncludePathResolver: XIncludePathResolver, xml: Element, context: BuildContext): Set<ModuleItem> {
   resolveNonXIncludeElement(original = xml, base = file, pathResolver = xIncludePathResolver)
   return collectAndEmbedProductModules(root = xml, xIncludePathResolver = xIncludePathResolver, context = context)
 }
 
 suspend fun embedContentModules(file: Path, xIncludePathResolver: XIncludePathResolver, xml: Element, layout: PluginLayout?, context: BuildContext) {
   val frontendModuleFilter = context.getFrontendModuleFilter()
+  val contentModuleFilter = context.getContentModuleFilter()
   resolveNonXIncludeElement(original = xml, base = file, pathResolver = xIncludePathResolver)
-  for (moduleElement in xml.getChildren("content").asSequence().flatMap { it.getChildren("module") }) {
+
+  val moduleElements = xml.getChildren("content").flatMap { it.getChildren("module") }
+  for (moduleElement in moduleElements) {
     val moduleName = moduleElement.getAttributeValue("name") ?: continue
     check(moduleElement.content.isEmpty())
 
     val jpsModuleName = moduleName.substringBeforeLast('/')
+    val loadingRule = moduleElement.getAttributeValue("loading")
+    val dependencyHelper = (context as BuildContextImpl).jarPackagerDependencyHelper
+    if (dependencyHelper.isOptionalLoadingRule(loadingRule) && !contentModuleFilter.isOptionalModuleIncluded(jpsModuleName, pluginMainModuleName = layout?.mainModule)) {
+      Span.current().addEvent("Tag for module '$moduleName' is removed from plugin.xml file for '${layout?.mainModule}' by $contentModuleFilter")
+      moduleElement.parent.removeContent(moduleElement)
+      continue
+    }
+    
     val descriptor = getModuleDescriptor(moduleName = moduleName, jpsModuleName = jpsModuleName, xIncludePathResolver = xIncludePathResolver, context = context)
     if (jpsModuleName == moduleName &&
-        (context as BuildContextImpl).jarPackagerDependencyHelper.isPluginModulePackedIntoSeparateJar(context.findRequiredModule(jpsModuleName.removeSuffix("._test")), layout, frontendModuleFilter)) {
+        dependencyHelper.isPluginModulePackedIntoSeparateJar(context.findRequiredModule(jpsModuleName.removeSuffix("._test")), layout, frontendModuleFilter)) {
       descriptor.setAttribute("separate-jar", "true")
     }
     moduleElement.setContent(CDATA(JDOMUtil.write(descriptor)))
@@ -612,11 +631,13 @@ private fun getModuleDescriptor(moduleName: String, jpsModuleName: String, xIncl
   return xml
 }
 
-private fun collectAndEmbedProductModules(root: Element, xIncludePathResolver: XIncludePathResolver, context: BuildContext): Set<ModuleItem> {
+private suspend fun collectAndEmbedProductModules(root: Element, xIncludePathResolver: XIncludePathResolver, context: BuildContext): Set<ModuleItem> {
+  val frontendModuleFilter = context.getFrontendModuleFilter()
   val result = LinkedHashSet<ModuleItem>()
   for (moduleElement in (root.getChildren("content").asSequence().flatMap { it.getChildren("module") })) {
     val moduleName = moduleElement.getAttributeValue("name") ?: continue
-    val relativeOutFile = "modules/$moduleName.jar"
+    val loadingRule = moduleElement.getAttributeValue("loading")
+    val relativeOutFile = if (loadingRule == "embedded") getProductModuleJarName(moduleName, context, frontendModuleFilter) else "modules/$moduleName.jar"
     result.add(ModuleItem(moduleName = moduleName, relativeOutputFile = relativeOutFile, reason = ModuleIncludeReasons.PRODUCT_MODULES))
     PRODUCT_MODULE_IMPL_COMPOSITION.get(moduleName)?.let {
       it.mapTo(result) { subModuleName ->

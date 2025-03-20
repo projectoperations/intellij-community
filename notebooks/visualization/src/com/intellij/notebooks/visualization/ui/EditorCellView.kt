@@ -73,7 +73,7 @@ class EditorCellView(
   var outputs: EditorCellOutputsView? = null
     private set
 
-  private val myEditorCellFrameManager: EditorCellFrameManager? =
+  val myEditorCellFrameManager: EditorCellFrameManager? =
     if (interval.type == NotebookCellLines.CellType.MARKDOWN && Registry.`is`("jupyter.markdown.cells.border")) {
       EditorCellFrameManager(editor, this, NotebookCellLines.CellType.MARKDOWN)
     } else if (interval.type == NotebookCellLines.CellType.CODE && Registry.`is`("jupyter.code.cells.border")) {
@@ -82,12 +82,16 @@ class EditorCellView(
 
   var selected: Boolean = false
     set(value) {
+      if (field == value) {
+        return
+      }
+
       field = value
       updateFolding()
       updateRunButtonVisibility()
       updateCellHighlight()
       updateCellActionsToolbarVisibility()
-      myEditorCellFrameManager?.updateCellFrameShow(mouseOver || value)
+      myEditorCellFrameManager?.updateCellFrameShow(value, mouseOver)
     }
 
   private var mouseOver = false
@@ -100,6 +104,13 @@ class EditorCellView(
       if (field == value) return
       field = value
       updateRunButtonVisibility()
+    }
+
+  var isUnderDiff: Boolean = false
+    set(value) {
+      if (field == value) return
+      field = value
+      updateCellActionsToolbarVisibility()
     }
 
   init {
@@ -118,8 +129,11 @@ class EditorCellView(
     editor.notebookAppearance.codeCellBackgroundColor.afterChange(this) { backgroundColor ->
       updateCellHighlight(force = true)
     }
-    editor.notebook?.readOnly?.afterChange(this) {
+    cell.notebook.readOnly.afterChange(this) {
       updateRunButtonVisibility()
+    }
+    cell.notebook.showCellToolbar.afterChange(this) {
+      updateCellActionsToolbarVisibility()
     }
     recreateControllers()
     updateSelection(false)
@@ -270,7 +284,7 @@ class EditorCellView(
     mouseOver = false
     updateFolding()
     updateRunButtonVisibility()
-    myEditorCellFrameManager?.updateCellFrameShow(mouseOver || selected)
+    myEditorCellFrameManager?.updateCellFrameShow(selected, mouseOver)
     updateCellActionsToolbarVisibility()
   }
 
@@ -278,7 +292,7 @@ class EditorCellView(
     mouseOver = true
     updateFolding()
     updateRunButtonVisibility()
-    myEditorCellFrameManager?.updateCellFrameShow(mouseOver || selected)
+    myEditorCellFrameManager?.updateCellFrameShow(selected, mouseOver)
     updateCellActionsToolbarVisibility()
   }
 
@@ -360,7 +374,7 @@ class EditorCellView(
     selected = value
     updateFolding()
     updateCellHighlight()
-    myEditorCellFrameManager?.updateCellFrameShow(mouseOver || selected)
+    myEditorCellFrameManager?.updateCellFrameShow(selected, mouseOver)
   }
 
   private fun updateFolding() {
@@ -372,7 +386,7 @@ class EditorCellView(
 
   private fun updateRunButtonVisibility() {
     input.runCellButton ?: return
-    val isReadOnlyNotebook = editor.notebook?.readOnly?.get() ?: false
+    val isReadOnlyNotebook = editor.notebook?.readOnly?.get() == true
     val shouldBeVisible = !isReadOnlyNotebook && !disableActions && (mouseOver || selected)
     if (input.runCellButton.lastRunButtonVisibility == shouldBeVisible) return
 
@@ -382,9 +396,11 @@ class EditorCellView(
 
   private fun updateCellActionsToolbarVisibility() {
     val toolbarManager = input.cellActionsToolbar ?: return
+    if ((isUnderDiff == true)) return
     val targetComponent = _controllers.filterIsInstance<DataProviderComponent>().firstOrNull()?.retrieveDataProvider() ?: return
     val tracker = NotebookCellActionsToolbarStateTracker.get(editor) ?: return
     when {
+      !cell.notebook.showCellToolbar.get() -> toolbarManager.hideToolbar()
       mouseOver -> toolbarManager.showToolbar(targetComponent)
       selected -> {
         // we show the toolbar only for the last selected cell

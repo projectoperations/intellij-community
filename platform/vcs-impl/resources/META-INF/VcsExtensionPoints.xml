@@ -74,6 +74,10 @@
                     interface="com.intellij.openapi.vcs.changes.ChangesViewNodeAction"
                     area="IDEA_PROJECT"
                     dynamic="true"/>
+    <extensionPoint name="vcs.changes.changesViewConflictsBannerCustomizer"
+                    interface="com.intellij.openapi.vcs.merge.ChangesViewConflictsBannerCustomizer"
+                    area="IDEA_PROJECT"
+                    dynamic="true"/>
     <extensionPoint name="editChangelistSupport"
                     interface="com.intellij.openapi.vcs.changes.ui.EditChangelistSupport"
                     area="IDEA_PROJECT"/>
@@ -114,6 +118,11 @@
                     dynamic="true"/>
 
     <extensionPoint name="vcs.unversionedFilesHolder"
+                    interface="com.intellij.openapi.vcs.changes.VcsManagedFilesHolder$Provider"
+                    area="IDEA_PROJECT"
+                    dynamic="true"/>
+
+    <extensionPoint name="vcs.resolvedConflictsFilesHolder"
                     interface="com.intellij.openapi.vcs.changes.VcsManagedFilesHolder$Provider"
                     area="IDEA_PROJECT"
                     dynamic="true"/>

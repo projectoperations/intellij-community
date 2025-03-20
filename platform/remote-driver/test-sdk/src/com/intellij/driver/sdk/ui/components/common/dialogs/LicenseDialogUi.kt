@@ -1,19 +1,20 @@
 package com.intellij.driver.sdk.ui.components.common.dialogs
 
+import com.intellij.driver.client.Driver
 import com.intellij.driver.sdk.application.fullProductName
 import com.intellij.driver.sdk.ui.Finder
 import com.intellij.driver.sdk.ui.components.ComponentData
 import com.intellij.driver.sdk.ui.components.UiComponent
-import com.intellij.driver.sdk.ui.components.elements.list
 import com.intellij.driver.sdk.ui.components.elements.radioButton
-import javax.swing.JList
+import com.intellij.driver.sdk.ui.ui
 
-fun Finder.licenseDialog(action: LicenseDialogUi.() -> Unit) {
+private fun Finder.licenseDialog(action: LicenseDialogUi.() -> Unit) {
   x("//div[@title='Manage Licenses']", LicenseDialogUi::class.java).action()
 }
 
+fun Driver.licenseDialog(action: LicenseDialogUi.() -> Unit = {}) = this.ui.licenseDialog(action)
+
 class LicenseDialogUi(data: ComponentData) : UiComponent(data) {
-  val productsList = list { byType(JList::class.java) }
   val licenseServerRadioButton = radioButton { byAccessibleName("License server") }
   val licenseServerTextField = x { byClass("JBTextField") }
   val activationCodeRadioButton = radioButton { byAccessibleName("Activation code") }
@@ -25,10 +26,13 @@ class LicenseDialogUi(data: ComponentData) : UiComponent(data) {
   val startTrialTab = x { and(byClass("SegmentedButton"), byAccessibleName("Start trial")) }
   val startTrialButton = x("//div[@class!='SegmentedButton' and @accessiblename='Start Free 30-Day Trial']")
   val continueButton = x { byAccessibleName("Continue") }
-  val deactivateLicenseButton = x { contains(byAccessibleName("Deactivate License")) }
+  val removeLicenseButton: UiComponent = x { contains(byAccessibleName("Remove License")) }
   val closeButton = x { byAccessibleName("Close") }
-  val exitButton = x("//div[@accessiblename='Quit ${driver.fullProductName}']")
   val optionsButton = x { byAccessibleName("Options") }
+
+  //Depend on the free mode support (restart if IDE supports free mode)
+  val exitButton: UiComponent = x { byAccessibleName("Quit ${driver.fullProductName}") }
+  val restartButton: UiComponent = x { byAccessibleName("Restart Unsubscribed") }
 }
 
 val Finder.tokenAuthDialog get() = x("//div[@title='${driver.fullProductName}']", TokenAuthDialogUi::class.java)
@@ -58,4 +62,27 @@ class EducationalLicenseExpirationDialogUi(data: ComponentData) : UiComponent(da
   val renewLicenseButton = x { contains(byText("Renew license")) }
   val dismissButton = x { byText("Dismiss") }
   val discountLink get() = x { contains(byVisibleText("40%")) }.getAllTexts { it.text.contains("40%") }[0]
+}
+
+fun LicenseDialogUi.exitConfirmationDialog(action: ExitConfirmationDialogUi.() -> Unit) {
+  x("//div[@title='Confirm Exit']", ExitConfirmationDialogUiCommonImpl::class.java).action()
+}
+
+fun LicenseDialogUi.restartToFreeModeConfirmationDialog(action: ExitConfirmationDialogUi.() -> Unit) {
+  x("//div[@title='Confirm Restart']", RestartToFreeModeConfirmationDialogUi::class.java).action()
+}
+
+abstract class ExitConfirmationDialogUi(data: ComponentData): UiComponent(data) {
+  abstract val exitConfirmButton: UiComponent
+  abstract val cancelButton: UiComponent
+}
+
+class ExitConfirmationDialogUiCommonImpl(data: ComponentData): ExitConfirmationDialogUi(data) {
+  override val exitConfirmButton: UiComponent = x { byAccessibleName("Exit") }
+  override val cancelButton: UiComponent = x { byAccessibleName("Back to Activation") }
+}
+
+class RestartToFreeModeConfirmationDialogUi(data: ComponentData): ExitConfirmationDialogUi(data) {
+  override val exitConfirmButton: UiComponent = x { byAccessibleName("Restart") }
+  override val cancelButton: UiComponent = x { byAccessibleName("Back to Subscriptions") }
 }

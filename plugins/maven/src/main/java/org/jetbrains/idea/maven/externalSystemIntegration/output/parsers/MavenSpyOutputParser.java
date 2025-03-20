@@ -15,25 +15,29 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 public class MavenSpyOutputParser {
-  public static final String PREFIX = "[IJ]-";
+  public static final String PREFIX_MAVEN_3 = "[IJ]-";
+  public static final String PREFIX_MAVEN_4 = "[INFO] [stdout] [IJ]-";
   private static final String SEPARATOR = "-[IJ]-";
   private static final String NEWLINE = "-[N]-";
   private static final String DOWNLOAD_DEPENDENCIES_NAME = "dependencies";
   private final Set<String> downloadingMap = new HashSet<>();
   private final MavenParsingContext myContext;
+  private final SpyOutputExtractor myExtractor;
 
-  public static boolean isSpyLog(String s) {
-    return s != null && s.startsWith(PREFIX);
+  public boolean isSpyLog(String s) {
+    return myExtractor.isSpyLog(s);
   }
 
-  public MavenSpyOutputParser(@NotNull MavenParsingContext context) {
+
+  public MavenSpyOutputParser(@NotNull MavenParsingContext context, SpyOutputExtractor extractor) {
     myContext = context;
+    myExtractor = extractor;
   }
-
 
   public void processLine(@NotNull String spyLine,
                           @NotNull Consumer<? super BuildEvent> messageConsumer) {
-    String line = spyLine.substring(PREFIX.length());
+    String line = myExtractor.extract(spyLine);
+    if (line == null) return;
     try {
       int threadSeparatorIdx = line.indexOf('-');
       if (threadSeparatorIdx < 0) {

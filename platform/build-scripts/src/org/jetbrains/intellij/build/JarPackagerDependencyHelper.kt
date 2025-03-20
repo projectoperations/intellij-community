@@ -86,10 +86,17 @@ internal class JarPackagerDependencyHelper(private val context: CompilationConte
   }
 
   // The x-include is not resolved. If the plugin.xml includes any files, the content from these included files will not be considered.
-  fun readPluginIncompleteContentFromDescriptor(pluginModule: JpsModule): Sequence<String> {
+  fun readPluginIncompleteContentFromDescriptor(pluginModule: JpsModule, contentModuleFilter: ContentModuleFilter): Sequence<String> {
     val pluginXml = findFileInModuleSources(pluginModule, "META-INF/plugin.xml") ?: return emptySequence()
-    return readPluginContentFromDescriptor(readXmlAsModel(pluginXml)).map { it.first  }
+    return readPluginContentFromDescriptor(readXmlAsModel(pluginXml)).mapNotNull { (moduleName, loadingRule) ->
+      if (isOptionalLoadingRule(loadingRule) && !contentModuleFilter.isOptionalModuleIncluded(moduleName, pluginModule.name)) {
+        return@mapNotNull null
+      }
+      moduleName
+    }
   }
+
+  fun isOptionalLoadingRule(loadingRule: String?): Boolean = loadingRule != "required" && loadingRule != "embedded"
 
   private fun readPluginContentFromDescriptor(pluginDescriptor: XmlElement): Sequence<Pair<String, String?>> {
     return sequence {
@@ -137,7 +144,6 @@ internal class JarPackagerDependencyHelper(private val context: CompilationConte
     val prefix = "$parentGroup."
     for (dependency in getModuleDependencies(dependentModule)) {
       val moduleName = dependency.moduleReference.moduleName
-      // intellij.space.kotlin depends on module intellij.space and both uses library org.apache.ivy
       if (moduleName == parentGroup) {
         if (getLibraryDependencies(dependency.module ?: continue, withTests).any { it.libraryReference.libraryName == libraryName }) {
           return true

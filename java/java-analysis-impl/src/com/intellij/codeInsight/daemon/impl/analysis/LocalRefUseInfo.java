@@ -15,6 +15,7 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.IncompleteModelUtil;
 import com.intellij.psi.impl.source.resolve.JavaResolveUtil;
+import com.intellij.psi.impl.source.tree.java.PsiReferenceExpressionImpl;
 import com.intellij.psi.infos.CandidateInfo;
 import com.intellij.psi.util.*;
 import com.intellij.util.ArrayUtilRt;
@@ -246,6 +247,20 @@ public final class LocalRefUseInfo {
     return false;
   }
 
+  static @Nullable JavaResolveResult resolveOptimised(@NotNull PsiJavaCodeReferenceElement ref, @NotNull PsiFile containingFile) {
+    try {
+      if (ref instanceof PsiReferenceExpressionImpl) {
+        PsiReferenceExpressionImpl.OurGenericsResolver resolver = PsiReferenceExpressionImpl.OurGenericsResolver.INSTANCE;
+        JavaResolveResult[] results = JavaResolveUtil.resolveWithContainingFile(ref, resolver, true, true, containingFile);
+        return results.length == 1 ? results[0] : JavaResolveResult.EMPTY;
+      }
+      return ref.advancedResolve(true);
+    }
+    catch (IndexNotReadyException e) {
+      return null;
+    }
+  }
+
   private static class Builder extends JavaRecursiveElementWalkingVisitor {
     private final @NotNull PsiFile myFile;
     private final @NotNull Set<PsiAnchor> myDclsUsedMap;
@@ -297,9 +312,8 @@ public final class LocalRefUseInfo {
         // in JSP, XmlAttributeValue may contain java references
         try {
           for (PsiReference reference : element.getReferences()) {
-            JavaResolveResult result = HighlightVisitorImpl.resolveJavaReference(reference);
-            if (result != null) {
-              registerReference(reference, result);
+            if (reference instanceof PsiJavaReference psiJavaReference) {
+              registerReference(reference, psiJavaReference.advancedResolve(false));
             }
           }
         }
@@ -400,7 +414,7 @@ public final class LocalRefUseInfo {
     public void visitReferenceElement(@NotNull PsiJavaCodeReferenceElement ref) {
       super.visitReferenceElement(ref);
       if (!(ref instanceof PsiImportStaticReferenceElement)) {
-        JavaResolveResult result = HighlightVisitorImpl.resolveOptimised(ref, myFile);
+        JavaResolveResult result = resolveOptimised(ref, myFile);
         if (result != null) {
           registerReference(ref, result);
         }
@@ -410,7 +424,7 @@ public final class LocalRefUseInfo {
     @Override
     public void visitReferenceExpression(@NotNull PsiReferenceExpression ref) {
       super.visitReferenceExpression(ref);
-      JavaResolveResult result = HighlightVisitorImpl.resolveOptimised(ref, myFile);
+      JavaResolveResult result = resolveOptimised(ref, myFile);
       if (result != null) {
         registerReference(ref, result);
       }

@@ -11,6 +11,7 @@ import com.intellij.platform.diagnostic.telemetry.helpers.useWithScope
 import com.intellij.platform.diagnostic.telemetry.rt.context.TelemetryContext
 import com.intellij.platform.util.progress.RawProgressReporter
 import kotlinx.coroutines.*
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.TestOnly
 import org.jetbrains.idea.maven.buildtool.MavenEventHandler
 import org.jetbrains.idea.maven.buildtool.MavenLogEventHandler
@@ -18,6 +19,7 @@ import org.jetbrains.idea.maven.buildtool.MavenSyncConsole
 import org.jetbrains.idea.maven.model.*
 import org.jetbrains.idea.maven.project.MavenConsole
 import org.jetbrains.idea.maven.project.MavenProject
+import org.jetbrains.idea.maven.server.security.MavenToken
 import org.jetbrains.idea.maven.telemetry.tracer
 import org.jetbrains.idea.maven.utils.MavenLog
 import org.jetbrains.idea.maven.utils.MavenProgressIndicator
@@ -27,7 +29,6 @@ import java.nio.file.Path
 import java.rmi.RemoteException
 import java.util.*
 import java.util.concurrent.TimeUnit
-import kotlin.Throws
 
 // FIXME: still some missing transforms?
 abstract class MavenEmbedderWrapper internal constructor(private val project: Project) :
@@ -240,6 +241,7 @@ abstract class MavenEmbedderWrapper internal constructor(private val project: Pr
     return getOrCreateWrappee().readModel(file, ourToken)
   }
 
+  @ApiStatus.ScheduledForRemoval
   @Deprecated("use suspend method")
   fun executeGoal(
     requests: Collection<MavenGoalExecutionRequest>,
@@ -379,6 +381,24 @@ abstract class MavenEmbedderWrapper internal constructor(private val project: Pr
         progressIndication.cancelAndJoin()
       }
     }
+  }
+
+  internal suspend fun interpolateAndAlignModel(model: MavenModel, targetPomDir: File, ourToken: MavenToken): MavenModel {
+    return getOrCreateWrappee().interpolateAndAlignModel(model, targetPomDir, ourToken)
+  }
+
+  internal suspend fun applyProfiles(
+    model: MavenModel,
+    baseDir: File,
+    explicitProfiles: MavenExplicitProfiles,
+    alwaysOnProfiles: HashSet<String>,
+    ourToken: MavenToken,
+  ): ProfileApplicationResult {
+    return getOrCreateWrappee().applyProfiles(model, baseDir, explicitProfiles, alwaysOnProfiles, ourToken)
+  }
+
+  internal suspend fun assembleInheritance(model: MavenModel, parentModel: MavenModel, ourToken: MavenToken): MavenModel {
+    return getOrCreateWrappee().assembleInheritance(model, parentModel, ourToken)
   }
 
   protected fun interface LongRunningEmbedderTask<R : Serializable> {

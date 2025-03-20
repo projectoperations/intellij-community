@@ -4294,7 +4294,7 @@
       ]
     },
     {
-      "name": "EventLogWhitelist",
+      "name": "EventLogAllowedList",
       "scope": "app",
       "pluginId": "com.intellij",
       "classFqn": "com.intellij.internal.statistic.eventLog.validator.storage.persistence.EventLogMetadataSettingsPersistence",
@@ -5018,7 +5018,7 @@
       "name": "AipLicense",
       "scope": "app",
       "pluginId": "com.intellij.ml.llm",
-      "classFqn": "com.intellij.ml.llm.aiaState.data.AipLicensePreferencesRepositoryImpl",
+      "classFqn": "com.intellij.ml.llm.activation.data.AipLicensePreferencesRepositoryImpl",
       "storage": "other.xml"
     },
     {

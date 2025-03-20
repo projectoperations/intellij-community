@@ -12,7 +12,8 @@ def init_builder_args(ctx, rule_kind, associates, transitiveInputs, plugins, com
     args.use_param_file("--flagfile=%s", use_always = True)
 
     args.add("--target_label", ctx.label)
-    args.add("--rule_kind", rule_kind)
+    if rule_kind != "kt_jvm_library":
+        args.add("--rule_kind", rule_kind)
     args.add("--kotlin_module_name", associates.module_name)
 
     kotlinc_options = ctx.attr.kotlinc_opts[KotlincOptions]
@@ -31,7 +32,7 @@ def init_builder_args(ctx, rule_kind, associates, transitiveInputs, plugins, com
     kotlinc_options_to_flags(kotlinc_options, args)
 
     args.add_all("--opt-in", kotlinc_options.opt_in)
-    args.add_all("--classpath", compile_deps.compile_jars)
+    args.add_all("--cp", compile_deps.compile_jars)
 
     if ctx.attr._reduced_classpath:
         args.add("--reduced-classpath-mode", "true")

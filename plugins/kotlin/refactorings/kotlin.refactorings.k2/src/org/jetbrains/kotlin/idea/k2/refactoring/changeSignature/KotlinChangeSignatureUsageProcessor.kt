@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.k2.refactoring.changeSignature
 
 import com.intellij.openapi.project.Project
@@ -17,14 +17,21 @@ import com.intellij.refactoring.rename.ResolveSnapshotProvider
 import com.intellij.refactoring.rename.ResolveSnapshotProvider.ResolveSnapshot
 import com.intellij.usageView.UsageInfo
 import com.intellij.util.containers.MultiMap
+import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
+import org.jetbrains.kotlin.analysis.api.analyze
+import org.jetbrains.kotlin.analysis.api.components.KaDiagnosticCheckerFilter
 import org.jetbrains.kotlin.analysis.api.components.ShortenOptions
+import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
+import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisFromWriteAction
+import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisOnEdt
+import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisFromWriteAction
+import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisOnEdt
 import org.jetbrains.kotlin.asJava.toLightMethods
 import org.jetbrains.kotlin.asJava.unwrapped
 import org.jetbrains.kotlin.descriptors.Visibilities
 import org.jetbrains.kotlin.idea.KotlinLanguage
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.shortenReferences
 import org.jetbrains.kotlin.idea.base.psi.isEffectivelyActual
-import org.jetbrains.kotlin.psi.psiUtil.isExpectDeclaration
 import org.jetbrains.kotlin.idea.base.util.useScope
 import org.jetbrains.kotlin.idea.k2.refactoring.changeSignature.usages.*
 import org.jetbrains.kotlin.idea.refactoring.changeSignature.KotlinValVar
@@ -43,10 +50,11 @@ import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.getElementTextWithContext
 import org.jetbrains.kotlin.psi.psiUtil.hasActualModifier
+import org.jetbrains.kotlin.psi.psiUtil.isExpectDeclaration
 import org.jetbrains.kotlin.psi.psiUtil.visibilityModifierType
 import org.jetbrains.kotlin.psi.typeRefHelpers.setReceiverTypeReference
 import org.jetbrains.kotlin.types.Variance
-import org.jetbrains.kotlin.util.OperatorNameConventions
+import org.jetbrains.kotlin.types.expressions.OperatorConventions
 
 private val primaryElementsKey = Key.create<List<KtNamedDeclaration>>("expectActual")
 
@@ -56,7 +64,7 @@ class KotlinChangeSignatureUsageProcessor : ChangeSignatureUsageProcessor {
             val psiMethod = changeInfo.method
             val containingClass = psiMethod.containingClass
             if (containingClass != null && LambdaUtil.isFunctionalClass(containingClass)) {
-                return ReferencesSearch.search(containingClass).mapNotNull {ref ->
+                return ReferencesSearch.search(containingClass).asIterable().mapNotNull {ref ->
                     val ktElement = ref.element as? KtElement ?: return@mapNotNull null
                     val ktCallExpression = ktElement.parent as? KtCallExpression ?: return@mapNotNull null
                     if (ktCallExpression.calleeExpression == ktElement && ktCallExpression.lambdaArguments.size == 1) {
@@ -74,7 +82,7 @@ class KotlinChangeSignatureUsageProcessor : ChangeSignatureUsageProcessor {
 
         if (ktCallableDeclaration is KtNamedFunction && !ktCallableDeclaration.hasBody()) {
             ktCallableDeclaration.toLightMethods().forEach { lightMethod ->
-                FunctionalExpressionSearch.search(lightMethod).forEach { functionalExpression ->
+                FunctionalExpressionSearch.search(lightMethod).asIterable().forEach { functionalExpression ->
                     val provider = ChangeSignatureUsageProviders.findProvider(functionalExpression.language)
                     if (provider != null) {
                         val usageInfo = provider.createOverrideUsageInfo(
@@ -98,17 +106,17 @@ class KotlinChangeSignatureUsageProcessor : ChangeSignatureUsageProcessor {
             primaryElements
         )
         ExpectActualUtils.withExpectedActuals(ktCallableDeclaration).forEach { ktCallableDeclaration ->
-            if (ktCallableDeclaration is KtNamedDeclaration) {
-                primaryElements.add(ktCallableDeclaration)
-                findUsages(ktCallableDeclaration, changeInfo, result)
-            }
-
             if (ktCallableDeclaration is KtCallableDeclaration) {
                 KotlinChangeSignatureUsageSearcher.findInternalUsages(ktCallableDeclaration, changeInfo, result)
             }
 
             if (ktCallableDeclaration is KtPrimaryConstructor) {
                 findConstructorPropertyUsages(ktCallableDeclaration, changeInfo, result)
+            }
+
+            if (ktCallableDeclaration is KtNamedDeclaration) {
+                primaryElements.add(ktCallableDeclaration)
+                findUsages(ktCallableDeclaration, changeInfo, result)
             }
         }
 
@@ -286,6 +294,7 @@ class KotlinChangeSignatureUsageProcessor : ChangeSignatureUsageProcessor {
         return true
     }
 
+    @OptIn(KaExperimentalApi::class, KaAllowAnalysisFromWriteAction::class, KaAllowAnalysisOnEdt::class)
     fun updatePrimaryMethod(
         element: KtNamedDeclaration,
         changeInfo: KotlinChangeInfoBase,
@@ -355,10 +364,18 @@ class KotlinChangeSignatureUsageProcessor : ChangeSignatureUsageProcessor {
             changeVisibility(changeInfo, element)
         }
 
-        if (changeInfo.newName == OperatorNameConventions.GET.asString() || changeInfo.newName == OperatorNameConventions.INVOKE.asString()) {
-            val method = changeInfo.method
-            if (changeInfo.receiverParameterInfo == null && method.parent is KtFile) {
-                (method as? KtNamedDeclaration)?.removeModifier(KtTokens.OPERATOR_KEYWORD)
+        val newName = changeInfo.newName
+        if (newName != null && OperatorConventions.isConventionName(Name.identifier(newName)) && element.hasModifier(KtTokens.OPERATOR_KEYWORD)) {
+            val brokenSignature = allowAnalysisFromWriteAction {
+                allowAnalysisOnEdt {
+                    analyze(element) {
+                        element.diagnostics(KaDiagnosticCheckerFilter.ONLY_COMMON_CHECKERS)
+                            .any { it.diagnosticClass == KaFirDiagnostic.InapplicableOperatorModifier::class }
+                    }
+                }
+            }
+            if (brokenSignature) {
+                element.removeModifier(KtTokens.OPERATOR_KEYWORD)
             }
         }
 

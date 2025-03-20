@@ -59,13 +59,12 @@ val Project.languageVersionSettings: LanguageVersionSettings
 
 val PsiElement.languageVersionSettings: LanguageVersionSettings
     get() {
-        if (project.serviceOrNull<ProjectFileIndex>() == null) {
-            return LanguageVersionSettingsImpl.DEFAULT
-        }
-
         return runReadAction {
             when (KotlinPluginModeProvider.currentPluginMode) {
                 KotlinPluginMode.K1 -> {
+                    if (project.serviceOrNull<ProjectFileIndex>() == null) {
+                        return@runReadAction LanguageVersionSettingsImpl.DEFAULT
+                    }
                     project.service<LanguageSettingsProvider>().getLanguageVersionSettings(this.moduleInfo, project)
                 }
                 KotlinPluginMode.K2 -> {
@@ -138,6 +137,7 @@ class LanguageVersionSettingsProvider(private val project: Project) : Disposable
         val arguments = KotlinCommonCompilerArgumentsHolder.getInstance(project).settings
 
         val languageVersion = LanguageVersion.fromVersionString(arguments.languageVersion)
+            ?: DefaultKotlinLanguageVersionProvider.getInstance()?.getDefaultLanguageVersion()
             ?: KotlinPluginLayout.standaloneCompilerVersion.languageVersion
 
         val languageVersionForApiVersion = LanguageVersion.fromVersionString(arguments.apiVersion) ?: languageVersion
@@ -181,19 +181,6 @@ class LanguageVersionSettingsProvider(private val project: Project) : Disposable
         val arguments = facetSettings.mergedCompilerArguments
 
         val analysisFlags = merge(
-           /*
-            Set default for 'useIR':
-            For common source sets, the common compiler arguments will not configure the 'useIR' flag
-            However, there is at least one FE checker 'SuspendInFunInterfaceChecker' which uses this flag.
-
-            Since IR is default and 'not-IR' is not supported anymore, it is 'safe' to set this flag to 'true' by default
-            in the IDE for common source sets
-
-            Note, 'arguments?.configureAnalysisFlags' will potentially overwrite the flag (see K2JvmCompilerArguments)
-            So for leaf SourceSets or compilations this flag will be configured by taking the actual compiler arguments
-            into account.
-            */
-            mapOf(JvmAnalysisFlags.useIR to true),
             arguments?.configureAnalysisFlags(MessageCollector.NONE, languageVersion),
             getIdeSpecificAnalysisFlags(),
         )
@@ -239,6 +226,7 @@ class LanguageVersionSettingsProvider(private val project: Project) : Disposable
 
             val kotlinVersion = LanguageVersion.fromVersionString(arguments.languageVersion)?.toKotlinVersion()
                 ?: settings.languageLevel?.toKotlinVersion()
+                ?: DefaultKotlinLanguageVersionProvider.getInstance()?.getDefaultLanguageVersion()?.toKotlinVersion()
                 ?: KotlinPluginLayout.standaloneCompilerVersion.kotlinVersion
 
             // TODO definitely wrong implementation, merge state properly
@@ -285,4 +273,17 @@ class LanguageVersionSettingsProvider(private val project: Project) : Disposable
     }
 
     override fun dispose() {}
+}
+
+internal interface DefaultKotlinLanguageVersionProvider {
+    fun getDefaultLanguageVersion(): LanguageVersion
+
+    companion object {
+        fun getInstance(): DefaultKotlinLanguageVersionProvider? =
+            serviceOrNull<DefaultKotlinLanguageVersionProvider>()
+    }
+}
+
+internal class DefaultKotlinLanguageVersionProviderWithLatestVersion : DefaultKotlinLanguageVersionProvider {
+    override fun getDefaultLanguageVersion(): LanguageVersion = LanguageVersion.LATEST_STABLE
 }

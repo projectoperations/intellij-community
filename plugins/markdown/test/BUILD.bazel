@@ -1,6 +1,12 @@
 ### auto-generated section `build intellij.markdown.tests` start
 load("@rules_java//java:defs.bzl", "java_library")
-load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_test")
+load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources", "jvm_test")
+
+jvm_resources(
+  name = "tests_test_resources",
+  files = glob(["data/**/*"]),
+  strip_prefix = "data"
+)
 
 java_library(
   name = "tests",
@@ -25,15 +31,16 @@ jvm_library(
     "//platform/usageView",
     "//spellchecker",
     "//spellchecker:spellchecker_test_lib",
-    "//plugins/yaml/editing",
+    "//plugins/yaml",
     "//xml/xml-psi-impl:psi-impl",
     "//platform/built-in-server-api:builtInServer",
     "//platform/core-ui",
-    "//xml/xml-frontback:frontback",
+    "//xml/xml-parser:parser",
     "//platform/lang-impl",
     "//platform/platform-util-netty:ide-util-netty",
     "//platform/testFramework",
     "//platform/testFramework:testFramework_test_lib",
+    "//xml/tests:tests_test_lib",
     "//plugins/IntelliLang/xml-support:xml-langInjection",
     "//platform/platform-tests:tests_test_lib",
     "@lib//:jsoup",
@@ -43,11 +50,13 @@ jvm_library(
     "@lib//:jetbrains-markdown",
     "//plugins/toml",
     "//plugins/toml/core",
-    "//plugins/yaml",
-    "//plugins/yaml:yaml_test_lib",
+    "//plugins/yaml/backend",
+    "//plugins/yaml/backend:backend_test_lib",
     "//platform/testFramework/junit5",
     "//platform/testFramework/junit5:junit5_test_lib",
-  ]
+    "//xml/testFramework",
+  ],
+  runtime_deps = [":tests_test_resources"]
 )
 
 jvm_test(

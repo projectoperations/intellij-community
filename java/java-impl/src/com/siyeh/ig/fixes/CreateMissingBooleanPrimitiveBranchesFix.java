@@ -1,12 +1,12 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.siyeh.ig.fixes;
 
+import com.intellij.java.codeserver.core.JavaPsiSwitchUtil;
 import com.intellij.modcommand.PsiBasedModCommandAction;
 import com.intellij.psi.*;
 import com.intellij.util.containers.ContainerUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.psiutils.ExpressionUtils;
-import com.siyeh.ig.psiutils.SwitchUtils;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -30,8 +30,8 @@ public final class CreateMissingBooleanPrimitiveBranchesFix extends CreateMissin
     PsiPrimitiveType selectorPrimitiveType = PsiPrimitiveType.getOptionallyUnboxedType(selectorExpressionType);
     if (selectorPrimitiveType == null) return null;
     if (!PsiTypes.booleanType().equals(selectorPrimitiveType)) return null;
-    if (SwitchUtils.findDefaultElement(block) != null) return null;
-    List<PsiElement> branches = SwitchUtils.getSwitchBranches(block);
+    if (JavaPsiSwitchUtil.findDefaultElement(block) != null) return null;
+    List<PsiElement> branches = JavaPsiSwitchUtil.getSwitchBranches(block);
     PsiClassType boxedBooleanType = selectorPrimitiveType.getBoxedType(block);
     if (boxedBooleanType == null) return null;
     Set<String> existed = new HashSet<>();

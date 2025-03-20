@@ -59,10 +59,12 @@ internal object VariableLookupElementFactory {
                 val lookupObject = FunctionCallLookupObject(
                     shortName = name,
                     options = options,
-                    renderedDeclaration = rendered,
+                    renderedDeclaration = "()",
+                    hasReceiver = functionalType.hasReceiver,
                     inputValueArgumentsAreRequired = functionalType.parameterTypes.isNotEmpty(),
                 )
 
+                // todo reuse rendered/renderedDeclaration
                 val tailText = getTailTextForVariableCall(functionalType, signature)
 
                 LookupElementBuilder.create(lookupObject, lookupString)
@@ -125,7 +127,7 @@ internal open class CallableIdentifierInsertionHandler : QuotedNamesAwareInserti
 
         when (val importStrategy = lookupObject.options.importingStrategy) {
             is ImportStrategy.AddImport -> {
-                addImportIfRequired(targetFile, importStrategy.nameToImport)
+                addImportIfRequired(context, importStrategy.nameToImport)
             }
 
             is ImportStrategy.InsertFqNameAndShorten -> {

@@ -6,12 +6,10 @@
 
   <extensionPoints>
     <extensionPoint
-            qualifiedName="org.jetbrains.kotlin.scratchFileLanguageProvider"
-            beanClass="com.intellij.lang.LanguageExtensionPoint"
-            dynamic="true">
-      <with attribute="implementationClass" implements="org.jetbrains.kotlin.idea.scratch.ScratchFileLanguageProvider"/>
-    </extensionPoint>
-
+            qualifiedName="org.jetbrains.kotlin.scriptDefinitionsProvider"
+            interface="kotlin.script.experimental.intellij.ScriptDefinitionsProvider"
+            area="IDEA_PROJECT"
+            dynamic="true"/>
     <extensionPoint
             qualifiedName="org.jetbrains.kotlin.kotlinScriptLazyResolveProhibitionCondition"
             interface="org.jetbrains.kotlin.idea.core.script.k2.KotlinScriptLazyResolveProhibitionCondition"
@@ -75,11 +73,6 @@
   </extensionPoints>
 
   <extensions defaultExtensionNs="com.intellij">
-    <projectService serviceInterface="org.jetbrains.kotlin.idea.scratch.ScratchFileAutoRunner"
-                    serviceImplementation="org.jetbrains.kotlin.idea.scratch.ScratchFileAutoRunnerK2"/>
-
-    <fileEditorProvider id="KtsScratchFileEditorProvider" implementation="org.jetbrains.kotlin.idea.scratch.ui.KtScratchFileEditorProvider"/>
-
     <statusBarWidgetFactory id="kotlin.script.definition"
                             implementation="org.jetbrains.kotlin.idea.core.script.k2.KotlinScriptDefinitionStatusBarWidgetFactory"
                             order="first"/>
@@ -130,6 +123,10 @@
   </extensions>
 
   <extensions defaultExtensionNs="org.jetbrains.kotlin">
+     <scriptDefinitionsSource
+            id="BridgeScriptDefinitionsContributor"
+            implementation="org.jetbrains.kotlin.idea.core.script.BridgeScriptDefinitionsContributor"/>
+
     <ktModuleFactory implementation="org.jetbrains.kotlin.idea.base.scripting.projectStructure.ScriptingKaModuleFactory"/>
 
     <idea.base.platforms.targetPlatformDetector implementation="org.jetbrains.kotlin.idea.base.scripting.ScriptingTargetPlatformDetector"/>
@@ -144,7 +141,6 @@
     <scriptDefinitionsSource implementation="org.jetbrains.kotlin.idea.core.script.BundledScriptDefinitionSource"/>
 
     <scriptDefinitionsSource implementation="org.jetbrains.kotlin.idea.script.k2.ScriptTemplatesFromDependenciesDefinitionSource"/>
-    <scratchFileLanguageProvider language="kotlin" implementationClass="org.jetbrains.kotlin.idea.scratch.KtScratchFileLanguageProvider"/>
   </extensions>
 
   <actions resource-bundle="messages.KotlinBaseScriptingBundle">

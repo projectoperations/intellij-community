@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.vcs.changes;
 
 import com.intellij.openapi.Disposable;
@@ -22,14 +22,6 @@ public abstract class ChangeListManager implements ChangeListModification {
     if (project.isDefault()) throw new IllegalArgumentException("Can't create ChangeListManager for default project");
     return project.getService(ChangeListManager.class);
   }
-
-  /**
-   * Schedule an update for file statuses.
-   *
-   * @deprecated Method does nothing by itself, use {@link VcsDirtyScopeManager} instead.
-   */
-  @Deprecated(forRemoval = true)
-  public abstract void scheduleUpdate();
 
   /**
    * Invoke callback when current CLM refresh is completed, without any visible progress.
@@ -169,6 +161,9 @@ public abstract class ChangeListManager implements ChangeListModification {
   public abstract boolean isUnversioned(@NotNull VirtualFile file);
 
   public abstract @NotNull List<FilePath> getUnversionedFilesPaths();
+
+  public abstract boolean isResolvedConflict(@NotNull FilePath file);
+  public abstract @NotNull List<FilePath> getResolvedConflictPaths();
 
   /**
    * @return All the changes under a given path (inc. from other VCS roots)

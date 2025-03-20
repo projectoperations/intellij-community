@@ -25,10 +25,9 @@ import org.jetbrains.annotations.PropertyKey;
 
 import java.util.*;
 
-import static com.intellij.codeInsight.daemon.impl.analysis.PatternsInSwitchBlockHighlightingModel.CompletenessResult;
-import static com.intellij.codeInsight.daemon.impl.analysis.PatternsInSwitchBlockHighlightingModel.evaluateSwitchCompleteness;
 import static com.intellij.codeInspection.options.OptPane.*;
 import static com.intellij.util.ObjectUtils.tryCast;
+import static com.siyeh.ig.psiutils.SwitchUtils.evaluateSwitchCompleteness;
 
 public final class EnhancedSwitchMigrationInspection extends AbstractBaseJavaLocalInspectionTool {
   @SuppressWarnings("WeakerAccess") public boolean myWarnOnlyOnExpressionConversion = true;
@@ -285,9 +284,9 @@ public final class EnhancedSwitchMigrationInspection extends AbstractBaseJavaLoc
       if (branch.isDefault()) return true;
       if (existsDefaultLabelElement(branch.myLabelStatement)) return true;
     }
-    CompletenessResult completenessResult = evaluateSwitchCompleteness(switchStatement, true);
-    return completenessResult == CompletenessResult.COMPLETE_WITHOUT_UNCONDITIONAL ||
-           completenessResult == CompletenessResult.COMPLETE_WITH_UNCONDITIONAL;
+    SwitchUtils.SwitchExhaustivenessState completenessResult = evaluateSwitchCompleteness(switchStatement, true);
+    return completenessResult == SwitchUtils.SwitchExhaustivenessState.EXHAUSTIVE_CAN_ADD_DEFAULT ||
+           completenessResult == SwitchUtils.SwitchExhaustivenessState.EXHAUSTIVE_NO_DEFAULT;
   }
 
   private static boolean isConvertibleBranch(@NotNull OldSwitchStatementBranch branch, boolean hasNext) {

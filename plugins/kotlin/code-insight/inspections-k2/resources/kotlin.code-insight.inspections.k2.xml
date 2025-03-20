@@ -1,7 +1,6 @@
 <idea-plugin package="org.jetbrains.kotlin.idea.k2.codeinsight.inspections">
   <dependencies>
     <module name="kotlin.base.external-build-system"/>
-    <module name="kotlin.gradle.gradle-java"/>
     <module name="kotlin.code-insight.intentions.k2"/>
     <module name="kotlin.code-insight.inspections.shared"/>
     <module name="kotlin.searching.k2"/>
@@ -525,15 +524,6 @@
                      language="kotlin"
                      key="inspection.array.in.data.class.display.name" bundle="messages.KotlinBundle"/>
 
-    <localInspection implementationClass="org.jetbrains.kotlin.idea.k2.codeinsight.inspections.scripts.KotlinOptionsToCompilerOptionsInspection"
-                     shortName="KotlinOptionsToCompilerOptions"
-                     groupPathKey="group.path.kotlin.migration"
-                     groupBundle="messages.KotlinBundle" groupKey="group.names.gradle"
-                     enabledByDefault="true"
-                     level="WARNING"
-                     language="kotlin" editorAttributes="DEPRECATED_ATTRIBUTES"
-                     key="inspection.kotlin.options.to.compiler.options.display.name" bundle="messages.KotlinBundle"/>
-
     <localInspection implementationClass="org.jetbrains.kotlin.idea.k2.codeinsight.inspections.HasPlatformTypeInspection"
                      groupPath="Kotlin"
                      groupBundle="messages.KotlinBundle" groupKey="group.names.java.interop.issues"
@@ -708,8 +698,7 @@
                      language="kotlin"
                      editorAttributes="NOT_USED_ELEMENT_ATTRIBUTES"
                      key="redundant.call.of.the.conversion.method" bundle="messages.KotlinBundle">
-  </localInspection>
-
+    </localInspection>
 
     <localInspection implementationClass="org.jetbrains.kotlin.idea.k2.codeinsight.inspections.RemoveExplicitTypeArgumentsInspection"
                      groupPath="Kotlin"
@@ -718,5 +707,38 @@
                      level="WEAK WARNING"
                      language="kotlin" editorAttributes="NOT_USED_ELEMENT_ATTRIBUTES"
                      key="inspection.remove.explicit.type.arguments.display.name" bundle="messages.KotlinBundle"/>
+
+    <localInspection implementationClass="org.jetbrains.kotlin.idea.k2.codeinsight.inspections.diagnosticBased.ContextParametersMigrationInspection"
+                     groupPath="Kotlin"
+                     groupBundle="messages.KotlinBundle" groupKey="group.names.code.migration"
+                     enabledByDefault="true"
+                     level="ERROR"
+                     language="kotlin"
+                     key="inspection.context.parameters.migration.display.text" bundle="messages.KotlinBundle"/>
+
+    <localInspection implementationClass="org.jetbrains.kotlin.idea.k2.codeinsight.inspections.diagnosticBased.RedundantInterpolationPrefixInspection"
+                     groupPath="Kotlin"
+                     groupBundle="messages.KotlinBundle" groupKey="group.names.redundant.constructs"
+                     enabledByDefault="true"
+                     level="WEAK WARNING"
+                     language="kotlin"
+                     key="inspection.redundant.interpolation.prefix.display.name" bundle="messages.KotlinBundle"/>
+
+    <localInspection implementationClass="org.jetbrains.kotlin.idea.k2.codeinsight.inspections.AddExplicitTargetToParameterAnnotationInspection"
+                     groupPath="Kotlin"
+                     groupBundle="messages.KotlinBundle" groupKey="group.names.probable.bugs"
+                     enabledByDefault="true"
+                     level="WEAK WARNING"
+                     language="kotlin"
+                     key="inspection.redundant.interpolation.prefix.display.name" bundle="messages.KotlinBundle"/>
+
+    <localInspection implementationClass="org.jetbrains.kotlin.idea.codeInsight.inspections.shared.RedundantEnumConstructorInvocationInspection"
+                     groupPath="Kotlin"
+                     groupBundle="messages.KotlinBundle" groupKey="group.names.redundant.constructs"
+                     enabledByDefault="true"
+                     level="WEAK WARNING"
+                     language="kotlin" editorAttributes="NOT_USED_ELEMENT_ATTRIBUTES"
+                     key="inspection.redundant.enum.constructor.invocation.display.name" bundle="messages.KotlinBundle"/>
+
   </extensions>
 </idea-plugin>

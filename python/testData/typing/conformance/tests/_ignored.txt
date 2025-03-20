@@ -1,4 +1,3 @@
-aliases_explicit.py
 aliases_implicit.py
 aliases_recursive.py
 aliases_type_statement.py
@@ -19,7 +18,6 @@ constructors_call_metaclass.py
 constructors_call_new.py
 constructors_call_type.py
 constructors_callable.py
-dataclasses_final.py
 dataclasses_hash.py
 dataclasses_inheritance.py
 dataclasses_order.py
@@ -38,8 +36,6 @@ generics_defaults_specialization.py
 generics_paramspec_basic.py
 generics_paramspec_components.py
 generics_paramspec_semantics.py
-generics_paramspec_specialization.py
-generics_scoping.py
 generics_self_advanced.py
 generics_self_basic.py
 generics_self_usage.py
@@ -54,11 +50,9 @@ generics_typevartuple_specialization.py
 generics_variance.py
 generics_variance_inference.py
 historical_positional.py
-literals_interactions.py
 literals_literalstring.py
 literals_semantics.py
 namedtuples_define_class.py
-namedtuples_define_functional.py
 namedtuples_type_compat.py
 namedtuples_usage.py
 narrowing_typeis.py
@@ -74,8 +68,6 @@ protocols_runtime_checkable.py
 protocols_subtyping.py
 protocols_variance.py
 qualifiers_annotated.py
-qualifiers_final_annotation.py
-qualifiers_final_decorator.py
 specialtypes_any.py
 specialtypes_never.py
 specialtypes_none.py

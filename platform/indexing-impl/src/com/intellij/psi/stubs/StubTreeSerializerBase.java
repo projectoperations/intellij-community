@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi.stubs;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -28,8 +28,7 @@ public abstract class StubTreeSerializerBase<SerializationState> {
     stubStringInterner = useStubStringInterner ? StubStringInterner.getInstance() : UnaryOperator.identity();
   }
 
-  @NotNull
-  public Stub deserialize(@NotNull InputStream stream) throws IOException, SerializerNotFoundException {
+  public @NotNull Stub deserialize(@NotNull InputStream stream) throws IOException, SerializerNotFoundException {
     FileLocalStringEnumerator storage = new FileLocalStringEnumerator(false);
     StubInputStream inputStream = new StubInputStream(stream, storage);
 
@@ -170,7 +169,7 @@ public abstract class StubTreeSerializerBase<SerializationState> {
                              @NotNull SerializationState state) throws IOException {
     serializeSelf(root, out, state);
     if (root instanceof StubBase<?> base) {
-      StubList stubList = base.myStubList;
+      StubList stubList = base.getStubList();
       if (root != stubList.get(0)) {
         throw new IllegalArgumentException("Serialization is supported only for root stubs");
       }

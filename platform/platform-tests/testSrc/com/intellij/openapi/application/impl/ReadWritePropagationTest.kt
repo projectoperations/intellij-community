@@ -17,6 +17,7 @@ import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assumptions
 import org.junit.jupiter.api.RepeatedTest
 import org.junit.jupiter.api.extension.ExtendWith
 import kotlin.test.assertFalse
@@ -51,12 +52,14 @@ class ReadWritePropagationTest {
 
   @RepeatedTest(REPETITIONS)
   fun `write intent read action is inherited by structured concurrency`() {
+    Assumptions.assumeFalse(useNestedLocking) { "This is not the intended behavior when the lock is parallelizable" }
     checkInheritanceViaStructureConcurrency(::writeIntentReadAction, { ApplicationManager.getApplication().isWriteIntentLockAcquired })
   }
 
   @RepeatedTest(REPETITIONS)
   fun `write action is inherited by structured concurrency`() {
-    checkInheritanceViaStructureConcurrency(::writeAction, { ApplicationManager.getApplication().isWriteAccessAllowed })
+    Assumptions.assumeFalse(useNestedLocking) { "This is not the intended behavior when the lock is parallelizable" }
+    checkInheritanceViaStructureConcurrency(::edtWriteAction, { ApplicationManager.getApplication().isWriteAccessAllowed })
   }
 
   private fun checkInheritanceViaNewContext(wrapper: suspend (() -> Unit) -> Unit, checker: () -> Boolean, innerChecker: () -> Boolean = checker): Unit = timeoutRunBlocking {
@@ -83,6 +86,7 @@ class ReadWritePropagationTest {
 
   @RepeatedTest(REPETITIONS)
   fun `write intent read action is inherited by new context`() {
+    Assumptions.assumeFalse(useNestedLocking) { "This is not the intended behavior when the lock is parallelizable" }
     // WIL check works only on owning thread
     checkInheritanceViaNewContext(::writeIntentReadAction,
                                   { ApplicationManager.getApplication().isWriteIntentLockAcquired },
@@ -115,12 +119,14 @@ class ReadWritePropagationTest {
 
   @RepeatedTest(REPETITIONS)
   fun `write intent read action is not inherited by non-structured concurrency`() {
+    Assumptions.assumeFalse(useNestedLocking) { "This is not the intended behavior when the lock is parallelizable" }
     checkNoInheritanceViaNonStructuredConcurrency(::writeIntentReadAction, { ApplicationManager.getApplication().isWriteIntentLockAcquired })
   }
 
   @RepeatedTest(REPETITIONS)
   fun `write action is not inherited by non-structured concurrency`() {
-    checkNoInheritanceViaNonStructuredConcurrency(::writeAction, { ApplicationManager.getApplication().isWriteAccessAllowed })
+    Assumptions.assumeFalse(useNestedLocking) { "This is not the intended behavior when the lock is parallelizable" }
+    checkNoInheritanceViaNonStructuredConcurrency(::edtWriteAction, { ApplicationManager.getApplication().isWriteAccessAllowed })
   }
 
   @RepeatedTest(REPETITIONS)

@@ -11,9 +11,11 @@ import com.intellij.codeInspection.ProblemHighlightType
 import com.intellij.modcommand.ActionContext
 import com.intellij.modcommand.ModCommand
 import com.intellij.modcommand.ModCommandExecutor
+import com.intellij.openapi.application.impl.NonBlockingReadActionImpl
 import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.application.runWriteAction
 import com.intellij.openapi.util.JDOMUtil
+import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.platform.testFramework.core.FileComparisonFailedError
 import com.intellij.profile.codeInspection.ProjectInspectionProfileManager
@@ -21,10 +23,11 @@ import com.intellij.testFramework.PlatformTestUtil.dispatchAllEventsInIdeEventQu
 import com.intellij.testFramework.PsiTestUtil
 import com.intellij.testFramework.fixtures.impl.CodeInsightTestFixtureImpl
 import com.intellij.util.io.write
-import com.intellij.util.lang.JavaVersion
+import com.intellij.util.currentJavaVersion
 import org.jdom.Element
 import org.jetbrains.kotlin.idea.base.test.IgnoreTests
 import org.jetbrains.kotlin.idea.base.test.InTextDirectivesUtils
+import org.jetbrains.kotlin.idea.base.test.registerDirectiveBasedChooserOptionInterceptor
 import org.jetbrains.kotlin.idea.core.script.ScriptConfigurationManager
 import org.jetbrains.kotlin.idea.highlighter.AbstractHighlightingPassBase
 import org.jetbrains.kotlin.idea.intentions.computeOnBackground
@@ -106,7 +109,7 @@ abstract class AbstractLocalInspectionTest : KotlinLightCodeInsightFixtureTestCa
 
         withCustomCompilerOptions(fileText, project, module) {
             val minJavaVersion = InTextDirectivesUtils.findStringWithPrefixes(fileText, "// MIN_JAVA_VERSION: ")?.toInt()
-            if (minJavaVersion != null && !JavaVersion.current().isAtLeast(minJavaVersion)) {
+            if (minJavaVersion != null && !currentJavaVersion().isAtLeast(minJavaVersion)) {
                 return@withCustomCompilerOptions
             }
 
@@ -114,6 +117,8 @@ abstract class AbstractLocalInspectionTest : KotlinLightCodeInsightFixtureTestCa
             val extraFileNames = findExtraFilesForTest(mainFile)
 
             myFixture.configureByFiles(*(listOf(mainFile.name) + extraFileNames).toTypedArray()).first()
+
+            registerDirectiveBasedChooserOptionInterceptor(fileText, myFixture.testRootDisposable)
 
             val ktFile = myFixture.file as KtFile
             if (ktFile.isScript()) {
@@ -220,14 +225,12 @@ abstract class AbstractLocalInspectionTest : KotlinLightCodeInsightFixtureTestCa
 
         val highlightInfos = collectHighlightInfos()
 
-        assertTrue(
-            if (!problemExpected)
-                "No problems should be detected at caret\n" +
-                        "Detected problems: ${highlightInfos.joinToString { it.description }}"
-            else
-                "Expected at least one problem at caret",
-            problemExpected == highlightInfos.isNotEmpty()
-        )
+        val message = if (problemExpected)
+            "Expected at least one problem at caret, but got none"
+        else
+            "No problems should have been detected at caret, but got ${highlightInfos.size} problems:\n " +
+                    "${highlightInfos.joinToString(separator = "\n")}"
+        assertTrue(message, problemExpected == highlightInfos.isNotEmpty())
 
         if (!problemExpected || highlightInfos.isEmpty()) return false
 
@@ -251,16 +254,16 @@ abstract class AbstractLocalInspectionTest : KotlinLightCodeInsightFixtureTestCa
             )
         }
 
-        val allLocalFixActions: MutableList<HighlightInfo.IntentionActionDescriptor> = mutableListOf()
+        val allLocalFixActions: MutableList<Pair<HighlightInfo.IntentionActionDescriptor, TextRange>> = mutableListOf()
         highlightInfos.forEach { info ->
-            info.findRegisteredQuickFix<Any?> { desc, _ ->
-                allLocalFixActions.add(desc)
+            info.findRegisteredQuickFix<Any?> { desc, fixRange ->
+                allLocalFixActions.add(desc to fixRange)
                 null
             }
         }
 
         if (allLocalFixActions.isNotEmpty()) {
-            val actions = allLocalFixActions.map { it.action.text }
+            val actions = allLocalFixActions.map { it.first.action.text }
             noLocalFixTextStrings.forEach {
                 assertTrue(
                     "Expected no `$it` fix action",
@@ -273,11 +276,11 @@ abstract class AbstractLocalInspectionTest : KotlinLightCodeInsightFixtureTestCa
             allLocalFixActions
         } else {
             allLocalFixActions
-                .filter { fix -> fix.action.text == localFixTextString }
+                .filter { fix -> fix.first.action.text == localFixTextString }
                 .selectActionsWithMostSpecificRanges()
         }
 
-        val availableDescription = allLocalFixActions.joinToString { "'${it.action.text}'" }
+        val availableDescription = allLocalFixActions.joinToString { "'${it.first.action.text}'" }
 
         val fixDescription = localFixTextString?.let { "with specified text '$localFixTextString'" } ?: ""
         if (localFixTextString != "none") {
@@ -286,7 +289,7 @@ abstract class AbstractLocalInspectionTest : KotlinLightCodeInsightFixtureTestCa
             )
         }
 
-        val localFixAction = localFixActions.singleOrNull { it.action !is EmptyIntentionAction }?.action
+        val localFixAction = localFixActions.singleOrNull { it.first.action !is EmptyIntentionAction }?.first?.action
         if (localFixTextString == "none") {
             assertTrue("Expected no fix action, actual: `${localFixAction?.text}`", localFixAction == null)
             return false
@@ -342,14 +345,14 @@ abstract class AbstractLocalInspectionTest : KotlinLightCodeInsightFixtureTestCa
      * contained within the ranges of other actions, effectively choosing the most specific
      * range for each set of overlapping ranges.
      */
-    private fun List<HighlightInfo.IntentionActionDescriptor>.selectActionsWithMostSpecificRanges(): List<HighlightInfo.IntentionActionDescriptor> {
+    private fun List<Pair<HighlightInfo.IntentionActionDescriptor, TextRange>>.selectActionsWithMostSpecificRanges(): List<Pair<HighlightInfo.IntentionActionDescriptor, TextRange>> {
         val originalActions = this
 
         val sortedActions = originalActions
-            .sortedWith(compareBy({ it.fixRange.startOffset }, { it.fixRange.endOffset })) // sort by ranges
-            .distinctBy { it.fixRange.startOffset } // if start offsets are equals, the first range is the best possible
+            .sortedWith(compareBy({ it.second.startOffset }, { it.second.endOffset })) // sort by ranges
+            .distinctBy { it.second.startOffset } // if start offsets are equals, the first range is the best possible
 
-        val mostSpecificActions = mutableListOf<HighlightInfo.IntentionActionDescriptor>()
+        val mostSpecificActions = mutableListOf<Pair<HighlightInfo.IntentionActionDescriptor, TextRange>>()
 
         for (action in sortedActions) {
             val last = mostSpecificActions.lastOrNull()
@@ -359,13 +362,13 @@ abstract class AbstractLocalInspectionTest : KotlinLightCodeInsightFixtureTestCa
                 continue
             }
 
-            if (last.fixRange.contains(action.fixRange)) {
+            if (last.second.contains(action.second)) {
                 // this range is more specific
                 mostSpecificActions.removeLast()
                 mostSpecificActions += action
             } else {
-                require(last.fixRange.startOffset < action.fixRange.startOffset)
-                require(last.fixRange.endOffset < action.fixRange.endOffset)
+                require(last.second.startOffset < action.second.startOffset)
+                require(last.second.endOffset < action.second.endOffset)
 
                 // this range only intersects with the previous; it should be considered on its own
                 mostSpecificActions += action
@@ -429,6 +432,7 @@ abstract class AbstractLocalInspectionTest : KotlinLightCodeInsightFixtureTestCa
 
         createAfterFileIfItDoesNotExist(afterFileAbsolutePath)
         dispatchAllEventsInIdeEventQueue()
+        NonBlockingReadActionImpl.waitForAsyncTaskCompletion()
         try {
             myFixture.checkResultByFile("${afterFileAbsolutePath.fileName}")
         } catch (_: FileComparisonFailedError) {

@@ -1,10 +1,11 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.idea.maven.wizards
 
-import com.intellij.ide.impl.isTrusted
+import com.intellij.ide.trustedProjects.TrustedProjects
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.writeIntentReadAction
+import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.externalSystem.model.ExternalSystemDataKeys
 import com.intellij.openapi.externalSystem.service.project.IdeModifiableModelsProvider
@@ -29,7 +30,6 @@ import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.platform.ide.progress.withBackgroundProgress
 import com.intellij.platform.util.progress.reportRawProgress
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.idea.maven.importing.MavenImportUtil
 import org.jetbrains.idea.maven.model.MavenExplicitProfiles
@@ -39,10 +39,14 @@ import org.jetbrains.idea.maven.project.actions.LookForNestedToggleAction
 import org.jetbrains.idea.maven.server.MavenWrapperDownloader
 import org.jetbrains.idea.maven.server.MavenWrapperSupport.Companion.getWrapperDistributionUrl
 import org.jetbrains.idea.maven.telemetry.tracer
-import org.jetbrains.idea.maven.utils.*
+import org.jetbrains.idea.maven.utils.FileFinder
+import org.jetbrains.idea.maven.utils.MavenActivityKey
+import org.jetbrains.idea.maven.utils.MavenAsyncUtil
+import org.jetbrains.idea.maven.utils.MavenUtil
 import java.nio.file.Path
 
 class MavenProjectAsyncBuilder {
+
   fun commitSync(project: Project, projectFile: VirtualFile, modelsProvider: IdeModifiableModelsProvider?): List<Module> {
     if (ApplicationManager.getApplication().isDispatchThread) {
       return runWithModalProgressBlocking(project, MavenProjectBundle.message("maven.reading")) {
@@ -87,30 +91,15 @@ class MavenProjectAsyncBuilder {
       blockingContext { ExternalProjectsManagerImpl.setupCreatedProject(project) }
     }
 
-    if (createDummyModule) {
-      val previewModule = createPreviewModule(project, rootDirectory)
-      // do not update all modules because it can take a lot of time (freeze at project opening)
-      val cs = MavenCoroutineScopeProvider.getCoroutineScope(project)
-      cs.launch {
-        project.trackActivity(MavenActivityKey) {
-          doCommit(project,
-                   importProjectFile,
-                   rootDirectoryPath,
-                   modelsProvider,
-                   previewModule,
-                   importingSettings,
-                   generalSettings,
-                   syncProject)
-        }
-      }
-      return@trackActivity if (null == previewModule) emptyList() else listOf(previewModule)
-    }
+    val previewModule = if (createDummyModule) {
+      createPreviewModule(project, rootDirectory)
+    } else null
 
     return@trackActivity doCommit(project,
                                   importProjectFile,
                                   rootDirectoryPath,
                                   modelsProvider,
-                                  null,
+                                  previewModule,
                                   importingSettings,
                                   generalSettings,
                                   syncProject)
@@ -153,11 +142,11 @@ class MavenProjectAsyncBuilder {
 
     val manager = MavenProjectsManager.getInstance(project)
 
-    if (project.isTrusted()) {
+    if (TrustedProjects.isProjectTrusted(project)) {
       withBackgroundProgress(project, MavenProjectBundle.message("maven.installing.wrapper"), false) {
         withContext(Dispatchers.IO) {
           tracer.spanBuilder("checkOrInstallMavenWrapper").useWithScope {
-            MavenWrapperDownloader.checkOrInstallForSync(project, rootDirectory.toString(), false);
+            MavenWrapperDownloader.checkOrInstallForSync(project, rootDirectory.toString(), false)
           }
         }
       }
@@ -166,7 +155,10 @@ class MavenProjectAsyncBuilder {
 
     withBackgroundProgress(project, MavenProjectBundle.message("maven.reading"), false) {
       reportRawProgress { reporter ->
-        tree.updateAll(false, generalSettings, reporter)
+        val mavenEmbedderWrappers = project.service<MavenEmbedderWrappersManager>().createMavenEmbedderWrappers()
+        mavenEmbedderWrappers.use {
+          tree.updateAll(false, generalSettings, mavenEmbedderWrappers, reporter)
+        }
       }
     }
     val projects = tree.rootProjects

@@ -15,7 +15,6 @@ import com.intellij.platform.debugger.impl.frontend.FrontendXDebuggerManager
 import com.intellij.platform.debugger.impl.frontend.evaluate.quick.FrontendXValue
 import com.intellij.xdebugger.impl.actions.areFrontendDebuggerActionsEnabled
 import com.intellij.xdebugger.impl.actions.handlers.XDebuggerEvaluateActionHandler
-import com.intellij.xdebugger.impl.rpc.XDebuggerEvaluatorApi
 import com.intellij.xdebugger.impl.rpc.XDebuggerLuxApi
 import com.intellij.xdebugger.impl.ui.tree.actions.XDebuggerTreeActionBase
 import kotlinx.coroutines.CoroutineScope
@@ -36,7 +35,8 @@ private class FrontendEvaluateAction : AnAction(), ActionRemoteBehaviorSpecifica
       return
     }
 
-    val evaluator = FrontendXDebuggerManager.getInstance(project).currentSession.value?.evaluator?.value
+    val session = e.frontendDebuggerSession
+    val evaluator = session?.evaluator?.value
     if (evaluator == null) {
       e.presentation.isEnabled = false
       e.presentation.isVisible = !e.isFromContextMenu
@@ -45,8 +45,7 @@ private class FrontendEvaluateAction : AnAction(), ActionRemoteBehaviorSpecifica
   }
 
   override fun actionPerformed(e: AnActionEvent) {
-    val project = e.project ?: return
-    val evaluator = FrontendXDebuggerManager.getInstance(project).currentSession.value?.evaluator?.value ?: return
+    val evaluator = e.frontendDebuggerSession?.evaluator?.value ?: return
 
     val focusedDataContext = XDebuggerEvaluateActionHandler.extractFocusedDataContext(e.dataContext) ?: e.dataContext
     val editor = CommonDataKeys.EDITOR.getData(focusedDataContext)
@@ -54,7 +53,7 @@ private class FrontendEvaluateAction : AnAction(), ActionRemoteBehaviorSpecifica
 
     val xValue = XDebuggerTreeActionBase.getSelectedNode(focusedDataContext)?.valueContainer as? FrontendXValue
 
-    project.service<FrontendEvaluateActionCoroutineScope>().cs.launch {
+    performDebuggerActionAsync(e) {
       XDebuggerLuxApi.getInstance().showLuxEvaluateDialog(
         evaluator.evaluatorDto.id, editor?.editorId(), virtualFile?.rpcId(), xValue?.xValueDto?.id
       )
@@ -65,6 +64,3 @@ private class FrontendEvaluateAction : AnAction(), ActionRemoteBehaviorSpecifica
     return ActionUpdateThread.BGT
   }
 }
-
-@Service(Service.Level.PROJECT)
-private class FrontendEvaluateActionCoroutineScope(project: Project, val cs: CoroutineScope)

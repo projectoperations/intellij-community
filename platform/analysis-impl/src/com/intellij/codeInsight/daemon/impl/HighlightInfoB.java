@@ -13,6 +13,7 @@ import com.intellij.openapi.editor.markup.GutterIconRenderer;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.TextRange;
+import com.intellij.openapi.util.UnfairTextRange;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.util.ArrayUtil;
@@ -77,7 +78,7 @@ public final class HighlightInfoB implements HighlightInfo.Builder {
   private void assertNotCreated() {
     assert !created : "Must not call this method after Builder.create() was called";
   }
-  private void assertNotSet(Object field, @NotNull String fieldName) {
+  private static void assertNotSet(Object field, @NotNull String fieldName) {
     if (field != null) {
       throw new IllegalArgumentException(fieldName +" already set");
     }
@@ -247,11 +248,14 @@ public final class HighlightInfoB implements HighlightInfo.Builder {
   @Override
   public @Nullable HighlightInfo create() {
     HighlightInfo info = createUnconditionally();
-    LOG.assertTrue(psiElement != null ||
-                   severity == HighlightInfoType.SYMBOL_TYPE_SEVERITY ||
-                   severity == HighlightInfoType.INJECTED_FRAGMENT_SEVERITY ||
-                   ArrayUtil.find(HighlightSeverity.DEFAULT_SEVERITIES, severity) != -1,
-                   "Custom type requires not-null element to detect its text attributes");
+    boolean canDeduceTextAttributes = psiElement != null ||
+                    severity == HighlightInfoType.SYMBOL_TYPE_SEVERITY ||
+                    severity == HighlightInfoType.INJECTED_FRAGMENT_SEVERITY ||
+                    ArrayUtil.find(HighlightSeverity.DEFAULT_SEVERITIES, severity) != -1;
+    if (!canDeduceTextAttributes) {
+      LOG.error("Custom severity(" + severity+") requires passing not-null PSI element to detect its text attributes. " +
+                "Please see HighlightInfo.Builder.range(PsiElement) and similar methods.");
+    }
     return isAcceptedByFilters(info, psiElement) ? info : null;
   }
 
@@ -269,7 +273,7 @@ public final class HighlightInfoB implements HighlightInfo.Builder {
                                            problemGroup, null, gutterIconRenderer, group, false, myLazyFixes);
     // fill IntentionActionDescriptor.problemGroup and IntentionActionDescriptor.severity - they can be null because .registerFix() might have been called before .problemGroup() and .severity()
     List<HighlightInfo.IntentionActionDescriptor> iads = ContainerUtil.map(fixes, fixInfo -> fixInfo.withProblemGroupAndSeverity(problemGroup, severity));
-    info.registerFixes(iads);
+    info.registerFixes(iads, null);
     return info;
   }
 
@@ -285,5 +289,9 @@ public final class HighlightInfoB implements HighlightInfo.Builder {
       }
     }
     return true;
+  }
+  @NotNull
+  UnfairTextRange getRangeSoFar() {
+    return new UnfairTextRange(startOffset, endOffset);
   }
 }

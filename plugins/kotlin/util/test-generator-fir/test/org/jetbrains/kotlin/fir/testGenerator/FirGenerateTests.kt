@@ -11,7 +11,7 @@ import org.jetbrains.kotlin.idea.base.fir.analysisApiPlatform.inheritors.Abstrac
 import org.jetbrains.kotlin.idea.base.fir.analysisApiPlatform.inheritors.AbstractSealedInheritorsProviderTest
 import org.jetbrains.kotlin.idea.base.fir.analysisApiPlatform.sessions.AbstractGlobalSessionInvalidationTest
 import org.jetbrains.kotlin.idea.base.fir.analysisApiPlatform.sessions.AbstractLocalSessionInvalidationTest
-import org.jetbrains.kotlin.idea.base.fir.analysisApiPlatform.trackers.AbstractProjectWideOutOfBlockKotlinModificationTrackerTest
+import org.jetbrains.kotlin.idea.base.fir.analysisApiPlatform.trackers.AbstractProjectWideSourceKotlinModificationTrackerTest
 import org.jetbrains.kotlin.idea.base.fir.projectStructure.scope.AbstractCombinedSourceAndClassRootsScopeContainsTest
 import org.jetbrains.kotlin.idea.base.fir.projectStructure.scope.AbstractCombinedSourceAndClassRootsScopeStructureTest
 import org.jetbrains.kotlin.idea.base.plugin.KotlinPluginMode
@@ -31,15 +31,12 @@ import org.jetbrains.kotlin.idea.fir.documentation.AbstractFirQuickDocTest
 import org.jetbrains.kotlin.idea.fir.externalAnnotations.AbstractK2ExternalAnnotationTest
 import org.jetbrains.kotlin.idea.fir.findUsages.*
 import org.jetbrains.kotlin.idea.fir.folding.AbstractFirFoldingTest
-import org.jetbrains.kotlin.idea.fir.imports.AbstractK2JvmOptimizeImportsTest
 import org.jetbrains.kotlin.idea.fir.imports.AbstractK2AutoImportTest
 import org.jetbrains.kotlin.idea.fir.imports.AbstractK2FilteringAutoImportTest
 import org.jetbrains.kotlin.idea.fir.imports.AbstractK2JsOptimizeImportsTest
+import org.jetbrains.kotlin.idea.fir.imports.AbstractK2JvmOptimizeImportsTest
 import org.jetbrains.kotlin.idea.fir.kmp.AbstractK2KmpLightFixtureHighlightingTest
-import org.jetbrains.kotlin.idea.fir.navigation.AbstractFirGotoDeclarationTest
-import org.jetbrains.kotlin.idea.fir.navigation.AbstractFirGotoRelatedSymbolMultiModuleTest
-import org.jetbrains.kotlin.idea.fir.navigation.AbstractFirGotoTest
-import org.jetbrains.kotlin.idea.fir.navigation.AbstractFirGotoTypeDeclarationTest
+import org.jetbrains.kotlin.idea.fir.navigation.*
 import org.jetbrains.kotlin.idea.fir.parameterInfo.AbstractFirParameterInfoTest
 import org.jetbrains.kotlin.idea.fir.projectView.AbstractK2ProjectViewTest
 import org.jetbrains.kotlin.idea.fir.resolve.*
@@ -52,12 +49,7 @@ import org.jetbrains.kotlin.idea.k2.refactoring.rename.AbstractFirMultiModuleRen
 import org.jetbrains.kotlin.idea.k2.refactoring.rename.AbstractFirRenameTest
 import org.jetbrains.kotlin.idea.k2.refactoring.rename.AbstractK2InplaceRenameTest
 import org.jetbrains.kotlin.idea.test.kmp.KMPTestPlatform
-import org.jetbrains.kotlin.j2k.k2.AbstractK2JavaToKotlinConverterMultiFileTest
-import org.jetbrains.kotlin.j2k.k2.AbstractK2JavaToKotlinConverterPartialTest
-import org.jetbrains.kotlin.j2k.k2.AbstractK2JavaToKotlinConverterSingleFileFullJDKTest
-import org.jetbrains.kotlin.j2k.k2.AbstractK2JavaToKotlinConverterSingleFileTest
-import org.jetbrains.kotlin.j2k.k2.AbstractK2JavaToKotlinCopyPasteConversionTest
-import org.jetbrains.kotlin.j2k.k2.AbstractK2TextJavaToKotlinCopyPasteConversionTest
+import org.jetbrains.kotlin.j2k.k2.*
 import org.jetbrains.kotlin.parcelize.ide.test.AbstractParcelizeK2QuickFixTest
 import org.jetbrains.kotlin.testGenerator.generator.TestGenerator
 import org.jetbrains.kotlin.testGenerator.model.*
@@ -99,7 +91,7 @@ private fun assembleWorkspace(): TWorkspace = workspace(KotlinPluginMode.K2) {
     generateK2GradleTests()
 
     testGroup("base/fir/analysis-api-platform") {
-        testClass<AbstractProjectWideOutOfBlockKotlinModificationTrackerTest> {
+        testClass<AbstractProjectWideSourceKotlinModificationTrackerTest> {
             model("outOfBlockProjectWide", pattern = KT_WITHOUT_DOTS or JAVA)
         }
 
@@ -256,6 +248,10 @@ private fun assembleWorkspace(): TWorkspace = workspace(KotlinPluginMode.K2) {
             model("navigation/gotoTypeDeclaration", pattern = TEST)
         }
 
+        testClass<AbstractFirMoveToNextMethodTest> {
+            model("navigation/moveToNextMethod", pattern = TEST, testMethodName = "doTest")
+        }
+
         testClass<AbstractFirGotoTest> {
             model("navigation/gotoClass", testMethodName = "doClassTest")
             model("navigation/gotoSymbol", testMethodName = "doSymbolTest")
@@ -280,6 +276,14 @@ private fun assembleWorkspace(): TWorkspace = workspace(KotlinPluginMode.K2) {
 
         testClass<AbstractK2JvmBasicCompletionFullJdkTest> {
             model("basic/fullJdk", pattern = KT_WITHOUT_FIR_PREFIX)
+        }
+
+        testClass<AbstractK2JvmBasicCompletionStdlibDuplicationTest> {
+            model(
+                path = "stdlibDuplication/noElementDuplication",
+                pattern = KT_WITHOUT_FIR_PREFIX,
+                isRecursive = false,
+            )
         }
 
         testClass<AbstractKotlinKmpCompletionTest>(

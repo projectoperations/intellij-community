@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.vcs.changes.ui;
 
 import com.intellij.openapi.application.ApplicationManager;
@@ -12,6 +12,7 @@ import com.intellij.openapi.util.NotNullLazyKey;
 import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.FileStatus;
 import com.intellij.openapi.vcs.changes.*;
+import com.intellij.openapi.vcs.merge.MergeConflictManager;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.SimpleColoredComponent;
 import com.intellij.ui.SimpleTextAttributes;
@@ -196,12 +197,11 @@ public class TreeModelBuilder implements ChangesViewModelBuilder {
   }
 
   private @NotNull TreeModelBuilder insertSpecificFileNodeToModel(@NotNull List<? extends VirtualFile> specificFiles,
-                                                                  @NotNull ChangesBrowserSpecificFilesNode<?> node,
-                                                                  @NotNull FileStatus status) {
+                                                                  @NotNull ChangesBrowserSpecificFilesNode<?> node) {
     insertSubtreeRoot(node);
     if (!node.isManyFiles()) {
       node.markAsHelperNode();
-      insertLocalFileIntoNode(specificFiles, node, status);
+      insertLocalFileIntoNode(specificFiles, node);
     }
     return this;
   }
@@ -210,8 +210,11 @@ public class TreeModelBuilder implements ChangesViewModelBuilder {
                                                   boolean skipSingleDefaultChangeList,
                                                   @Nullable Function<? super ChangeNodeDecorator, ? extends ChangeNodeDecorator> changeDecoratorProvider) {
     assert myProject != null;
-    final RemoteRevisionsCache revisionsCache = RemoteRevisionsCache.getInstance(myProject);
+    List<FilePath> resolvedUnchangedFiles = MergeConflictManager.getInstance(myProject).getResolvedConflictPaths();
+    RemoteRevisionsCache revisionsCache = RemoteRevisionsCache.getInstance(myProject);
     boolean skipChangeListNode = skipSingleDefaultChangeList && isSingleBlankChangeList(changeLists);
+    ChangesBrowserConflictsNode conflictsRoot = null;
+
     for (ChangeList list : changeLists) {
       List<Change> changes = sorted(list.getChanges(), CHANGE_COMPARATOR);
       ChangeListRemoteState listRemoteState = new ChangeListRemoteState();
@@ -232,10 +235,40 @@ public class TreeModelBuilder implements ChangesViewModelBuilder {
         Change change = changes.get(i);
         RemoteStatusChangeNodeDecorator baseDecorator = new RemoteStatusChangeNodeDecorator(revisionsCache, listRemoteState, i);
         ChangeNodeDecorator decorator = changeDecoratorProvider != null ? changeDecoratorProvider.apply(baseDecorator) : baseDecorator;
-        insertChangeNode(change, changesParent, createChangeNode(change, decorator));
+        FilePath path = ChangesUtil.getFilePath(change);
+        if (MergeConflictManager.getInstance(myProject).isResolvedConflict(path)) {
+          resolvedUnchangedFiles.remove(path);
+          insertChangeNode(change, changesParent, createChangeNode(change, decorator));
+        }
+        else if (MergeConflictManager.isMergeConflict(change.getFileStatus())) {
+          if (conflictsRoot == null) {
+            conflictsRoot = new ChangesBrowserConflictsNode(myProject);
+            conflictsRoot.markAsHelperNode();
+            myModel.insertNodeInto(conflictsRoot, myRoot, myModel.getChildCount(myRoot));
+          }
+          insertChangeNode(change, conflictsRoot, createChangeNode(change, decorator));
+        }
+        else {
+          insertChangeNode(change, changesParent, createChangeNode(change, decorator));
+        }
+      }
+
+      insertResolvedUnchangedNodes(list, resolvedUnchangedFiles, changesParent);
+    }
+
+    return this;
+  }
+
+  private void insertResolvedUnchangedNodes(@NotNull ChangeList list,
+                                            @NotNull List<FilePath> resolvedUnchangedFilePaths,
+                                            @NotNull ChangesBrowserNode<?> changesParent) {
+    if (resolvedUnchangedFilePaths.isEmpty()) return;
+
+    if (list instanceof LocalChangeList localList && localList.isDefault()) {
+      for (FilePath resolvedConflictPath : resolvedUnchangedFilePaths) {
+        insertChangeNode(resolvedConflictPath, changesParent, ChangesBrowserNode.createFilePath(resolvedConflictPath, FileStatus.MERGE));
       }
     }
-    return this;
   }
 
   private static boolean isSingleBlankChangeList(Collection<? extends ChangeList> lists) {
@@ -260,7 +293,7 @@ public class TreeModelBuilder implements ChangesViewModelBuilder {
     assert myProject != null;
     if (ContainerUtil.isEmpty(modifiedWithoutEditing)) return this;
     ModifiedWithoutEditingNode node = new ModifiedWithoutEditingNode(myProject, modifiedWithoutEditing);
-    return insertSpecificFileNodeToModel(modifiedWithoutEditing, node, FileStatus.HIJACKED);
+    return insertSpecificFileNodeToModel(modifiedWithoutEditing, node);
   }
 
   private @NotNull TreeModelBuilder setVirtualFiles(@Nullable Collection<? extends VirtualFile> files, @Nullable ChangesBrowserNode.Tag tag) {
@@ -320,8 +353,7 @@ public class TreeModelBuilder implements ChangesViewModelBuilder {
   }
 
   private void insertLocalFileIntoNode(@NotNull Collection<? extends VirtualFile> files,
-                                       @NotNull ChangesBrowserNode<?> subtreeRoot,
-                                       @NotNull FileStatus status) {
+                                       @NotNull ChangesBrowserNode<?> subtreeRoot) {
     List<VirtualFile> sortedFiles = sorted(files, FILE_COMPARATOR);
     for (VirtualFile file : sortedFiles) {
       insertChangeNode(file, subtreeRoot, ChangesBrowserNode.createFile(myProject, file));
@@ -567,6 +599,7 @@ public class TreeModelBuilder implements ChangesViewModelBuilder {
 
     if (parentUserObject instanceof FilePath &&
         childUserObject instanceof FilePath) {
+      appendCollapsedParent(child, parent);
       return child;
     }
 
@@ -580,12 +613,19 @@ public class TreeModelBuilder implements ChangesViewModelBuilder {
       List<ChangesBrowserNode<?>> children = child.iterateNodeChildren().toList(); // defensive copy
       for (ChangesBrowserNode<?> childNode : children) {
         parent.add(childNode);
+        appendCollapsedParent(childNode, child);
       }
 
       return parent;
     }
 
     return null;
+  }
+
+  private static void appendCollapsedParent(@NotNull ChangesBrowserNode<?> child, ChangesBrowserNode<?> parent) {
+    if (child instanceof ChangesBrowserNode.NodeWithCollapsedParents childWithCollapsedParents) {
+      childWithCollapsedParents.addCollapsedParent(parent);
+    }
   }
 
   public static @NotNull StaticFilePath staticFrom(@NotNull FilePath fp) {

@@ -1,6 +1,7 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.actions.searcheverywhere
 
+import com.intellij.ide.DataManager
 import com.intellij.ide.IdeBundle
 import com.intellij.ide.actions.GotoActionAction
 import com.intellij.ide.actions.SetShortcutAction
@@ -10,7 +11,6 @@ import com.intellij.ide.lightEdit.LightEditCompatible
 import com.intellij.ide.ui.UISettings
 import com.intellij.ide.ui.search.BooleanOptionDescription
 import com.intellij.ide.ui.search.BooleanOptionDescription.RequiresRebuild
-import com.intellij.ide.ui.search.OptionDescription
 import com.intellij.ide.util.gotoByName.ActionAsyncProvider
 import com.intellij.ide.util.gotoByName.GotoActionModel
 import com.intellij.ide.util.gotoByName.GotoActionModel.GotoActionListCellRenderer
@@ -50,6 +50,7 @@ private val LOG = logger<ActionSearchEverywhereContributor>()
 open class ActionSearchEverywhereContributor : WeightedSearchEverywhereContributor<MatchedValue>, LightEditCompatible, SearchEverywhereExtendedInfoProvider {
   private val myProject: Project?
   private val myContextComponent: WeakReference<Component?>
+  private val myDataContextProvider: () -> DataContext?
   protected val model: GotoActionModel
   private val provider: ActionAsyncProvider
   protected var myDisabledActions: Boolean = false
@@ -64,13 +65,23 @@ open class ActionSearchEverywhereContributor : WeightedSearchEverywhereContribut
     model = other.model
     provider = other.provider
     myDisabledActions = other.myDisabledActions
+    myDataContextProvider = other.myDataContextProvider
   }
 
-  constructor(project: Project?, contextComponent: Component?, editor: Editor?) {
+  constructor(project: Project?, contextComponent: Component?, editor: Editor?): this(project, contextComponent, editor, null)
+
+  @Internal
+  constructor(project: Project?, contextComponent: Component?, editor: Editor?, dataContext: DataContext?) {
     myProject = project
     myContextComponent = WeakReference(contextComponent)
-    model = GotoActionModel(project, contextComponent, editor)
+    model = GotoActionModel(project, contextComponent, editor, dataContext)
     provider = ActionAsyncProvider(model)
+
+    val dataContextRef = WeakReference(dataContext)
+    myDataContextProvider = {
+      dataContextRef.get()
+      ?: myContextComponent.get()?.let { DataManager.getInstance().getDataContext(it) }
+    }
   }
 
   override fun getGroupName(): String = IdeBundle.message("search.everywhere.group.name.actions")
@@ -97,7 +108,7 @@ open class ActionSearchEverywhereContributor : WeightedSearchEverywhereContribut
                                      consumer: Processor<in FoundItemDescriptor<MatchedValue>>) {
     ProgressManager.getInstance().runProcess({
       runBlockingCancellable {
-        fetchWeightedElements(this, pattern, consumer)
+        fetchWeightedElements(this, pattern) { consumer.process(it) }
       }
     }, progressIndicator)
   }
@@ -105,10 +116,10 @@ open class ActionSearchEverywhereContributor : WeightedSearchEverywhereContribut
   @Internal
   fun fetchWeightedElements(scope: CoroutineScope,
                             pattern: String,
-                            consumer: Processor<in FoundItemDescriptor<MatchedValue>>) {
+                            consumer: suspend (FoundItemDescriptor<MatchedValue>) -> Boolean) {
     model.buildGroupMappings()
     scope.runUpdateSessionForActionSearch(model.getUpdateSession()) { presentationProvider ->
-      doFetchItems(this, presentationProvider, pattern) { consumer.process(it) }
+      doFetchItems(this, presentationProvider, pattern, consumer)
     }
   }
 
@@ -130,11 +141,7 @@ open class ActionSearchEverywhereContributor : WeightedSearchEverywhereContribut
   }
 
   override fun getElementsRenderer(): ListCellRenderer<in MatchedValue> {
-    return GotoActionListCellRenderer(
-      { description: OptionDescription? ->
-        model.getGroupName(
-          description!!)
-      }, true)
+    return GotoActionListCellRenderer(true)
   }
 
   override fun showInFindResults(): Boolean = false
@@ -179,7 +186,7 @@ open class ActionSearchEverywhereContributor : WeightedSearchEverywhereContribut
       saveRecentAction(item)
     }
 
-    GotoActionAction.openOptionOrPerformAction(selected, text, myProject, myContextComponent.get(), modifiers)
+    GotoActionAction.openOptionOrPerformAction(selected, text, myProject, myContextComponent.get(), modifiers, myDataContextProvider)
     val inplaceChange = (selected is GotoActionModel.ActionWrapper && selected.action is ToggleAction)
     return !inplaceChange
   }

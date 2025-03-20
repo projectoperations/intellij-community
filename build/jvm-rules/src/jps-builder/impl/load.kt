@@ -1,3 +1,4 @@
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("UnstableApiUsage", "HardCodedStringLiteral", "ReplaceJavaStaticMethodWithKotlinAnalog", "ReplaceGetOrSet")
 
 package org.jetbrains.bazel.jvm.jps.impl
@@ -6,42 +7,27 @@ import org.jetbrains.jps.builders.BuildTarget
 import org.jetbrains.jps.builders.BuildTargetIndex
 import org.jetbrains.jps.builders.BuildTargetRegistry.ModuleTargetSelector
 import org.jetbrains.jps.builders.BuildTargetType
-import org.jetbrains.jps.builders.impl.BuildDataPathsImpl
 import org.jetbrains.jps.builders.impl.BuildTargetChunk
 import org.jetbrains.jps.builders.logging.BuildLoggingManager
 import org.jetbrains.jps.cmdline.ProjectDescriptor
 import org.jetbrains.jps.incremental.CompileContext
 import org.jetbrains.jps.incremental.ModuleBuildTarget
 import org.jetbrains.jps.incremental.fs.BuildFSState
-import org.jetbrains.jps.incremental.relativizer.PathRelativizerService
 import org.jetbrains.jps.incremental.storage.BuildDataManager
-import org.jetbrains.jps.incremental.storage.BuildDataVersionManager
-import org.jetbrains.jps.incremental.storage.StorageManager
 import org.jetbrains.jps.indices.IgnoredFileIndex
 import org.jetbrains.jps.model.JpsModel
 import org.jetbrains.jps.model.module.JpsModule
-import java.nio.file.Path
 
-internal fun loadJpsProject(
-  storageManager: StorageManager,
-  dataStorageRoot: Path,
-  fsState: BuildFSState,
+internal fun createJpsProjectDescriptor(
+  dataManager: BuildDataManager,
   jpsModel: JpsModel,
   moduleTarget: BazelModuleBuildTarget,
-  relativizer: PathRelativizerService,
-  buildDataProvider: BazelBuildDataProvider,
 ): ProjectDescriptor {
-  val dataPaths = BuildDataPathsImpl(dataStorageRoot)
-  val dataManager = BuildDataManager.createSingleDb(
-    /* dataPaths = */ dataPaths,
-    /* targetStateManager = */ BazelBuildTargetStateManager,
-    /* relativizer = */ relativizer,
-    /* versionManager = */ NoopBuildDataVersionManager,
-    /* buildDataProvider = */ buildDataProvider,
-  )
   return ProjectDescriptor(
     /* model = */ jpsModel,
-    /* fsState = */ fsState,
+    // alwaysScanFS doesn't matter, we use our own version of `BuildOperations.ensureFSStateInitialized`,
+    // see `JpsProjectBuilder.ensureFsStateInitialized`
+    /* fsState = */ BuildFSState(/* alwaysScanFS = */ true),
     /* dataManager = */ dataManager,
     /* loggingManager = */ BuildLoggingManager.DEFAULT,
     /* moduleExcludeIndex = */ NoopModuleExcludeIndex,
@@ -51,18 +37,11 @@ internal fun loadJpsProject(
   )
 }
 
-private object NoopIgnoredFileIndex : IgnoredFileIndex {
+internal object NoopIgnoredFileIndex : IgnoredFileIndex {
   override fun isIgnored(path: String) = false
 }
 
-private object NoopBuildDataVersionManager : BuildDataVersionManager {
-  override fun versionDiffers() = false
-
-  override fun saveVersion() {
-  }
-}
-
-private class BazelBuildTargetIndex(moduleTarget: ModuleBuildTarget) : BuildTargetIndex {
+internal class BazelBuildTargetIndex(@JvmField val moduleTarget: ModuleBuildTarget) : BuildTargetIndex {
   private var targetChunks = java.util.List.of(BuildTargetChunk(java.util.Set.of(moduleTarget)))
   private var targets = java.util.List.of(moduleTarget)
 

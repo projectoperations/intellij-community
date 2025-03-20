@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.xdebugger.impl.ui;
 
 import com.intellij.icons.AllIcons;
@@ -26,10 +26,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.ui.popup.ListPopup;
-import com.intellij.openapi.util.Computable;
-import com.intellij.openapi.util.IconLoader;
-import com.intellij.openapi.util.NlsContexts;
-import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.util.*;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.reference.SoftReference;
@@ -68,6 +65,8 @@ import java.util.*;
 import java.util.List;
 
 public abstract class XDebuggerEditorBase implements Expandable {
+  public static final Key<Boolean> XDEBUGGER_EDITOR_KEY = Key.create("is.xdebugger.editor");
+
   private final Project myProject;
   private final XDebuggerEditorsProvider myDebuggerEditorsProvider;
   private final @NotNull EvaluationMode myMode;
@@ -342,37 +341,40 @@ public abstract class XDebuggerEditorBase implements Expandable {
   }
 
   public static void foldNewLines(EditorEx editor) {
-    editor.getColorsScheme().setAttributes(EditorColors.FOLDED_TEXT_ATTRIBUTES, null);
-    editor.reinitSettings();
-    FoldingModelEx foldingModel = editor.getFoldingModel();
-    CharSequence text = editor.getDocument().getCharsSequence();
-    foldingModel.runBatchFoldingOperation(() -> {
-      foldingModel.clearFoldRegions();
+    WriteIntentReadAction.run((Runnable)() -> {
+      editor.getColorsScheme().setAttributes(EditorColors.FOLDED_TEXT_ATTRIBUTES, null);
+      editor.reinitSettings();
+      FoldingModelEx foldingModel = editor.getFoldingModel();
+      CharSequence text = editor.getDocument().getCharsSequence();
+      foldingModel.runBatchFoldingOperation(() -> {
+        foldingModel.clearFoldRegions();
 
-      // Fold the whitespaces at the beginning of a string
-      int start = 0;
-      while (start < text.length() && Character.isWhitespace(text.charAt(start))) {
-        start++;
-      }
-      if (start > 0) {
-        foldingModel.createFoldRegion(0, start, "", null, true);
-      }
-
-      for (int i = start; i < text.length(); i++) {
-        if (text.charAt(i) == '\n') {
-          // Fold the whitespaces after a newline character
-          int j = i + 1;
-          while (j < text.length() && Character.isWhitespace(text.charAt(j))) {
-            j++;
-          }
-          foldingModel.createFoldRegion(i, j, "\u23ce", null, true);
+        // Fold the whitespaces at the beginning of a string
+        int start = 0;
+        while (start < text.length() && Character.isWhitespace(text.charAt(start))) {
+          start++;
         }
-      }
+        if (start > 0) {
+          foldingModel.createFoldRegion(0, start, "", null, true);
+        }
+
+        for (int i = start; i < text.length(); i++) {
+          if (text.charAt(i) == '\n') {
+            // Fold the whitespaces after a newline character
+            int j = i + 1;
+            while (j < text.length() && Character.isWhitespace(text.charAt(j))) {
+              j++;
+            }
+            foldingModel.createFoldRegion(i, j, "\u23ce", null, true);
+          }
+        }
+      });
     });
   }
 
   protected void prepareEditor(EditorEx editor) {
     editor.putUserData(EditorImpl.DISABLE_REMOVE_ON_DROP, Boolean.TRUE);
+    editor.putUserData(XDEBUGGER_EDITOR_KEY, Boolean.TRUE);
   }
 
   protected final void setExpandable(Editor editor) {

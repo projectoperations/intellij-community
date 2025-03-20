@@ -13,7 +13,6 @@ import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.event.DocumentListener
-import com.intellij.openapi.editor.ex.util.EditorUtil
 import com.intellij.openapi.editor.impl.EditorImpl
 import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorState
@@ -30,6 +29,7 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.awt.RelativePoint
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.ui.StartupUiUtil
+import com.intellij.util.ui.UIUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -94,6 +94,7 @@ class MarkdownPreviewFileEditor(
 
     StartupUiUtil.addAwtListener(AWTEvent.MOUSE_EVENT_MASK, this) { event ->
       if (event is MouseEvent && event.id == MouseEvent.MOUSE_CLICKED && event.button == MouseEvent.BUTTON3
+          && UIUtil.isDescendingFrom(event.component, htmlPanelWrapper)
           && event.component.isShowing() && htmlPanelWrapper.isShowing()
           && component.containsScreenLocation(event.locationOnScreen)
       ) {

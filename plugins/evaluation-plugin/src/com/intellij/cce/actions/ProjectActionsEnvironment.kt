@@ -248,7 +248,7 @@ open class ProjectActionsEnvironment(
 
   private inner class FileActionsChunk(
     private val fileActions: FileActions,
-    override val presentationText: String,
+    private val presentationText: String,
   ) : EvaluationChunk {
     override val datasetName: String = config.projectName
     override val name: String = fileActions.path
@@ -259,18 +259,21 @@ open class ProjectActionsEnvironment(
       filter: InterpretFilter,
       order: InterpretationOrder,
       sessionHandler: (Session) -> Unit
-    ): List<Session> {
+    ): EvaluationChunk.Result {
       val factory = object : InvokersFactory {
         override fun createActionsInvoker(): ActionsInvoker = CommonActionsInvoker(project)
         override fun createFeatureInvoker(): FeatureInvoker = featureInvoker
       }
       val actionInterpreter = ActionInvokingInterpreter(factory, handler, filter, order)
-      return actionInterpreter.interpret(fileActions, sessionHandler)
+      return EvaluationChunk.Result(
+        actionInterpreter.interpret(fileActions, sessionHandler),
+        presentationText
+      )
     }
   }
 
   companion object {
-    fun open(projectPath: String, init: (Project) -> ProjectActionsEnvironment): ProjectActionsEnvironment {
+    fun<T> open(projectPath: String, init: (Project) -> T): T {
       println("Open and load project $projectPath. Operation may take a few minutes.")
       @Suppress("DEPRECATION")
       val project = runUnderModalProgressIfIsEdt {

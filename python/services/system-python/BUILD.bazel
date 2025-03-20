@@ -2,9 +2,9 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources", "jvm_test")
 
 jvm_resources(
-  name = "python-community-services-systemPython_resources",
-  files = glob(["resources/**/*"]),
-  strip_prefix = "resources"
+  name = "python-community-services-systemPython_test_resources",
+  files = glob(["testResources/**/*"]),
+  strip_prefix = "testResources"
 )
 
 jvm_library(
@@ -22,13 +22,12 @@ jvm_library(
     "//platform/extensions",
     "//platform/core-api:core",
     "//platform/projectModel-api:projectModel",
-    "//python:python-community-impl",
     "//python/services/shared:python-community-services-shared",
     "//python/services/internal-impl:python-community-services-internal-impl",
     "//platform/util",
     "//python/installer:community-impl-installer",
   ],
-  runtime_deps = [":python-community-services-systemPython_resources"]
+  exports = ["//python/services/shared:python-community-services-shared"]
 )
 
 jvm_library(
@@ -53,7 +52,6 @@ jvm_library(
     "//platform/projectModel-api:projectModel",
     "//python/testFramework:community-testFramework",
     "@lib//:hamcrest",
-    "//python:python-community-impl",
     "//python/services/shared:python-community-services-shared",
     "//python/services/internal-impl:python-community-services-internal-impl",
     "//python/services/internal-impl:python-community-services-internal-impl_test_lib",
@@ -63,8 +61,12 @@ jvm_library(
     "//python/python-venv:community-impl-venv",
     "//python/python-venv:community-impl-venv_test_lib",
     "//python/setup-test-environment:community-testFramework-testEnv",
+    "@lib//:io-mockk",
+    "@lib//:io-mockk-jvm",
+    "//platform/testFramework",
+    "//platform/testFramework:testFramework_test_lib",
   ],
-  runtime_deps = [":python-community-services-systemPython_resources"]
+  runtime_deps = [":python-community-services-systemPython_test_resources"]
 )
 
 jvm_test(

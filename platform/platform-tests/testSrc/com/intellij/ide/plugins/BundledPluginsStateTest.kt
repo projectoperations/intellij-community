@@ -3,6 +3,7 @@ package com.intellij.ide.plugins
 
 import com.intellij.core.CoreBundle
 import com.intellij.openapi.extensions.PluginId
+import com.intellij.platform.plugins.parser.impl.PluginDescriptorBuilder
 import com.intellij.testFramework.assertions.Assertions.assertThat
 import com.intellij.testFramework.junit5.TestApplication
 import org.junit.jupiter.api.Test
@@ -34,7 +35,7 @@ class BundledPluginsStateTest {
 }
 
 private fun getIdeaDescriptor(id: String, category: Category): IdeaPluginDescriptorImpl {
-  val descriptor = IdeaPluginDescriptorImpl(RawPluginDescriptor(), Path.of(""), true, PluginId.getId(id), null)
+  val descriptor = IdeaPluginDescriptorImpl(PluginDescriptorBuilder.builder().build(), Path.of(""), true, PluginId.getId(id), null)
   descriptor.category = category
   return descriptor
 }

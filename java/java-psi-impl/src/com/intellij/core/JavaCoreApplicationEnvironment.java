@@ -67,6 +67,7 @@ public class JavaCoreApplicationEnvironment extends CoreApplicationEnvironment {
     application.registerService(PsiPackageImplementationHelper.class, new CorePsiPackageImplementationHelper());
 
     application.registerService(PsiSubstitutorFactory.class, new PsiSubstitutorFactoryImpl());
+    application.registerService(JavaModuleGraphHelper.class, new DumbJavaModuleGraphHelper());
     application.registerService(JavaDirectoryService.class, createJavaDirectoryService());
     application.registerService(JavaVersionService.class, new JavaVersionService());
 
@@ -74,8 +75,8 @@ public class JavaCoreApplicationEnvironment extends CoreApplicationEnvironment {
     addExplicitExtension(ItemPresentationProviders.INSTANCE, PsiClass.class, new ClassPresentationProvider());
     addExplicitExtension(ItemPresentationProviders.INSTANCE, PsiMethod.class, new MethodPresentationProvider());
     addExplicitExtension(ItemPresentationProviders.INSTANCE, PsiField.class, new FieldPresentationProvider());
-    addExplicitExtension(ItemPresentationProviders.INSTANCE, PsiLocalVariable.class, new VariablePresentationProvider());
-    addExplicitExtension(ItemPresentationProviders.INSTANCE, PsiParameter.class, new VariablePresentationProvider());
+    addExplicitExtension(ItemPresentationProviders.INSTANCE, PsiLocalVariable.class, new VariablePresentationProvider<>());
+    addExplicitExtension(ItemPresentationProviders.INSTANCE, PsiParameter.class, new VariablePresentationProvider<>());
 
     registerApplicationService(JavaCodeFoldingSettings.class, new JavaCodeFoldingSettingsBase());
     addExplicitExtension(LanguageFolding.INSTANCE, JavaLanguage.INSTANCE, new JavaFoldingBuilderBase() {
@@ -95,7 +96,7 @@ public class JavaCoreApplicationEnvironment extends CoreApplicationEnvironment {
 
     registerApplicationDynamicExtensionPoint("com.intellij.filetype.decompiler", BinaryFileTypeDecompilers.class);
     registerApplicationDynamicExtensionPoint("com.intellij.psi.classFileDecompiler", ClassFileDecompilers.Decompiler.class);
-    addExtension(ClassFileDecompilers.getInstance().EP_NAME, new ClsDecompilerImpl());
+    addExtension(ClassFileDecompilers.STATIC_EP_NAME, new ClsDecompilerImpl());
   }
 
   // overridden in upsource

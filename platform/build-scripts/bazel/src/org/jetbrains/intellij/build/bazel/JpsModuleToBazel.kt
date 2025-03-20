@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("SameParameterValue", "ReplaceGetOrSet")
 
 package org.jetbrains.intellij.build.bazel
@@ -9,7 +9,6 @@ import org.jdom.Element
 import org.jetbrains.jps.model.serialization.JpsSerializationManager
 import java.nio.file.Files
 import java.nio.file.Path
-import kotlin.concurrent.thread
 import kotlin.io.path.invariantSeparatorsPathString
 
 /**
@@ -25,10 +24,6 @@ internal class JpsModuleToBazel {
       val jarRepositories = loadJarRepositories(projectDir)
 
       val urlCache = UrlCache(cacheFile = projectDir.resolve("build/lib-lock.json"))
-      Runtime.getRuntime().addShutdownHook(thread(start = false, name = "Save URL cache") {
-        println("Saving url cache to ${urlCache.cacheFile}")
-        urlCache.save()
-      })
 
       val generator = BazelBuildFileGenerator(projectDir = projectDir, project = project, urlCache = urlCache)
       val moduleList = generator.computeModuleList()
@@ -46,35 +41,10 @@ internal class JpsModuleToBazel {
           .toList(),
       )
 
-      val communityTargets = communityFiles.keys
-        .asSequence()
-        .map { projectDir.relativize(it).invariantSeparatorsPathString }
-        .sorted()
-        .joinToString("\n") { path ->
-          val dir = path.removePrefix("community/").takeIf { it != "community" } ?: ""
-          val ruleDir = "build/jvm-rules/"
-          if (dir.startsWith(ruleDir)) {
-            "@rules_jvm//${dir.removePrefix(ruleDir)}:all"
-          }
-          else {
-            "@community//$dir:all"
-          }
-        }
-      val ultimateTargets = ultimateFiles.keys
-        .sorted()
-        .map { projectDir.relativize(it).invariantSeparatorsPathString }
-        .joinToString("\n") {
-          "//$it:all"
-        }
-      Files.writeString(projectDir.resolve("build/bazel-community-targets.txt"), communityTargets)
-      Files.writeString(projectDir.resolve("build/bazel-targets.txt"), communityTargets + "\n" + ultimateTargets)
+      generator.generateLibs(jarRepositories = jarRepositories, m2Repo = m2Repo)
 
-      try {
-        generator.generateLibs(jarRepositories = jarRepositories, m2Repo = m2Repo)
-      }
-      finally {
-        urlCache.save()
-      }
+      // save cache only on success. do not surround with try/finally
+      urlCache.save()
     }
   }
 }

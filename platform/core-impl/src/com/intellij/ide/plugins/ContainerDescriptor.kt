@@ -10,33 +10,22 @@ import com.intellij.util.messages.ListenerDescriptor
 import org.jetbrains.annotations.ApiStatus
 
 @ApiStatus.Internal
-class ContainerDescriptor {
-  private var _services: MutableList<ServiceDescriptor>? = null
-  val services: List<ServiceDescriptor>
-    get() = _services ?: Java11Shim.INSTANCE.listOf()
-
-  @JvmField var components: MutableList<ComponentConfig>? = null
-  @JvmField var listeners: MutableList<ListenerDescriptor>? = null
-
-  @JvmField var extensionPoints: MutableList<ExtensionPointDescriptor>? = null
-
+class ContainerDescriptor(
+  val services: List<ServiceDescriptor>,
+  val components: List<ComponentConfig>,
+  val listeners: List<ListenerDescriptor>,
+  val extensionPoints: List<ExtensionPointDescriptor>,
+) {
   @Transient var distinctExtensionPointCount: Int = -1
   @Transient @JvmField var extensions: Map<String, List<ExtensionDescriptor>> = Java11Shim.INSTANCE.mapOf()
 
-  fun addService(serviceDescriptor: ServiceDescriptor) {
-    if (_services == null) {
-      _services = ArrayList()
-    }
-    _services!!.add(serviceDescriptor)
-  }
-
   override fun toString(): String {
-    if (_services == null && components.isNullOrEmpty() && extensionPoints.isNullOrEmpty() && extensions.isEmpty() && listeners == null) {
+    if (services.isEmpty() && components.isEmpty() && extensionPoints.isEmpty() && extensions.isEmpty() && listeners.isEmpty()) {
       return "ContainerDescriptor(empty)"
     }
     else {
       return "ContainerDescriptor(" +
-             "services=$_services, components=$components, " +
+             "services=$services, components=$components, " +
              "extensionPoints=$extensionPoints, extensions=$extensions, listeners=$listeners" +
              ")"
     }

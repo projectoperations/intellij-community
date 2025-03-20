@@ -42,7 +42,7 @@ jvm_library(
     "//java/execution/openapi:java-execution",
     "//plugins/maven",
     "//plugins/properties/properties-psi-api:psi",
-    "//plugins/properties/properties-psi-impl:psi-impl",
+    "//plugins/properties/properties-psi-impl:backend-psi",
     "//jps/model-impl",
     "//platform/statistics",
     "//platform/core-ui",
@@ -60,6 +60,7 @@ jvm_library(
     "@lib//:fastutil-min",
     "//platform/platform-impl/ui:ide-ui",
     "//java/debugger/shared:java-debugger-impl-shared",
+    "//platform/eel-provider",
   ],
   exports = ["//plugins/gradle:gradle-common"],
   runtime_deps = [
@@ -71,7 +72,13 @@ jvm_library(
 
 ### auto-generated section `build intellij.gradle.java.tests` start
 load("@rules_java//java:defs.bzl", "java_library")
-load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_test")
+load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources", "jvm_test")
+
+jvm_resources(
+  name = "java-tests_test_resources",
+  files = glob(["testData/**/*"]),
+  strip_prefix = "testData"
+)
 
 java_library(
   name = "java-tests",
@@ -119,6 +126,8 @@ jvm_library(
     "//tools/intellij.tools.ide.metrics.benchmark:ide-metrics-benchmark",
     "//tools/intellij.tools.ide.metrics.benchmark:ide-metrics-benchmark_test_lib",
     "//platform/backend/workspace",
+    "//platform/backend/observation",
+    "//platform/backend/observation:observation_test_lib",
     "//platform/workspace/jps",
     "//plugins/gradle/tooling-extension-impl:toolingExtension-impl",
     "//platform/external-system-impl:externalSystem-tests_test_lib",
@@ -126,7 +135,8 @@ jvm_library(
     "//platform/smRunner",
     "//platform/smRunner:smRunner_test_lib",
     "//platform/statistics/testFramework",
-  ]
+  ],
+  runtime_deps = [":java-tests_test_resources"]
 )
 
 jvm_test(

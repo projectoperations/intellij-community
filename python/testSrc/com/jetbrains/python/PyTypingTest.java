@@ -1982,7 +1982,8 @@ public class PyTypingTest extends PyTestCase {
   public void testBitwiseOrUnionIsInstanceUnionInTuple() {
     doTest("str | list | dict | bool | None",
            """
-             a = 42
+             from typing import Literal
+             a: Literal[42] = 42
              if isinstance(a, (str, (list | dict), bool | None)):
                  expr = a""");
   }
@@ -1991,8 +1992,8 @@ public class PyTypingTest extends PyTestCase {
   public void testBitwiseOrUnionOfUnionsIsInstance() {
     doTest("dict | str | bool | list",
            """
-             from typing import Union
-             a = 42
+             from typing import Union, Literal
+             a: Literal[42] = 42
              if isinstance(a, Union[dict, Union[str, Union[bool, list]]]):
                  expr = a""");
   }
@@ -4575,16 +4576,16 @@ public class PyTypingTest extends PyTestCase {
   }
 
   public void testParamSpecInConcatenateMappedToAnotherParamSpec() {
-    doTest("(int, **P1) -> Any",
+    doTest("(Concatenate(int, **P1)) -> Any",
            """
              from typing import Callable, Any, ParamSpec, Concatenate
-                                
+             
              P1 = ParamSpec('P1')
              P2 = ParamSpec('P2')
-                          
+             
              def f(fn: Callable[P1, Any]):
                  expr = g(fn)
-                          
+             
              def g(fn: Callable[P2, Any]) -> Callable[Concatenate[int, P2], Any]:
                 ...
              """);
@@ -6214,6 +6215,49 @@ public class PyTypingTest extends PyTestCase {
                    """);
   }
 
+  // PY-79060
+  public void testParamSpecInsideConcatenateBoundToCallableParameterListInCustomGeneric() {
+    doTest("MyCallable[[int, n: int, s: str]]", """
+      from typing import Concatenate, Callable, Any
+      
+      class MyCallable[**P1]:    ...
+      
+      def f[**P2](fn: Callable[P2, Any]) -> MyCallable[Concatenate[int, P2]]: ...
+      
+      def expects_int_str(n: int, s: str) -> None: ...
+      
+      expr = f(expects_int_str)
+      """);
+  }
+
+  // PY-79060
+  public void testParamSpecInsideConcatenateBoundToAnotherParamSpecInCustomGeneric() {
+    doTest("MyCallable[Concatenate(int, **P4)]", """
+      from typing import Concatenate, Callable, Any
+      
+      class MyCallable[**P1]:    ...
+      
+      def f[**P2](fn: Callable[P2, Any]) -> MyCallable[Concatenate[int, P2]]: ...
+      
+      def param_spec_replaced_with_another_param_spec[**P4](fn: Callable[P4, Any]):
+          expr = f(fn)
+      """);
+  }
+
+  // PY-79060
+  public void testParamSpecInsideConcatenateBoundToConcatenateInCustomGeneric() {
+    doTest("MyCallable[Concatenate(int, int, **P3)]", """
+      from typing import Concatenate, Callable, Any
+      
+      class MyCallable[**P1]:    ...
+      
+      def f[**P2](fn: Callable[P2, Any]) -> MyCallable[Concatenate[int, P2]]: ...
+      
+      def param_spec_replaced_with_concatenate[**P3](fn: Callable[Concatenate[int, P3], Any]):
+          expr = f(fn)
+      """);
+  }
+
   // PY-77940
   public void testUnderscoredNameInPyiStub() {
     doMultiFileStubAwareTest("int", """
@@ -6299,6 +6343,60 @@ public class PyTypingTest extends PyTestCase {
       
       for x in C.f():
           expr = x
+      """);
+  }
+
+  // PY-79480
+  public void testInheritedAttributeWithTypeAnnotationInParentConstructor() {
+    doTest("str | None", """
+      import typing
+
+      class FakeBase:
+          def __init__(self):
+              self._some_var: typing.Optional[str] = ""
+
+      class Fake(FakeBase):
+          def __init__(self):
+              super().__init__()
+              self._some_var = None
+
+          def some_method(self):
+              expr = self._some_var
+      """);
+  }
+
+  public void testInheritedAttributeWithTypeAnnotationInParent() {
+    doTest("str | None", """
+      import typing
+
+      class FakeBase:
+          _some_var: typing.Optional[str]
+
+      class Fake(FakeBase):
+          def __init__(self):
+              super().__init__()
+              self._some_var = None
+
+          def some_method(self):
+              expr = self._some_var
+      """);
+  }
+
+  public void testInheritedAttributeWithTypeAnnotationInChild() {
+    doTest("str | None", """
+      import typing
+
+      class FakeBase:
+          def __init__(self):
+              self._some_var = 1
+
+      class Fake(FakeBase):
+          def __init__(self):
+              super().__init__()
+              self._some_var: typing.Optional[str] = None
+
+          def some_method(self):
+              expr = self._some_var
       """);
   }
 

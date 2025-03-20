@@ -4,7 +4,9 @@ package com.jetbrains.python.sdk.uv
 import com.intellij.platform.eel.EelApi
 import com.intellij.platform.eel.provider.localEel
 import com.intellij.python.community.services.systemPython.SystemPythonProvider
+import com.intellij.python.community.services.systemPython.UICustomization
 import com.jetbrains.python.PythonBinary
+import com.jetbrains.python.icons.PythonIcons
 import com.jetbrains.python.sdk.uv.impl.createUvLowLevel
 import com.jetbrains.python.sdk.uv.impl.hasUvExecutable
 import java.nio.file.Path
@@ -17,6 +19,9 @@ internal class UvSystemPythonProvider : SystemPythonProvider {
     }
 
     val uv = createUvLowLevel(Path.of("."))
-    return uv.discoverUvInstalledPythons()
+    return uv.listUvPythons()
   }
+
+  @Suppress("HardCodedStringLiteral") // tool name is untranslatable
+  override val uiCustomization: UICustomization = UICustomization("uv", PythonIcons.UV)
 }

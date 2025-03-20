@@ -25,6 +25,8 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.ShutDownTracker
 import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.platform.diagnostic.telemetry.impl.span
+import com.intellij.platform.ide.bootstrap.kernel.startClientKernel
+import com.intellij.platform.ide.bootstrap.kernel.startServerKernel
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.ui.mac.initMacApplication
 import com.intellij.ui.mac.screenmenu.Menu
@@ -37,8 +39,6 @@ import com.intellij.util.lang.ZipFilePool
 import com.jetbrains.JBR
 import kotlinx.coroutines.*
 import org.jetbrains.annotations.ApiStatus.Internal
-import com.intellij.platform.ide.bootstrap.kernel.startClientKernel
-import com.intellij.platform.ide.bootstrap.kernel.startServerKernel
 import java.awt.Toolkit
 import java.lang.invoke.MethodHandles
 import java.lang.invoke.MethodType
@@ -154,9 +154,9 @@ fun CoroutineScope.startApplication(
     }
   }
 
-  val zipFilePoolDeferred = async {
+  val zipPoolDeferred = async {
     val result = ZipFilePoolImpl()
-    ZipFilePool.POOL = result
+    ZipFilePool.PATH_CLASSLOADER_POOL = result
     result
   }
 
@@ -225,7 +225,7 @@ fun CoroutineScope.startApplication(
 
     PluginManagerCore.scheduleDescriptorLoading(
       coroutineScope = this@startApplication,
-      zipFilePoolDeferred = zipFilePoolDeferred,
+      zipPoolDeferred = zipPoolDeferred,
       mainClassLoaderDeferred = mainClassLoaderDeferred,
       logDeferred = logDeferred,
     )
@@ -335,6 +335,8 @@ fun CoroutineScope.startApplication(
 
       executeApplicationStarter(starter = starter, args = args)
     }
+    // no need to use a pool once started
+    ZipFilePool.PATH_CLASSLOADER_POOL = null
   }
 }
 
@@ -484,7 +486,7 @@ private fun checkDirectory(directory: Path, kind: Int, property: String): Boolea
   return true
 }
 
-private suspend fun lockSystemDirs(args: List<String>) {
+private fun lockSystemDirs(args: List<String>) {
   val directoryLock = DirectoryLock(PathManager.getConfigDir(), PathManager.getSystemDir()) { processorArgs ->
     @Suppress("RAW_RUN_BLOCKING")
     runBlocking {
@@ -501,7 +503,7 @@ private suspend fun lockSystemDirs(args: List<String>) {
 
   try {
     val currentDir = Path.of("").toAbsolutePath().normalize()
-    val result = withContext(Dispatchers.IO) { directoryLock.lockOrActivate(currentDir, args) }
+    val result = directoryLock.lockOrActivate(currentDir, args)
     if (result == null) {
       ShutDownTracker.getInstance().registerShutdownTask {
         try {
@@ -518,12 +520,7 @@ private suspend fun lockSystemDirs(args: List<String>) {
     }
   }
   catch (e: DirectoryLock.CannotActivateException) {
-    if (args.isEmpty()) {
-      StartupErrorReporter.showError(BootstrapBundle.message("bootstrap.error.title.start.failed"), e.message)
-    }
-    else {
-      println(e.message)
-    }
+    StartupErrorReporter.showError(BootstrapBundle.message("bootstrap.error.title.start.failed"), e)
     exitProcess(AppExitCodes.INSTANCE_CHECK_FAILED)
   }
   catch (e: Throwable) {

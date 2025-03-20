@@ -26,7 +26,7 @@ import com.intellij.ide.IdleTracker;
 import com.intellij.ide.PowerSaveMode;
 import com.intellij.ide.actions.RevealFileAction;
 import com.intellij.ide.file.BatchFileChangeListener;
-import com.intellij.ide.impl.TrustedProjects;
+import com.intellij.ide.trustedProjects.TrustedProjects;
 import com.intellij.l10n.LocalizationUtil;
 import com.intellij.notification.Notification;
 import com.intellij.notification.NotificationType;
@@ -77,6 +77,9 @@ import com.intellij.openapi.vfs.newvfs.BulkFileListener;
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
 import com.intellij.platform.backend.workspace.GlobalWorkspaceModelCache;
 import com.intellij.platform.backend.workspace.WorkspaceModelCache;
+import com.intellij.platform.eel.EelDescriptor;
+import com.intellij.platform.eel.path.EelPath;
+import com.intellij.platform.eel.provider.EelNioBridgeServiceKt;
 import com.intellij.platform.eel.provider.EelProviderUtil;
 import com.intellij.platform.eel.provider.LocalEelDescriptor;
 import com.intellij.platform.eel.provider.utils.EelPathUtils;
@@ -94,6 +97,7 @@ import com.intellij.util.lang.JavaVersion;
 import com.intellij.util.messages.MessageBusConnection;
 import com.intellij.util.messages.SimpleMessageBusConnection;
 import com.intellij.util.net.NetUtils;
+import com.intellij.workspaceModel.ide.impl.InternalEnvironmentNameImpl;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelInitializer;
@@ -131,9 +135,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.nio.file.*;
 import java.text.SimpleDateFormat;
 import java.time.Duration;
 import java.time.Instant;
@@ -150,6 +152,9 @@ import java.util.stream.Collectors;
 
 import static com.intellij.ide.impl.ProjectUtil.getProjectForComponent;
 import static com.intellij.openapi.diagnostic.InMemoryHandler.IN_MEMORY_LOGGER_ADVANCED_SETTINGS_NAME;
+import static com.intellij.platform.eel.provider.EelNioBridgeServiceKt.asEelPath;
+import static com.intellij.platform.eel.provider.EelProviderUtil.upgradeBlocking;
+import static com.intellij.platform.eel.provider.utils.EelPathUtils.transferContentsIfNonLocal;
 import static org.jetbrains.jps.api.CmdlineRemoteProto.Message.ControllerMessage.ParametersMessage.TargetTypeBuildScope;
 
 public final class BuildManager implements Disposable {
@@ -737,7 +742,7 @@ public final class BuildManager implements Disposable {
       return false;
     }
     final CompilerWorkspaceConfiguration config = CompilerWorkspaceConfiguration.getInstance(project);
-    if (!config.MAKE_PROJECT_ON_SAVE || !TrustedProjects.isTrusted(project)) {
+    if (!config.MAKE_PROJECT_ON_SAVE || !TrustedProjects.isProjectTrusted(project)) {
       return false;
     }
     return config.allowAutoMakeWhileRunningApplication() || !hasRunningProcess(project);
@@ -863,9 +868,27 @@ public final class BuildManager implements Disposable {
 
     final String projectPath = getProjectPath(project);
     final boolean isAutomake = messageHandler instanceof AutoMakeMessageHandler;
+    final EelDescriptor eelDescriptor = EelProviderUtil.getEelDescriptor(project);
     final WSLDistribution wslDistribution = findWSLDistribution(project);
-    final BuilderMessageHandler handler = new NotifyingMessageHandler(project, messageHandler, wslDistribution != null ? wslDistribution::getWindowsPath : null, isAutomake);
-    Function<String, String> pathMapper = wslDistribution != null ? wslDistribution::getWslPath : Function.identity();
+
+    Function<String, String> pathMapperBack;
+
+    if (canUseEel() && !EelPathUtils.isProjectLocal(project)) {
+      pathMapperBack = e -> EelNioBridgeServiceKt.asNioPath(EelPath.parse(e, eelDescriptor)).toString();
+    }
+    else {
+      pathMapperBack = wslDistribution != null ? wslDistribution::getWindowsPath : null;
+    }
+
+    final BuilderMessageHandler handler = new NotifyingMessageHandler(project, messageHandler, pathMapperBack, isAutomake);
+    Function<String, String> pathMapper;
+
+    if (canUseEel() && !EelPathUtils.isProjectLocal(project)) {
+      pathMapper = e -> asEelPath(Path.of(e)).toString();
+    }
+    else {
+      pathMapper = wslDistribution != null ? wslDistribution::getWslPath : Function.identity();
+    }
 
     final DelegateFuture _future = new DelegateFuture();
     // by using the same queue that processes events,
@@ -895,8 +918,18 @@ public final class BuildManager implements Disposable {
         future.setDone();
       }
       else {
+        String optionsPath = PathManager.getOptionsPath();
+
+        if (canUseEel() && !EelPathUtils.isProjectLocal(project)) {
+          final var eel = upgradeBlocking(eelDescriptor);
+          optionsPath = asEelPath(transferContentsIfNonLocal(eel, Path.of(optionsPath), null)).toString();
+        }
+        else {
+          optionsPath = pathMapper.apply(optionsPath);
+        }
+
         final CmdlineRemoteProto.Message.ControllerMessage.GlobalSettings globals =
-          CmdlineRemoteProto.Message.ControllerMessage.GlobalSettings.newBuilder().setGlobalOptionsPath(pathMapper.apply(PathManager.getOptionsPath()))
+          CmdlineRemoteProto.Message.ControllerMessage.GlobalSettings.newBuilder().setGlobalOptionsPath(optionsPath)
             .build();
         CmdlineRemoteProto.Message.ControllerMessage.FSEvent currentFSChanges;
         final ExecutorService projectTaskQueue;
@@ -1347,7 +1380,8 @@ public final class BuildManager implements Disposable {
       wslPath = null;
       EelBuildCommandLineBuilder eelBuilder = new EelBuildCommandLineBuilder(project, Path.of(vmExecutablePath));
       cmdLine = eelBuilder;
-      cmdLine.addParameter("-Dide.jps.remote.path.prefix=" + eelBuilder.pathPrefix().replace('\\', '/'));
+      cmdLine.addParameter("-Dide.jps.remote.path.prefixes=" + eelBuilder.pathPrefixes().stream()
+        .map(e -> e.replace('\\', '/')).collect(Collectors.joining(";")));
       buildProcessConnectHost = "127.0.0.1";
       int listenPort = listenSocketAddress.getPort();
       buildProcessConnectPort = eelBuilder.maybeRunReverseTunnel(listenPort, project); // TODO maybeRunReverseTunnel must return InetSocketAddress
@@ -1423,20 +1457,32 @@ public final class BuildManager implements Disposable {
     String jnaBootLibraryPath = System.getProperty("jna.boot.library.path");
     if (jnaBootLibraryPath != null && wslPath == null) {
       //noinspection SpellCheckingInspection
-      cmdLine.addParameter("-Djna.boot.library.path=" + cmdLine.copyPathToHostIfRequired(Path.of(jnaBootLibraryPath)));
+      try {
+        cmdLine.addPathParameter(
+          "-Djna.boot.library.path=",
+          cmdLine.copyProjectAgnosticPathToTargetIfRequired(Path.of(jnaBootLibraryPath))
+        );
+      }
+      catch (FileSystemException err) {
+        LOG.warn("Can't copy JNA", err);
+      }
       //noinspection SpellCheckingInspection
       cmdLine.addParameter("-Djna.nosys=true");
       //noinspection SpellCheckingInspection
       cmdLine.addParameter("-Djna.noclasspath=true");
     }
     if (Registry.is("jps.build.use.workspace.model")) {
+      // todo: upload workspace model to remote side because it runs with eel
+      String globalCacheId = "Local";
+
       cmdLine.addParameter("-Dintellij.jps.use.workspace.model=true");
       WorkspaceModelCache cache = WorkspaceModelCache.getInstance(project);
       GlobalWorkspaceModelCache globalCache = GlobalWorkspaceModelCache.getInstance();
       if (cache != null && globalCache != null) {
         //todo ensure that caches are up-to-date or use a different way to pass serialized workspace model to the build process
         cmdLine.addParameter("-Djps.workspace.storage.project.cache.path=" + cache.getCacheFile());
-        cmdLine.addParameter("-Djps.workspace.storage.global.cache.path=" + globalCache.getCacheFile());
+        cmdLine.addParameter(
+          "-Djps.workspace.storage.global.cache.path=" + globalCache.cacheFile(new InternalEnvironmentNameImpl(globalCacheId)));
         cmdLine.addParameter("-Djps.workspace.storage.relative.paths.in.cache=" + Registry.is("ide.workspace.model.store.relative.paths.in.cache", false));
       }
       else {
@@ -1469,13 +1515,22 @@ public final class BuildManager implements Disposable {
 
     if (ProjectUtilCore.isExternalStorageEnabled(project)) {
       Path externalProjectConfig = ProjectUtil.getExternalConfigurationDir(project);
-      String pathToExternalStorage;
       if (canUseEel() && !EelPathUtils.isProjectLocal(project)) {
-        pathToExternalStorage = cmdLine.copyPathToHostIfRequired(externalProjectConfig);
-        cmdLine.addParameter("-D" + GlobalOptions.EXTERNAL_PROJECT_CONFIG + '=' + pathToExternalStorage);
+        try {
+          cmdLine.addPathParameter(
+            "-D" + GlobalOptions.EXTERNAL_PROJECT_CONFIG + '=',
+            cmdLine.copyProjectSpecificPathToTargetIfRequired(project, externalProjectConfig)
+          );
+        }
+        catch (NoSuchFileException ignored) {
+          // No external project cache -- no copy of external project cache.
+        }
+        catch (FileSystemException err) {
+          throw new ExecutionException("Failed to copy external project configuration", err);
+        }
       }
       else {
-        pathToExternalStorage = externalProjectConfig.toString();
+        String pathToExternalStorage = externalProjectConfig.toString();
         cmdLine.addPathParameter("-D" + GlobalOptions.EXTERNAL_PROJECT_CONFIG + '=', pathToExternalStorage);
       }
     }
@@ -1571,6 +1626,10 @@ public final class BuildManager implements Disposable {
       cmdLine.addParameter("-D" + GlobalOptions.DEPENDENCY_GRAPH_ENABLED + "=true");
     }
 
+    if (Boolean.parseBoolean(System.getProperty(GlobalOptions.TRACK_LIBRARY_DEPENDENCIES_ENABLED, "false"))) {
+      cmdLine.addParameter("-D" + GlobalOptions.TRACK_LIBRARY_DEPENDENCIES_ENABLED + "=true");
+    }
+
     // Java compiler's VM should use the same default locale that IDEA uses in order for javac to print messages in 'correct' language
     cmdLine.setCharset(mySystemCharset);
     cmdLine.addParameter("-D" + CharsetToolkit.FILE_ENCODING_PROPERTY + '=' + mySystemCharset.name());
@@ -1603,7 +1662,8 @@ public final class BuildManager implements Disposable {
                                FileUtil.toSystemIndependentName(PathManager.getPluginsPath()));
     }
 
-    cmdLine.addPathParameter("-D" + GlobalOptions.LOG_DIR_OPTION + '=', FileUtil.toSystemIndependentName(getBuildLogDirectory().getAbsolutePath()));
+    Path logPath = Path.of(FileUtil.toSystemIndependentName(getBuildLogDirectory().getAbsolutePath()));
+    cmdLine.addPathParameter("-D" + GlobalOptions.LOG_DIR_OPTION + '=', logPath);
     if (AdvancedSettings.getBoolean(IN_MEMORY_LOGGER_ADVANCED_SETTINGS_NAME)) {
       cmdLine.addParameter("-D" + GlobalOptions.USE_IN_MEMORY_FAILED_BUILD_LOGGER + "=true");
     }
@@ -1630,7 +1690,12 @@ public final class BuildManager implements Disposable {
       }
 
       for (Pair<String, Path> parameter : provider.getPathParameters()) {
-        cmdLine.addPathParameter(parameter.getFirst(), cmdLine.copyPathToTargetIfRequired(parameter.getSecond()));
+        try {
+          cmdLine.addPathParameter(parameter.getFirst(), cmdLine.copyProjectAgnosticPathToTargetIfRequired(parameter.getSecond()));
+        }
+        catch (FileSystemException err) {
+          throw new ExecutionException("Failed to copy parameter " + parameter.getFirst(), err);
+        }
       }
     }
 
@@ -1694,7 +1759,12 @@ public final class BuildManager implements Disposable {
 
     for (BuildProcessParametersProvider buildProcessParametersProvider : BuildProcessParametersProvider.EP_NAME.getExtensions(project)) {
       for (String path : buildProcessParametersProvider.getAdditionalPluginPaths()) {
-        cmdLine.copyPathToTargetIfRequired(Paths.get(path));
+        try {
+          cmdLine.copyProjectAgnosticPathToTargetIfRequired(Paths.get(path));
+        }
+        catch (FileSystemException err) {
+          throw new ExecutionException("Failed to copy additional plugin", err);
+        }
       }
     }
 

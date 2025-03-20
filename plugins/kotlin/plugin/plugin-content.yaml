@@ -102,6 +102,15 @@
   - name: kotlin.base.project-structure
   - name: kotlin.base.external-build-system
   - name: kotlin.base.scripting
+    libraries:
+      amper.dependency.resolution.kotlin.base.scripting:
+      - name: $MAVEN_REPOSITORY$/org/jetbrains/amper/dependency-resolution-jvm/0/dependency-resolution-jvm-0.jar
+      - name: $MAVEN_REPOSITORY$/org/jetbrains/amper/concurrency-jvm/0/concurrency-jvm-0.jar
+      - name: $MAVEN_REPOSITORY$/org/slf4j/slf4j-api/2/slf4j-api-2.jar
+      - name: $MAVEN_REPOSITORY$/io/github/pdvrieze/xmlutil/serialization-jvm/0/serialization-jvm-0.jar
+      - name: $MAVEN_REPOSITORY$/io/github/pdvrieze/xmlutil/core-jvm/0/core-jvm-0.jar
+      - name: $MAVEN_REPOSITORY$/org/apache/maven/maven-artifact/3/maven-artifact-3.jar
+      - name: $MAVEN_REPOSITORY$/org/jetbrains/kotlinx/kotlinx-coroutines-core/1/kotlinx-coroutines-core-1.jar
   - name: kotlin.base.analysis-api-platform
   - name: kotlin.base.analysis
   - name: kotlin.base.code-insight
@@ -120,7 +129,9 @@
   - name: kotlin.ide
   - name: kotlin.idea
   - name: kotlin.fir.frontend-independent
-  - name: kotlin.jvm
+  - name: kotlin.jvm.shared
+  - name: kotlin.jvm.k2
+  - name: kotlin.jvm.k1
   - name: kotlin.compiler-reference-index
   - name: kotlin.compiler-plugins.parcelize.common
   - name: kotlin.compiler-plugins.parcelize.k1
@@ -162,6 +173,9 @@
   - name: kotlin.gradle.gradle-java
   - name: kotlin.gradle.gradle-java.k1
   - name: kotlin.gradle.gradle-java.k2
+  - name: kotlin.gradle.scripting.k1
+  - name: kotlin.gradle.scripting.k2
+  - name: kotlin.gradle.scripting.shared
   - name: kotlin.gradle.code-insight-groovy
   - name: kotlin.gradle.code-insight-toml
   - name: kotlin.native

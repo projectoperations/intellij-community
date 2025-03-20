@@ -21,7 +21,7 @@ import org.junit.platform.suite.api.Suite
   LaterInvocatorTest::class,
   ModalCoroutineTest::class,
   ReadWritePropagationTest::class,
-
+  SwingThreadingTest::class,
 
   // contexts
   ContextSwitchTest::class,
@@ -44,6 +44,7 @@ import org.junit.platform.suite.api.Suite
   NonBlockingUndispatchedSuspendingReadActionTest::class,
   SuspendingWriteActionTest::class,
   SuspendingReadAndWriteActionTest::class,
+  BackgroundWriteActionTest::class,
 
   // propagation
   ThreadContextPropagationTest::class,

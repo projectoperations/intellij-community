@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.jps.dependency.java;
 
 import com.intellij.openapi.util.Pair;
@@ -16,11 +16,6 @@ import java.util.function.Supplier;
 import static org.jetbrains.jps.javac.Iterators.*;
 
 public final class JavaDifferentiateStrategy extends JvmDifferentiateStrategyImpl {
-
-  private static final Iterable<AnnotationChangesTracker> ourAnnotationChangeTrackers = collect(
-    ServiceLoader.load(AnnotationChangesTracker.class, JavaDifferentiateStrategy.class.getClassLoader()),
-    new SmartList<>()
-  );
 
   @Override
   public boolean isIncremental(DifferentiateContext context, Node<?, ?> affectedNode) {
@@ -295,32 +290,7 @@ public final class JavaDifferentiateStrategy extends JvmDifferentiateStrategyImp
       }
     }
 
-    Difference.Specifier<ElementAnnotation, ElementAnnotation.Diff> annotationsDiff = classDiff.annotations();
-    if (!annotationsDiff.unchanged()) {
-      EnumSet<AnnotationChangesTracker.Recompile> toRecompile = EnumSet.noneOf(AnnotationChangesTracker.Recompile.class);
-      for (AnnotationChangesTracker tracker : ourAnnotationChangeTrackers) {
-        if (toRecompile.containsAll(AnnotationChangesTracker.RECOMPILE_ALL)) {
-          break;
-        }
-        Set<AnnotationChangesTracker.Recompile> result = tracker.classAnnotationsChanged(changedClass, annotationsDiff);
-        if (result.contains(AnnotationChangesTracker.Recompile.USAGES)) {
-          debug("Extension ", tracker.getClass().getName(), " requested class usages recompilation because of changes in annotations list --- adding class usage to affected usages");
-        }
-        if (result.contains(AnnotationChangesTracker.Recompile.SUBCLASSES)) {
-          debug("Extension ", tracker.getClass().getName(), " requested subclasses recompilation because of changes in annotations list --- adding subclasses to affected usages");
-        }
-        toRecompile.addAll(result);
-      }
-      boolean affectUsages = toRecompile.contains(AnnotationChangesTracker.Recompile.USAGES);
-      if (affectUsages) {
-        context.affectUsage(new ClassUsage(changedClass.getReferenceID()));
-      }
-      if (toRecompile.contains(AnnotationChangesTracker.Recompile.SUBCLASSES)) {
-        affectSubclasses(context, future, changedClass.getReferenceID(), affectUsages);
-      }
-    }
-
-    return true;
+    return super.processChangedClass(context, change, future, present);
   }
 
   @Override
@@ -425,38 +395,6 @@ public final class JavaDifferentiateStrategy extends JvmDifferentiateStrategyImp
           }
         }
       }
-
-      Difference.Specifier<ElementAnnotation, ElementAnnotation.Diff> annotationsDiff = diff.annotations();
-      Difference.Specifier<ParamAnnotation, ParamAnnotation.Diff> paramAnnotationsDiff = diff.paramAnnotations();
-      if (!annotationsDiff.unchanged() || !paramAnnotationsDiff.unchanged()) {
-        EnumSet<AnnotationChangesTracker.Recompile> toRecompile = EnumSet.noneOf(AnnotationChangesTracker.Recompile.class);
-        for (AnnotationChangesTracker tracker : ourAnnotationChangeTrackers) {
-          if (toRecompile.containsAll(AnnotationChangesTracker.RECOMPILE_ALL)) {
-            break;
-          }
-          Set<AnnotationChangesTracker.Recompile> result = tracker.methodAnnotationsChanged(changedMethod, annotationsDiff, paramAnnotationsDiff);
-          if (result.contains(AnnotationChangesTracker.Recompile.USAGES)) {
-            debug("Extension ", tracker.getClass().getName(), " requested recompilation because of changes in annotations list --- affecting method usages");
-          }
-          if (result.contains(AnnotationChangesTracker.Recompile.SUBCLASSES)) {
-            debug("Extension ", tracker.getClass().getName(), " requested recompilation because of changes in method annotations or method parameter annotations list --- affecting subclasses");
-          }
-          toRecompile.addAll(result);
-        }
-        if (toRecompile.contains(AnnotationChangesTracker.Recompile.USAGES)) {
-          affectMemberUsages(context, changedClass.getReferenceID(), changedMethod, propagated);
-          if (changedMethod.isAbstract() || toRecompile.contains(AnnotationChangesTracker.Recompile.SUBCLASSES)) {
-            for (Pair<JvmClass, JvmMethod> pair : recurse(Pair.create(changedClass, changedMethod), p -> p.second.isOverridable()? future.getOverridingMethods(p.first, p.second, p.second::isSameByJavaRules) : Collections.emptyList(), false)) {
-              JvmNodeReferenceID clsId = pair.first.getReferenceID();
-              JvmMethod meth = pair.getSecond();
-              affectMemberUsages(context, clsId, meth, future.collectSubclassesWithoutMethod(clsId, meth));
-            }
-          }
-        }
-        if (toRecompile.contains(AnnotationChangesTracker.Recompile.SUBCLASSES)) {
-          affectSubclasses(context, future, changedClass.getReferenceID(), false);
-        }
-      }
     }
 
     Iterable<Difference.Change<JvmMethod, JvmMethod.Diff>> moreAccessible = collect(filter(methodChanges, ch -> ch.getDiff().accessExpanded()), new SmartList<>());
@@ -493,7 +431,7 @@ public final class JavaDifferentiateStrategy extends JvmDifferentiateStrategyImp
     }
 
     debug("End of changed methods processing");
-    return true;
+    return super.processChangedMethods(context, clsChange, methodChanges, future, present);
   }
 
   @Override
@@ -843,38 +781,16 @@ public final class JavaDifferentiateStrategy extends JvmDifferentiateStrategyImp
       }
     }
 
-    Difference.Specifier<ElementAnnotation, ElementAnnotation.Diff> annotationsDiff = diff.annotations();
-    if (!annotationsDiff.unchanged()) {
-      EnumSet<AnnotationChangesTracker.Recompile> toRecompile = EnumSet.noneOf(AnnotationChangesTracker.Recompile.class);
-      for (AnnotationChangesTracker tracker : ourAnnotationChangeTrackers) {
-        if (toRecompile.containsAll(AnnotationChangesTracker.RECOMPILE_ALL)) {
-          break;
-        }
-        Set<AnnotationChangesTracker.Recompile> result = tracker.fieldAnnotationsChanged(changedField, annotationsDiff);
-        if (result.contains(AnnotationChangesTracker.Recompile.USAGES)) {
-          debug("Extension ", tracker.getClass().getName(), " requested recompilation because of changes in annotations list --- affecting field usages");
-        }
-        if (result.contains(AnnotationChangesTracker.Recompile.SUBCLASSES)) {
-          debug("Extension ", tracker.getClass().getName(), " requested recompilation because of changes in field annotations list --- affecting subclasses");
-        }
-        toRecompile.addAll(result);
-      }
-      if (toRecompile.contains(AnnotationChangesTracker.Recompile.USAGES)) {
-        affectMemberUsages(context, changedClass.getReferenceID(), changedField, propagated);
-      }
-      if (toRecompile.contains(AnnotationChangesTracker.Recompile.SUBCLASSES)) {
-        affectSubclasses(context, future, changedClass.getReferenceID(), false);
-      }
-    }
-
-    return true;
+    return super.processChangedField(context, clsChange, fieldChange, future, present);
   }
 
   @Override
   public boolean processAddedModule(DifferentiateContext context, JvmModule addedModule, Utils future, Utils present) {
     // after module has been added, the whole target should be rebuilt
     // because necessary 'require' directives may be missing from the newly added module-info file
-    affectModule(context, future, addedModule);
+    if (!addedModule.isLibrary()) {
+      affectModule(context, future, addedModule);
+    }
     return true;
   }
 
@@ -941,7 +857,7 @@ public final class JavaDifferentiateStrategy extends JvmDifferentiateStrategyImp
       }
     }
 
-    if (affectSelf) {
+    if (affectSelf && !change.getNow().isLibrary()) {
       affectModule(context, present, changedModule);
     }
 
@@ -949,6 +865,27 @@ public final class JavaDifferentiateStrategy extends JvmDifferentiateStrategyImp
       affectDependentModules(
         context, present, changedModule, true, constraintPackageNames.isEmpty()? null : node -> node instanceof JvmModule && constraintPackageNames.contains(((JvmModule)node).getName())
       );
+    }
+    return true;
+  }
+
+  @Override
+  public boolean processNodesWithErrors(DifferentiateContext context, Iterable<JVMClassNode<?, ?>> nodes, Utils present) {
+    for (JvmClass jvmClass : Graph.getNodesOfType(nodes, JvmClass.class)) {
+      for (JvmField field : filter(jvmClass.getFields(), f -> !f.isPrivate() && f.isInlinable() && f.getValue() != null)) {
+        if (context.getParams().isProcessConstantsIncrementally()) {
+          debug("Potentially inlined field is contained in a source compiled with errors => affecting field usages and static member import usages");
+          var propagated = present.collectSubclassesWithoutField(jvmClass.getReferenceID(), field);
+          affectMemberUsages(context, jvmClass.getReferenceID(), field, propagated);
+          affectStaticMemberImportUsages(context, jvmClass.getReferenceID(), field.getName(), propagated);
+        }
+        else {
+          debug("Potentially inlined field is contained in a source compiled with errors => a switch to non-incremental mode requested");
+          if (!affectOnNonIncrementalChange(context, jvmClass.getReferenceID(), field, present)) {
+            return false;
+          }
+        }
+      }
     }
     return true;
   }

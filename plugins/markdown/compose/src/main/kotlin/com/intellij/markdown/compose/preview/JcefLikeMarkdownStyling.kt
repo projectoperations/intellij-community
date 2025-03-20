@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.intellij.util.ui.JBUI
 import org.intellij.plugins.markdown.ui.preview.PreviewStyleScheme
+import org.jetbrains.jewel.bridge.retrievePlatformTextStyle
 import org.jetbrains.jewel.bridge.toComposeColor
 import org.jetbrains.jewel.markdown.rendering.InlinesStyling
 import org.jetbrains.jewel.markdown.rendering.MarkdownStyling
@@ -38,6 +39,7 @@ internal fun JcefLikeMarkdownStyling(scheme: PreviewStyleScheme, fontSize: TextU
     fontSize = fontSize,
     fontFamily = FontFamily.SansSerif,
     lineHeight = fontSize * 1.6,
+    platformStyle = retrievePlatformTextStyle()
   ).copy(
     color = scheme.foregroundColor.toComposeColor()
   )
@@ -91,11 +93,9 @@ private fun createInlinesStyling(
   linkHovered = link.copy(color = JBUI.CurrentTheme.Link.Foreground.HOVERED.toComposeColor()),
   linkFocused = link.copy(
     color = JBUI.CurrentTheme.Link.Foreground.HOVERED.toComposeColor(),
-    background = JBUI.CurrentTheme.ActionButton.hoverBackground().toComposeColor(),
   ),
   linkPressed = link.copy(
     color = JBUI.CurrentTheme.Link.Foreground.PRESSED.toComposeColor(),
-    background = JBUI.CurrentTheme.ActionButton.pressedBackground().toComposeColor(),
   ),
   linkVisited = link.copy(color = JBUI.CurrentTheme.Link.Foreground.VISITED.toComposeColor()),
   renderInlineHtml = false,

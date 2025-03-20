@@ -9,8 +9,8 @@ import fleet.kernel.*
 import fleet.kernel.rebase.RebaseLogger.logger
 import fleet.rpc.client.RpcClientDisconnectedException
 import fleet.rpc.client.durable
-import fleet.tracing.span
-import fleet.tracing.spannedScope
+import fleet.reporting.shared.tracing.span
+import fleet.reporting.shared.tracing.spannedScope
 import fleet.util.*
 import fleet.util.async.conflateReduce
 import fleet.util.async.use
@@ -18,6 +18,7 @@ import fleet.util.channels.channels
 import fleet.util.channels.use
 import fleet.fastutil.ints.IntMap
 import fleet.fastutil.ints.partition
+import fleet.multiplatform.shims.AtomicRef
 import fleet.util.logging.logger
 import kotlinx.collections.immutable.toPersistentHashMap
 import kotlinx.coroutines.*
@@ -228,7 +229,7 @@ private fun ChangeScope.runEffects(list: List<Effect>) {
         e.effect(this)
       }
       catch (x: Throwable) {
-        logger.error(x, "failed running effect ${e.javaClass} in offer")
+        logger.error(x, "failed running effect ${e::class} in offer")
       }
     }
   }

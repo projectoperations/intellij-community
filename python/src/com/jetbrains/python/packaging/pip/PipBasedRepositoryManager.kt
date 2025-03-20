@@ -10,12 +10,12 @@ import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.util.io.HttpRequests
 import com.jetbrains.python.PyBundle
-import com.jetbrains.python.packaging.PyPIPackageUtil
-import com.jetbrains.python.packaging.PyPackageVersion
-import com.jetbrains.python.packaging.PyPackageVersionComparator
-import com.jetbrains.python.packaging.PyPackageVersionNormalizer
+import com.jetbrains.python.packaging.*
 import com.jetbrains.python.packaging.cache.PythonSimpleRepositoryCache
-import com.jetbrains.python.packaging.common.*
+import com.jetbrains.python.packaging.common.EmptyPythonPackageDetails
+import com.jetbrains.python.packaging.common.PythonPackageDetails
+import com.jetbrains.python.packaging.common.PythonPackageSpecification
+import com.jetbrains.python.packaging.common.PythonSimplePackageDetails
 import com.jetbrains.python.packaging.management.PythonRepositoryManager
 import com.jetbrains.python.packaging.management.packagesByRepository
 import com.jetbrains.python.packaging.repository.*
@@ -23,7 +23,7 @@ import org.jetbrains.annotations.ApiStatus
 import java.time.Duration
 
 @ApiStatus.Experimental
-abstract class PipBasedRepositoryManager(project: Project, sdk: Sdk) : PythonRepositoryManager(project, sdk) {
+internal abstract class PipBasedRepositoryManager(project: Project, sdk: Sdk) : PythonRepositoryManager(project, sdk) {
 
   override val repositories: List<PyPackageRepository>
     get() = listOf(PyPIPackageRepository) + service<PythonSimpleRepositoryCache>().repositories
@@ -73,25 +73,33 @@ abstract class PipBasedRepositoryManager(project: Project, sdk: Sdk) : PythonRep
       val versions = tryParsingVersionsFromPage(spec.name, spec.repository?.repositoryUrl)
       val repository = if (spec.repository !is PyEmptyPackagePackageRepository) spec.repository else PyPIPackageRepository
       val repositoryName = repository?.name ?: PyPIPackageRepository.name!!
-      return if (versions != null) PythonSimplePackageDetails(spec.name,
-                                                              versions.sortedWith(PyPackageVersionComparator.STR_COMPARATOR.reversed()),
-                                                              spec.repository!!,
-                                                              description = PyBundle.message("python.packages.no.details.in.repo", repositoryName))
-      else EmptyPythonPackageDetails(spec.name, PyBundle.message("python.packages.no.details.in.repo", repositoryName))
+      if (versions != null) {
+        return PythonSimplePackageDetails(
+          spec.name,
+          versions.sortedWith(PyPackageVersionComparator.STR_COMPARATOR.reversed()),
+          spec.repository!!,
+          description = PyBundle.message("python.packages.no.details.in.repo", repositoryName))
+      }
+      else {
+        return EmptyPythonPackageDetails(
+          spec.name,
+          PyBundle.message("python.packages.no.details.in.repo", repositoryName))
+      }
     }
 
     try {
       val packageDetails = gson.fromJson(rawInfo, PyPIPackageUtil.PackageDetails::class.java)
-      return PythonSimplePackageDetails(spec.name,
-                                        packageDetails.releases.sortedWith(PyPackageVersionComparator.STR_COMPARATOR.reversed()),
-                                        spec.repository!!,
-                                        packageDetails.info.summary,
-                                        packageDetails.info.description,
-                                        packageDetails.info.descriptionContentType,
-                                        packageDetails.info.projectUrls["Documentation"],
-                                        packageDetails.info.author,
-                                        packageDetails.info.authorEmail,
-                                        packageDetails.info.homePage)
+      return PythonSimplePackageDetails(
+        spec.name,
+        packageDetails.releases.sortedWith(PyPackageVersionComparator.STR_COMPARATOR.reversed()),
+        spec.repository!!,
+        packageDetails.info.summary,
+        packageDetails.info.description,
+        packageDetails.info.descriptionContentType,
+        packageDetails.info.projectUrls["Documentation"],
+        packageDetails.info.author,
+        packageDetails.info.authorEmail,
+        packageDetails.info.homePage)
 
     }
     catch (ex: Exception) {
@@ -111,9 +119,7 @@ abstract class PipBasedRepositoryManager(project: Project, sdk: Sdk) : PythonRep
 
 
   override suspend fun initCaches() {
-    service<PypiPackageCache>().apply {
-      if (isEmpty()) loadCache()
-    }
+    service<PypiPackageCache>().reloadCache()
 
     val repositoryService = service<PyPackageRepositories>()
     val repositoryCache = service<PythonSimpleRepositoryCache>()
@@ -122,8 +128,8 @@ abstract class PipBasedRepositoryManager(project: Project, sdk: Sdk) : PythonRep
     }
   }
 
-  override suspend fun refreshCashes() {
-    service<PypiPackageCache>().refresh()
+  override suspend fun refreshCaches() {
+    service<PypiPackageCache>().forceReloadCache()
     service<PythonSimpleRepositoryCache>().refresh()
   }
 

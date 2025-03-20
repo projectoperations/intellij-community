@@ -17,6 +17,7 @@ import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.application.impl.ApplicationInfoImpl
 import com.intellij.openapi.components.serviceOrNull
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.progress.ProcessCanceledException
@@ -143,7 +144,7 @@ class MarketplaceRequests(private val coroutineScope: CoroutineScope) : PluginIn
       val chunks = mutableListOf<MutableList<PluginId>>()
       chunks.add(mutableListOf())
 
-      val maxLength = 7000 // 8k minus safety gap
+      val maxLength = 3500 // 4k minus safety gap
       var currentLength = 0
       val pluginXmlIdsLength = "&pluginXmlId=".length
 
@@ -177,8 +178,10 @@ class MarketplaceRequests(private val coroutineScope: CoroutineScope) : PluginIn
 
         val url = URI(MarketplaceUrls.getSearchPluginsUpdatesUrl())
         val os = URLEncoder.encode(OS.CURRENT.name + " " + OS.CURRENT.version, CharsetToolkit.UTF8)
-        val machineId = MachineIdManager.getAnonymizedMachineId("JetBrainsUpdates") // same as regular updates
-          .takeIf { PropertiesComponent.getInstance().getBoolean(UpdateChecker.MACHINE_ID_DISABLED_PROPERTY, false) }
+        val machineId = if (LoadingState.COMPONENTS_LOADED.isOccurred) {
+          MachineIdManager.getAnonymizedMachineId("JetBrainsUpdates") // same as regular updates
+            .takeIf { !PropertiesComponent.getInstance().getBoolean(UpdateChecker.MACHINE_ID_DISABLED_PROPERTY, false) }
+        } else null
 
         val query = buildString {
           append("build=${ApplicationInfoImpl.orFromPluginCompatibleBuild(buildNumber)}")
@@ -269,6 +272,52 @@ class MarketplaceRequests(private val coroutineScope: CoroutineScope) : PluginIn
       }.toPluginNode()
     }
 
+    /**
+     * @return null if failed to download brokenPlugins from the Marketplace
+     */
+    fun getBrokenPlugins(currentBuild: BuildNumber): Map<PluginId, Set<String>>? {
+      LOG.debug { "Fetching broken plugins for build $currentBuild" }
+      val brokenPlugins = try {
+        readOrUpdateFile(
+          Paths.get(PathManager.getPluginTempPath(), "brokenPlugins.json"),
+          MarketplaceUrls.getBrokenPluginsJsonUrl(),
+          null,
+          ""
+        ) { objectMapper.readValue(it, object : TypeReference<List<MarketplaceBrokenPlugin>>() {}) }
+      }
+      catch (e: Exception) {
+        LOG.infoOrDebug("Can not get broken plugins file from Marketplace", e)
+        return null
+      }
+      return buildBrokenPluginsMap(brokenPlugins, currentBuild)
+    }
+
+    private fun buildBrokenPluginsMap(
+      brokenPlugins: List<MarketplaceBrokenPlugin>,
+      currentBuild: BuildNumber,
+    ): HashMap<PluginId, MutableSet<String>> {
+      val brokenPluginsMap = HashMap<PluginId, MutableSet<String>>()
+      brokenPlugins.forEach { record ->
+        try {
+          val parsedOriginalUntil = record.originalUntil?.trim()
+          val parsedOriginalSince = record.originalSince?.trim()
+          if (!parsedOriginalUntil.isNullOrEmpty() && !parsedOriginalSince.isNullOrEmpty()) {
+            val originalUntil = BuildNumber.fromString(parsedOriginalUntil, record.id, null) ?: currentBuild
+            val originalSince = BuildNumber.fromString(parsedOriginalSince, record.id, null) ?: currentBuild
+            val until = BuildNumber.fromString(record.until) ?: currentBuild
+            val since = BuildNumber.fromString(record.since) ?: currentBuild
+            if (currentBuild in originalSince..originalUntil && currentBuild !in since..until) {
+              brokenPluginsMap.computeIfAbsent(PluginId.getId(record.id)) { HashSet() }.add(record.version)
+            }
+          }
+        }
+        catch (e: Exception) {
+          LOG.error("cannot parse ${record}", e)
+        }
+      }
+      return brokenPluginsMap
+    }
+
     @JvmStatic
     @JvmName("readOrUpdateFile")
     @Throws(IOException::class)
@@ -280,6 +329,7 @@ class MarketplaceRequests(private val coroutineScope: CoroutineScope) : PluginIn
       parser: (InputStream) -> T,
     ): T {
       val eTag = if (file == null) null else loadETagForFile(file)
+      LOG.debug { "Cached response $file for $url has eTag=$eTag" }
       return HttpRequests
         .request(url)
         .tuner { connection ->
@@ -298,6 +348,7 @@ class MarketplaceRequests(private val coroutineScope: CoroutineScope) : PluginIn
             indicator?.checkCanceled()
             val connection = request.connection
             if (file != null && isNotModified(connection, file)) {
+              LOG.debug { "Response $file from Marketplace is not modified" }
               return@connect Files.newInputStream(file).use(parser)
             }
 
@@ -310,8 +361,13 @@ class MarketplaceRequests(private val coroutineScope: CoroutineScope) : PluginIn
             }
 
             synchronized(this) {
+              LOG.debug { "Downloading new $file from Marketplace for $url" }
               request.saveToFile(file, indicator)
-              connection.getHeaderField("ETag")?.let { saveETagForFile(file, it) }
+              val newEtag = connection.getHeaderField("ETag")
+              LOG.debug { "Downloaded new $file from Marketplace for $url, new etag=$newEtag" }
+              if (newEtag != null) {
+                saveETagForFile(file, newEtag)
+              }
             }
             return@connect Files.newInputStream(file).use(parser)
           }
@@ -523,42 +579,6 @@ class MarketplaceRequests(private val coroutineScope: CoroutineScope) : PluginIn
       LOG.infoOrDebug("Can not get organizations from Marketplace", e)
       return emptySet()
     }
-  }
-
-  fun getBrokenPlugins(currentBuild: BuildNumber): Map<PluginId, Set<String>> {
-    val brokenPlugins = try {
-      readOrUpdateFile(
-        Paths.get(PathManager.getPluginTempPath(), "brokenPlugins.json"),
-        MarketplaceUrls.getBrokenPluginsJsonUrl(),
-        null,
-        ""
-      ) { objectMapper.readValue(it, object : TypeReference<List<MarketplaceBrokenPlugin>>() {}) }
-    }
-    catch (e: Exception) {
-      LOG.infoOrDebug("Can not get broken plugins file from Marketplace", e)
-      return emptyMap()
-    }
-
-    val brokenPluginsMap = HashMap<PluginId, MutableSet<String>>()
-    brokenPlugins.forEach { record ->
-      try {
-        val parsedOriginalUntil = record.originalUntil?.trim()
-        val parsedOriginalSince = record.originalSince?.trim()
-        if (!parsedOriginalUntil.isNullOrEmpty() && !parsedOriginalSince.isNullOrEmpty()) {
-          val originalUntil = BuildNumber.fromString(parsedOriginalUntil, record.id, null) ?: currentBuild
-          val originalSince = BuildNumber.fromString(parsedOriginalSince, record.id, null) ?: currentBuild
-          val until = BuildNumber.fromString(record.until) ?: currentBuild
-          val since = BuildNumber.fromString(record.since) ?: currentBuild
-          if (currentBuild in originalSince..originalUntil && currentBuild !in since..until) {
-            brokenPluginsMap.computeIfAbsent(PluginId.getId(record.id)) { HashSet() }.add(record.version)
-          }
-        }
-      }
-      catch (e: Exception) {
-        LOG.error("cannot parse ${record}", e)
-      }
-    }
-    return brokenPluginsMap
   }
 
   private fun getAllPluginsTags(): Set<String> {

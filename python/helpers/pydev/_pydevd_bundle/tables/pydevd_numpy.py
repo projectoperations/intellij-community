@@ -13,11 +13,6 @@ CSV_FORMAT_SEPARATOR = '~'
 is_pd = False
 try:
     import pandas as pd
-
-    version = pd.__version__
-    majorVersion = int(version[0])
-    pd.set_option('display.max_colwidth', None)
-    is_pd = majorVersion >= 1
     is_pd = True
 except:
     pass
@@ -34,6 +29,8 @@ def get_shape(table):
         return str((table.shape[0], len(table.dtype.names)))
     if table.ndim == 1:
         return str((table.shape[0], 1))
+    elif table.ndim == 0:
+        return str((0, 0))
     else:
         return str((table.shape[0], table.shape[1]))
 
@@ -48,6 +45,8 @@ def get_head(table):
 
 def get_column_types(table):
     # type: (np.ndarray) -> str
+    if table.ndim == 0:
+        return ""
     table = __create_table(table[:1])
     try:
         cols_types = [str(t) for t in table.dtypes] if is_pd else table.get_cols_types()
@@ -85,9 +84,17 @@ def display_data_html(table, start_index=None, end_index=None):
 def display_data_csv(table, start_index=None, end_index=None):
     # type: (np.ndarray, int, int) -> None
     def ipython_display(data, format):
-        print(__create_table(data, start_index, end_index).to_csv(na_rep ="None", sep=CSV_FORMAT_SEPARATOR, float_format=format))
+        print(repr(__create_table(data, start_index, end_index).to_csv(na_rep ="None", sep=CSV_FORMAT_SEPARATOR, float_format=format)))
 
     __compute_data(table, ipython_display)
+
+
+def remove_nones_values(array_part, na_rep):
+    if np.issubdtype(array_part.dtype, np.number):
+        array_part_without_nones = np.where(array_part == None, np.nan, array_part)
+    else:
+        array_part_without_nones = np.where(array_part == None, na_rep, array_part)
+    return array_part_without_nones
 
 
 class _NpTable:
@@ -189,7 +196,13 @@ class _NpTable:
 
     def to_csv(self, na_rep="None", float_format=None, sep=CSV_FORMAT_SEPARATOR):
         csv_stream = io.StringIO()
-        np_array_without_nones = np.where(self.array == None, np.nan, self.array)
+        if self.array.dtype.names is not None:
+            np_array_without_nones = []
+            for field in self.array.dtype.names:
+                np_array_without_nones.append(remove_nones_values(self.array[str(field)], na_rep))
+            np_array_without_nones = np.column_stack(np_array_without_nones)
+        else:
+            np_array_without_nones = remove_nones_values(self.array, na_rep)
         if float_format is None or float_format == 'null':
             float_format = "%s"
 
@@ -301,12 +314,7 @@ def __create_table(command, start_index=None, end_index=None, format=None):
         np_array = command
 
     if is_pd:
-        if isinstance(np_array, np.recarray):
-            sorted_df = pd.DataFrame()
-            for record in np_array:
-                sorted_df = pd.concat([sorted_df, pd.DataFrame(record.tolist())])
-        else:
-            sorted_df = __sort_df(pd.DataFrame(np_array), sort_keys)
+        sorted_df = __sort_df(pd.DataFrame(np_array), sort_keys)
         if start_index is not None and end_index is not None:
             sorted_df_slice = sorted_df.iloc[start_index:end_index]
             # to apply "format" we should not have None inside DFs
@@ -348,11 +356,9 @@ def __compute_data(arr, fun, format=None):
 
 def __get_tables_display_options():
     # type: () -> Tuple[None, Union[int, None], None]
-    import sys
-    if sys.version_info < (3, 0):
-        return None, MAX_COLWIDTH, None
     try:
         import pandas as pd
+        # In pandas versions earlier than 1.0, max_colwidth must be set as an integer
         if int(pd.__version__.split('.')[0]) < 1:
             return None, MAX_COLWIDTH, None
     except Exception:

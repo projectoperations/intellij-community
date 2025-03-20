@@ -17,12 +17,11 @@ import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.impl.ProjectManagerImpl
 import com.intellij.openapi.project.impl.applyBoundsOrDefault
-import com.intellij.openapi.project.impl.createNewProjectFrameProducer
+import com.intellij.openapi.project.impl.createIdeFrame
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.openapi.wm.*
 import com.intellij.openapi.wm.impl.*
-import com.intellij.openapi.wm.impl.FrameInfoHelper.Companion.isFullScreenSupportedInCurrentOs
 import com.intellij.openapi.wm.impl.ProjectFrameBounds.Companion.getInstance
 import com.intellij.openapi.wm.impl.status.IdeStatusBarImpl
 import com.intellij.openapi.wm.impl.status.adaptV2Widget
@@ -47,7 +46,7 @@ internal fun allocateLightEditFrame(project: Project, frameInfo: FrameInfo?): Li
   return runWithModalProgressBlocking(project, "") {
     withContext(Dispatchers.EDT) {
       val wrapper = allocateLightEditFrame(project) { frame ->
-        LightEditFrameWrapper(project = project, frame = frame ?: createNewProjectFrameProducer(frameInfo).create())
+        LightEditFrameWrapper(project = project, frame = frame ?: createIdeFrame(frameInfo ?: FrameInfo()))
       } as LightEditFrameWrapper
       (project.serviceAsync<FileEditorManager>() as LightEditFileEditorManagerImpl).internalInit()
       wrapper
@@ -185,7 +184,7 @@ private suspend fun allocateLightEditFrame(project: Project,
       windowManager.defaultFrameInfoHelper.copyFrom(frameInfo)
     }
     frameInfo.bounds?.let {
-      applyBoundsOrDefault(frame.frame, FrameBoundsConverter.convertFromDeviceSpaceAndFitToScreen(it)?.first)
+      applyBoundsOrDefault(frame.frame, FrameBoundsConverter.convertFromDeviceSpaceAndFitToScreen(it))
     }
   }
 
@@ -212,9 +211,7 @@ private suspend fun allocateLightEditFrame(project: Project,
     uiFrame.extendedState = frameInfo.extendedState
   }
   uiFrame.isVisible = true
-  if (isFullScreenSupportedInCurrentOs() && frameInfo != null && frameInfo.fullScreen) {
-    frame.toggleFullScreen(true)
-  }
+  frame.updateFullScreenState(frameInfo?.fullScreen == true)
   uiFrame.addComponentListener(FrameStateListener(windowManager.defaultFrameInfoHelper))
   installAppMenuIfNeeded(uiFrame)
 

@@ -63,7 +63,7 @@ internal class BridgeTaskSupport(private val coroutineScope: CoroutineScope) {
         catch (ex: CancellationException) {
           // User can cancel the job from UI, which will cause the job cancellation,
           // so we need to cancel the original indicator as well
-          if (indicator.isRunning) {
+          if (indicator.isRunning()) {
             LOG.info("Progress \"${info.title}\" was cancelled from UI, cancelling $indicator")
             indicator.cancel()
           }
@@ -74,6 +74,7 @@ internal class BridgeTaskSupport(private val coroutineScope: CoroutineScope) {
           // so we won't stop showing the progress bar if the job has been canceled, but the indicator is yet to finish.
           withContext(NonCancellable) {
             indicatorFinished.await()
+            taskSuspender.stop()
           }
         }
       }

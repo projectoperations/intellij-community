@@ -39,7 +39,6 @@ import com.intellij.ui.layout.ValidationInfoBuilder
 import com.intellij.ui.layout.not
 import com.intellij.util.Function
 import com.intellij.util.execution.ParametersListUtil
-import com.intellij.vcs.commit.CommitModeManager
 import com.intellij.vcs.log.VcsLogFilterCollection.STRUCTURE_FILTER
 import com.intellij.vcs.log.impl.MainVcsLogUiProperties
 import com.intellij.vcs.log.ui.VcsLogColorManagerFactory
@@ -185,8 +184,6 @@ internal class GitVcsPanel(private val project: Project) :
   }
 
   override fun createPanel(): DialogPanel = panel {
-    useNewComboBoxRenderer()
-
     createGitExecutableSelectorRow(project, disposable!!)
 
     row {

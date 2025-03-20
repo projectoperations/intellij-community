@@ -134,8 +134,10 @@ public final class DocumentImpl extends UserDataHolderBase implements DocumentEx
   @ApiStatus.Internal
   public static final Key<Boolean> IGNORE_RANGE_GUARDS_ON_FULL_UPDATE = Key.create("IGNORE_RANGE_GUARDS_ON_FULL_UPDATE");
 
-  static final Key<Reference<RangeMarkerTree<RangeMarkerEx>>> RANGE_MARKERS_KEY = Key.create("RANGE_MARKERS_KEY");
-  static final Key<Reference<RangeMarkerTree<RangeMarkerEx>>> PERSISTENT_RANGE_MARKERS_KEY = Key.create("PERSISTENT_RANGE_MARKERS_KEY");
+  @ApiStatus.Internal
+  public static final Key<Reference<RangeMarkerTree<RangeMarkerEx>>> RANGE_MARKERS_KEY = Key.create("RANGE_MARKERS_KEY");
+  @ApiStatus.Internal
+  public static final Key<Reference<RangeMarkerTree<RangeMarkerEx>>> PERSISTENT_RANGE_MARKERS_KEY = Key.create("PERSISTENT_RANGE_MARKERS_KEY");
   @ApiStatus.Internal
   public void documentCreatedFrom(@NotNull VirtualFile f, int tabSize) {
     processQueue();
@@ -197,7 +199,8 @@ public final class DocumentImpl extends UserDataHolderBase implements DocumentEx
   /**
    * makes range marker without creating the document (which could be expensive)
    */
-  static @NotNull RangeMarker createRangeMarkerForVirtualFile(@NotNull VirtualFile file,
+  @ApiStatus.Internal
+  public static @NotNull RangeMarker createRangeMarkerForVirtualFile(@NotNull VirtualFile file,
                                                      int offset,
                                                      int startLine,
                                                      int startCol,
@@ -222,8 +225,8 @@ public final class DocumentImpl extends UserDataHolderBase implements DocumentEx
     tree.addInterval(marker, offset, offset, false, false, false, 0);
 
     return marker;
-
   }
+
   public boolean setAcceptSlashR(boolean accept) {
     try {
       return myAcceptSlashR;

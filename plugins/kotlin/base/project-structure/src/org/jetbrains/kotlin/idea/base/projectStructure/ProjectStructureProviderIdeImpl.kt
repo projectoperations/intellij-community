@@ -33,7 +33,6 @@ import org.jetbrains.kotlin.analysis.api.KaImplementationDetail
 import org.jetbrains.kotlin.analysis.api.KaPlatformInterface
 import org.jetbrains.kotlin.analysis.api.impl.base.projectStructure.KaBuiltinsModuleImpl
 import org.jetbrains.kotlin.analysis.api.platform.modification.KotlinModificationTrackerFactory
-import org.jetbrains.kotlin.analysis.api.platform.projectStructure.KotlinProjectStructureProvider
 import org.jetbrains.kotlin.analysis.api.projectStructure.*
 import org.jetbrains.kotlin.analysis.decompiler.psi.BuiltinsVirtualFileProvider
 import org.jetbrains.kotlin.analyzer.ModuleInfo
@@ -334,22 +333,6 @@ class ProjectStructureProviderIdeImpl(private val project: Project) : IDEProject
         return listOf(kotlinLibrary)
     }
 
-    override fun getForcedKaModule(file: PsiFile): KaModule? {
-        return file.forcedModuleInfo?.let { getKtModuleByModuleInfo(it) }
-    }
-
-    override fun setForcedKaModule(file: PsiFile, kaModule: KaModule?) {
-        when (kaModule) {
-            null -> {
-                file.forcedModuleInfo = null
-            }
-
-            is KtModuleByModuleInfoBase -> {
-                file.forcedModuleInfo = kaModule.moduleInfo
-            }
-        }
-    }
-
     companion object {
         // TODO maybe introduce some cache?
         fun getKtModuleByModuleInfo(moduleInfo: ModuleInfo): KaModule {
@@ -377,7 +360,7 @@ private fun <T> cachedKtModule(
             arrayOf(
                 ProjectRootModificationTracker.getInstance(project),
                 JavaLibraryModificationTracker.getInstance(project),
-                KotlinModificationTrackerFactory.getInstance(project).createProjectWideOutOfBlockModificationTracker()
+                KotlinModificationTrackerFactory.getInstance(project).createProjectWideSourceModificationTracker(),
             )
         }
         CachedValueProvider.Result.create(

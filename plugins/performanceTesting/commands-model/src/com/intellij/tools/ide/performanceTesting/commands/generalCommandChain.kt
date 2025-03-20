@@ -414,7 +414,7 @@ fun <T : CommandChain> T.delayType(
   delayMs: Int,
   text: String,
   calculateAnalyzesTime: Boolean = false,
-  disableWriteProtection: Boolean = false,
+  disableWriteProtection: Boolean = false
 ): T = apply {
   addCommand("${CMD_PREFIX}delayType", "$delayMs|$text|$calculateAnalyzesTime|$disableWriteProtection")
 }
@@ -1010,10 +1010,6 @@ fun <T : CommandChain> T.checkChatBotResponse(textToCheck: String): T = apply {
   addCommand("${CMD_PREFIX}checkResponseContains ${textToCheck}")
 }
 
-fun <T : CommandChain> T.authenticateInGrazie(token: String): T = apply {
-  addCommand("${CMD_PREFIX}authenticateInGrazie ${token}")
-}
-
 fun <T : CommandChain> T.waitFullLineModelLoaded(language: String): T = apply {
   addCommand("${CMD_PREFIX}waitFullLineModelLoaded ${language}")
 }
@@ -1259,4 +1255,42 @@ fun <T : CommandChain> T.refreshVfsAfterMassChange(span: MassVfsRefreshSpan): T 
 
 fun <T : CommandChain> T.waitForVfsRefreshSelectedEditor(): T = apply {
   addCommand("${CMD_PREFIX}waitForVfsRefreshSelectedEditor")
+}
+
+fun <T : CommandChain> T.closeLookup(): T = apply {
+  addCommand("${CMD_PREFIX}closeLookup")
+}
+
+/** @see com.intellij.java.performancePlugin.RenameDirectoryAsPackageCommand */
+@Suppress("KDocUnresolvedReference", "unused")
+enum class RenameDirectoryAsPackageTarget { DIRECTORY, MODULE, PROJECT }
+fun <T : CommandChain> T.renameDirectoryAsPackage(directory: String, newName: String, whereToRename: RenameDirectoryAsPackageTarget): T = apply {
+  addCommand("${CMD_PREFIX}renameDirectoryAsPackage $directory $newName $whereToRename")
+}
+
+/** @see com.intellij.java.performancePlugin.ChangeJavaSignatureCommand */
+@Suppress("KDocUnresolvedReference")
+enum class ChangeJavaSignatureAction { ADD_PARAMETER }
+fun <T : CommandChain> T.changeJavaSignature(action: ChangeJavaSignatureAction, name: String): T = apply {
+  addCommand("${CMD_PREFIX}changeJavaSignature $action $name")
+}
+
+/** @see com.intellij.java.performancePlugin.InlineJavaMethodCommand */
+@Suppress("KDocUnresolvedReference")
+fun <T : CommandChain> T.inlineJavaMethod(): T = apply {
+  addCommand("${CMD_PREFIX}inlineJavaMethod")
+}
+
+/** @see com.intellij.java.performancePlugin.MoveClassToPackageCommand */
+@Suppress("KDocUnresolvedReference")
+fun <T : CommandChain> T.moveClassToPackage(targetPackage: String): T = apply {
+  addCommand("${CMD_PREFIX}moveClassToPackage $targetPackage")
+}
+
+fun <T : CommandChain> T.openProblemViewPanel(): T = apply {
+  addCommand("${CMD_PREFIX}openProblemViewPanel")
+}
+
+fun <T : CommandChain> T.assertProblemViewCount(expectedProblemCount: Int): T = apply {
+  addCommand("${CMD_PREFIX}assertProblemsViewCount $expectedProblemCount")
 }

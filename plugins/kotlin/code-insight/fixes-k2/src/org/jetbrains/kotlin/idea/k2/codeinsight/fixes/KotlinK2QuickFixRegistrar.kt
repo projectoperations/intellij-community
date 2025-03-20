@@ -118,6 +118,7 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
         registerFactory(ConvertCollectionLiteralToIntArrayOfFixFactory.convertCollectionLiteralToIntArrayOfFixFactory)
         registerFactory(AddReturnExpressionFixFactory.addReturnExpressionFixFactory)
         registerFactory(RemoveArgumentFixFactory.removeArgumentFixFactory)
+        registerFactory(RemoveReturnLabelFixFactory.removeReturnLabelFixFactory)
         registerFactory(AddJvmInlineAnnotationFixFactory.addJvmInlineAnnotationFixFactory)
         registerFactory(RemoveNoConstructorFixFactory.removeNoConstructorFixFactory)
         registerFactory(ArgumentTypeMismatchFactory.addArrayOfTypeFixFactory)
@@ -269,14 +270,34 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
         registerFactory(ChangeSuperTypeListEntryTypeArgumentFixFactory.changeSuperTypeListEntryTypeArgumentPropertyTypeFixFactory)
         registerFactory(ChangeSuperTypeListEntryTypeArgumentFixFactory.changeSuperTypeListEntryTypeArgumentReturnTypeFixFactory)
         registerFactory(AddMemberToSupertypeFixFactory.addMemberToSupertypeFixFactory)
+        registerFactory(RenameParameterToMatchOverriddenMethodFixFactory.renameParameterToMatchOverriddenMethod)
     }
 
     /**
-     * Note: For the auto-import fixes, see [importOnTheFlyList] and [KotlinFirUnresolvedReferenceQuickFixProvider]. 
+     * Note: For the auto-import fixes, see [importOnTheFlyList] and [KotlinFirUnresolvedReferenceQuickFixProvider].
      */
     private val imports = KtQuickFixesListBuilder.registerPsiQuickFix {
         registerPsiQuickFixes(KaFirDiagnostic.ConflictingImport::class, RemovePsiElementSimpleFix.RemoveImportFactory)
         registerPsiQuickFixes(KaFirDiagnostic.UnresolvedImport::class, AddDependencyQuickFixHelper)
+
+        registerFactory(ImportQuickFixFactories.tooManyArgumentsFactory)
+        registerFactory(ImportQuickFixFactories.noValueForParameterFactory)
+        registerFactory(ImportQuickFixFactories.argumentTypeMismatchFactory)
+        registerFactory(ImportQuickFixFactories.namedParameterNotFoundFactory)
+        registerFactory(ImportQuickFixFactories.noneApplicableFactory)
+        registerFactory(ImportQuickFixFactories.wrongNumberOfTypeArgumentsFactory)
+        registerFactory(ImportQuickFixFactories.newInferenceNoInformationForParameterFactory)
+
+        registerFactory(ImportQuickFixFactories.noGetMethodFactory)
+        registerFactory(ImportQuickFixFactories.noSetMethodFactory)
+
+        registerFactory(ImportQuickFixFactories.componentFunctionMissingFactory)
+
+        registerFactory(ImportQuickFixFactories.iteratorMissingFactory)
+        registerFactory(ImportQuickFixFactories.iteratorAmbiguityFactory)
+
+        registerFactory(ImportQuickFixFactories.delegateSpecialFunctionMissingFactory)
+        registerFactory(ImportQuickFixFactories.delegateSpecialFunctionNoneApplicableFactory)
     }
 
     private val mutability = KtQuickFixesListBuilder.registerPsiQuickFix {
@@ -326,6 +347,7 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
         registerFactory(ReplaceCallFixFactories.unsafeImplicitInvokeCallFactory)
         registerFactory(UnresolvedInvocationQuickFixFactories.changeToPropertyAccessQuickFixFactory)
         registerFactory(UnresolvedInvocationQuickFixFactories.removeParentInvocationQuickFixFactory)
+        registerFactory(UnresolvedInvocationQuickFixFactories.addInterpolationPrefixFixFactory)
         registerFactory(UnresolvedInvocationQuickFixFactories.removeInvocationQuickFixFactory)
         registerFactory(AddExclExclCallFixFactories.unsafeCallFactory)
         registerFactory(AddExclExclCallFixFactories.unsafeInfixCallFactory)
@@ -385,6 +407,7 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
         registerFactory(ChangeTypeQuickFixFactories.assignmentTypeMismatch)
         registerFactory(ChangeTypeQuickFixFactories.parameterTypeMismatch)
         registerFactory(ChangeTypeQuickFixFactories.typeMismatch)
+        registerFactory(ChangeTypeQuickFixFactories.incompatibleTypes)
 
         registerFactory(AddToStringFixFactories.typeMismatch)
         registerFactory(AddToStringFixFactories.argumentTypeMismatch)

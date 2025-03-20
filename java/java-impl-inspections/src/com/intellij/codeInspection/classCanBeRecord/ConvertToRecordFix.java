@@ -4,14 +4,15 @@ package com.intellij.codeInspection.classCanBeRecord;
 import com.intellij.codeInsight.AnnotationTargetUtil;
 import com.intellij.codeInsight.AnnotationUtil;
 import com.intellij.codeInsight.ExceptionUtil;
-import com.intellij.codeInsight.daemon.impl.analysis.HighlightControlFlowUtil;
 import com.intellij.codeInsight.intention.preview.IntentionPreviewInfo;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.codeInspection.util.IntentionFamilyName;
 import com.intellij.java.JavaBundle;
+import com.intellij.lang.jvm.JvmModifier;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.PsiAnnotation.TargetType;
+import com.intellij.psi.controlFlow.ControlFlowUtil;
 import com.intellij.psi.search.searches.ClassInheritorsSearch;
 import com.intellij.psi.util.JavaPsiRecordUtil;
 import com.intellij.psi.util.PropertyUtil;
@@ -280,6 +281,7 @@ public class ConvertToRecordFix extends InspectionGadgetsFix {
     }
 
     private @Nullable FieldAccessorCandidate createFieldAccessor(@NotNull PsiMethod psiMethod) {
+      if (psiMethod.hasModifier(JvmModifier.STATIC)) return null;
       if (!psiMethod.getParameterList().isEmpty()) return null;
       String methodName = psiMethod.getName();
       PsiField backingField = null;
@@ -343,7 +345,7 @@ public class ConvertToRecordFix extends InspectionGadgetsFix {
           myCanonical = false;
           return;
         }
-        if (!HighlightControlFlowUtil.variableDefinitelyAssignedIn(instanceField, ctorBody)) {
+        if (!ControlFlowUtil.variableDefinitelyAssignedIn(instanceField, ctorBody)) {
           myCanonical = false;
           return;
         }

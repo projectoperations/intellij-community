@@ -32,9 +32,18 @@ private class UvLowLevelImpl(val cwd: Path, private val uvCli: UvCli) : UvLowLev
       initArgs.add("--no-pin-python")
       initArgs.add("--vcs")
       initArgs.add("none")
+      initArgs.add("--no-project")
 
       uvCli.runUv(cwd, *initArgs.toTypedArray())
         .onFailure { return Result.failure(it) }
+
+      // TODO: ask for an uv option not to create
+      val hello = cwd.resolve("hello.py").takeIf { it.exists() }
+      hello?.delete()
+
+      // called main.py in later versions
+      val main = cwd.resolve("main.py").takeIf { it.exists() }
+      main?.delete()
     }
 
     val venvArgs = mutableListOf("venv")
@@ -42,9 +51,10 @@ private class UvLowLevelImpl(val cwd: Path, private val uvCli: UvCli) : UvLowLev
     uvCli.runUv(cwd, *venvArgs.toTypedArray())
       .onFailure { return Result.failure(it) }
 
-    // TODO: ask for an uv option not to create
-    val hello = cwd.resolve("hello.py").takeIf { it.exists() }
-    hello?.delete()
+    if (!init) {
+      uvCli.runUv(cwd, "sync")
+        .onFailure { return Result.failure(it) }
+    }
 
     val path = VirtualEnvReader.Instance.findPythonInPythonRoot(cwd.resolve(VirtualEnvReader.DEFAULT_VIRTUALENV_DIRNAME))
     if (path == null) {
@@ -54,7 +64,7 @@ private class UvLowLevelImpl(val cwd: Path, private val uvCli: UvCli) : UvLowLev
     return Result.success(path)
   }
 
-  override suspend fun discoverUvInstalledPythons(): Result<Set<Path>> {
+  override suspend fun listUvPythons(): Result<Set<Path>> {
     var out = uvCli.runUv(cwd, "python", "dir")
       .getOrElse { return Result.failure(it) }
 
@@ -80,7 +90,7 @@ private class UvLowLevelImpl(val cwd: Path, private val uvCli: UvCli) : UvLowLev
     val mapper = jacksonObjectMapper()
       .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
     val packages = mapper.readValue<List<PackageInfo>>(out).map {
-      PythonPackage(it.name, it.version, true)
+      PythonPackage(it.name, it.version, false)
     }
 
     return Result.success(packages)
@@ -143,13 +153,18 @@ private class UvLowLevelImpl(val cwd: Path, private val uvCli: UvCli) : UvLowLev
   fun parseUvPythonList(uvDir: Path, out: String): Set<Path> {
     val lines = out.lines()
     val pythons = lines.mapNotNull { line ->
-      var arrow = line.indexOf("->").takeIf { it >= 0 } ?: line.length
-      val pythonAndPath = line.substring(0, arrow).trim().split(" ")
+      var arrow = line.lastIndexOf("->").takeIf { it > 0 } ?: line.length
+
+      val pythonAndPath = line
+        .substring(0, arrow)
+        .trim()
+        .split(delimiters = arrayOf(" ", "\t"), limit = 2)
+
       if (pythonAndPath.size != 2) {
         return@mapNotNull null
       }
 
-      val python = tryResolvePath(pythonAndPath[1])
+      val python = tryResolvePath(pythonAndPath[1].trim())
         ?.takeIf { it.exists() && it.startsWith(uvDir) }
 
       python

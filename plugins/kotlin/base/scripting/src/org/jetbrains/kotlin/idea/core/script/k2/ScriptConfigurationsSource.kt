@@ -4,18 +4,18 @@ package org.jetbrains.kotlin.idea.core.script.k2
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer
 import com.intellij.codeInsight.daemon.impl.analysis.HighlightingSettingsPerFile
 import com.intellij.openapi.application.readAction
-import com.intellij.openapi.application.writeAction
+import com.intellij.openapi.application.edtWriteAction
 import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.workspace.storage.MutableEntityStorage
-import org.jetbrains.kotlin.analysis.api.platform.analysisMessageBus
-import org.jetbrains.kotlin.analysis.api.platform.modification.KotlinModificationTopics
+import org.jetbrains.kotlin.analysis.api.platform.modification.publishGlobalModuleStateModificationEvent
 import org.jetbrains.kotlin.idea.core.script.ScriptDependenciesModificationTracker
 import org.jetbrains.kotlin.idea.core.util.toPsiFile
 import org.jetbrains.kotlin.psi.KtFile
+import org.jetbrains.kotlin.scripting.definitions.ScriptDefinition
 import org.jetbrains.kotlin.scripting.definitions.ScriptDefinitionsSource
 import org.jetbrains.kotlin.scripting.resolve.ScriptCompilationConfigurationWrapper
 import java.util.concurrent.atomic.AtomicReference
@@ -25,7 +25,11 @@ typealias ScriptConfiguration = ResultWithDiagnostics<ScriptCompilationConfigura
 
 open class BaseScriptModel(
     open val virtualFile: VirtualFile
-)
+) {
+    override fun toString(): String {
+        return "BaseScriptModel(virtualFile=$virtualFile)"
+    }
+}
 
 data class ScriptConfigurationWithSdk(
     val scriptConfiguration: ScriptConfiguration,
@@ -35,14 +39,14 @@ data class ScriptConfigurationWithSdk(
 abstract class ScriptConfigurationsSource<T : BaseScriptModel>(open val project: Project) {
     val data: AtomicReference<Map<VirtualFile, ScriptConfigurationWithSdk>> = AtomicReference(emptyMap())
 
-    abstract fun getScriptDefinitionsSource(): ScriptDefinitionsSource?
+    abstract fun getDefinitions(): Sequence<ScriptDefinition>?
 
     open fun getConfigurationWithSdk(virtualFile: VirtualFile): ScriptConfigurationWithSdk? =
         data.get()[virtualFile]
 
     protected abstract suspend fun updateConfigurations(scripts: Iterable<T>)
 
-    protected abstract suspend fun updateModules(storage: MutableEntityStorage? = null)
+    abstract suspend fun updateModules(storage: MutableEntityStorage? = null)
 
     suspend fun updateDependenciesAndCreateModules(scripts: Iterable<T>, storage: MutableEntityStorage? = null) {
         updateConfigurations(scripts)
@@ -51,16 +55,16 @@ abstract class ScriptConfigurationsSource<T : BaseScriptModel>(open val project:
 
         ScriptConfigurationsProviderImpl.getInstance(project).notifySourceUpdated()
 
-        writeAction {
-            project.analysisMessageBus.syncPublisher(KotlinModificationTopics.GLOBAL_MODULE_STATE_MODIFICATION).onModification()
-        }
-
-        val filesInEditors = readAction {
-            FileEditorManager.getInstance(project).allEditors.mapTo(hashSetOf(), FileEditor::getFile)
+        edtWriteAction {
+            project.publishGlobalModuleStateModificationEvent()
         }
 
         ScriptDependenciesModificationTracker.getInstance(project).incModificationCount()
         HighlightingSettingsPerFile.getInstance(project).incModificationCount()
+
+        val filesInEditors = readAction {
+            FileEditorManager.getInstance(project).allEditors.mapTo(hashSetOf(), FileEditor::getFile)
+        }
 
         for (script in scripts) {
             val virtualFile = script.virtualFile

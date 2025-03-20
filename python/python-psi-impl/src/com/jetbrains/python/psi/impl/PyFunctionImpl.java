@@ -17,15 +17,13 @@ import com.intellij.psi.stubs.IStubElementType;
 import com.intellij.psi.stubs.StubElement;
 import com.intellij.psi.util.*;
 import com.intellij.ui.IconManager;
+import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.PlatformIcons;
 import com.intellij.util.containers.JBIterable;
 import com.jetbrains.python.PyNames;
 import com.jetbrains.python.PyStubElementTypes;
-import com.jetbrains.python.codeInsight.controlflow.CallInstruction;
-import com.jetbrains.python.codeInsight.controlflow.ControlFlowCache;
-import com.jetbrains.python.codeInsight.controlflow.PyRaiseInstruction;
-import com.jetbrains.python.codeInsight.controlflow.ScopeOwner;
+import com.jetbrains.python.codeInsight.controlflow.*;
 import com.jetbrains.python.codeInsight.dataflow.scope.ScopeUtil;
 import com.jetbrains.python.codeInsight.typing.PyTypingTypeProvider;
 import com.jetbrains.python.documentation.docstrings.DocStringUtil;
@@ -50,7 +48,6 @@ import static com.intellij.util.containers.ContainerUtil.map;
 import static com.jetbrains.python.ast.PyAstFunction.Modifier.CLASSMETHOD;
 import static com.jetbrains.python.ast.PyAstFunction.Modifier.STATICMETHOD;
 import static com.jetbrains.python.psi.PyUtil.as;
-import static com.jetbrains.python.psi.PyUtil.getGenericTypeForClass;
 import static com.jetbrains.python.psi.impl.PyCallExpressionHelper.interpretAsModifierWrappingCall;
 import static com.jetbrains.python.psi.impl.PyDeprecationUtilKt.extractDeprecationMessageFromDecorator;
 
@@ -227,7 +224,7 @@ public class PyFunctionImpl extends PyBaseElementImpl<PyFunctionStub> implements
       if (substitutions != null) {
         PyClass containingClass = getContainingClass();
         if (containingClass != null && type instanceof PySelfType) {
-          PyType genericType = getGenericTypeForClass(context, containingClass);
+          PyType genericType = PyTypeChecker.findGenericDefinitionType(containingClass, context);
           if (genericType != null) {
             type = genericType;
           }
@@ -383,23 +380,52 @@ public class PyFunctionImpl extends PyBaseElementImpl<PyFunctionStub> implements
   @Override
   public @NotNull List<PyStatement> getReturnPoints(@NotNull TypeEvalContext context) {
     final Instruction[] flow = ControlFlowCache.getControlFlow(this).getInstructions();
-    final List<PyStatement> returnPoints = new ArrayList<>();
+    final PyDataFlow dataFlow = ControlFlowCache.getDataFlow(this, context);
 
-    ControlFlowUtil.iteratePrev(flow.length-1, flow, instruction -> {
-      if (instruction instanceof CallInstruction ci && ci.isNoReturnCall(context)) {
+    class ReturnPointCollector {
+      final List<PyStatement> returnPoints = new ArrayList<>();
+      boolean collectImplicitReturn = true;
+
+      ControlFlowUtil.Operation checkInstruction(@NotNull Instruction instruction) {
+        if (dataFlow.isUnreachable(instruction)) {
+          return ControlFlowUtil.Operation.CONTINUE;
+        }
+        if (instruction instanceof PyFinallyFailExitInstruction exitInstruction) {
+          // Most nodes in try-part are connected to finally-fail-part,
+          // but we will only be interested in explicit return statements.
+          boolean oldCollectImplicitReturn = collectImplicitReturn;
+          collectImplicitReturn = false;
+          walkCFG(ArrayUtil.indexOf(flow, exitInstruction.getBegin()));
+          collectImplicitReturn = oldCollectImplicitReturn;
+          return ControlFlowUtil.Operation.CONTINUE;
+        }
+        if (instruction instanceof CallInstruction ci && ci.isNoReturnCall(context)) {
+          return ControlFlowUtil.Operation.CONTINUE;
+        }
+        if (instruction instanceof PyRaiseInstruction) {
+          return ControlFlowUtil.Operation.CONTINUE;
+        }
+        if (instruction instanceof PyWithContextExitInstruction withExit && !withExit.isSuppressingExceptions(context)) {
+          return ControlFlowUtil.Operation.CONTINUE;
+        }
+        final PsiElement element = instruction.getElement();
+        if (!(element instanceof PyStatement statement)) {
+          return ControlFlowUtil.Operation.NEXT;
+        }
+        if (collectImplicitReturn || statement instanceof PyReturnStatement) {
+          returnPoints.add(statement);
+        }
         return ControlFlowUtil.Operation.CONTINUE;
       }
-      if (instruction instanceof PyRaiseInstruction) {
-        return ControlFlowUtil.Operation.CONTINUE;
+      
+      void walkCFG(int startInstruction) {
+        ControlFlowUtil.iteratePrev(startInstruction, flow, this::checkInstruction);
       }
-      final PsiElement element = instruction.getElement();
-      if (!(element instanceof PyStatement statement)) {
-        return ControlFlowUtil.Operation.NEXT;
-      }
-      returnPoints.add(statement);
-      return ControlFlowUtil.Operation.CONTINUE;
-    });
-    return returnPoints;
+    }
+    
+    ReturnPointCollector collector = new ReturnPointCollector();
+    collector.walkCFG(flow.length - 1);
+    return collector.returnPoints;
   }
 
   @Override
@@ -520,12 +546,14 @@ public class PyFunctionImpl extends PyBaseElementImpl<PyFunctionStub> implements
    */
   @Override
   public @Nullable Modifier getModifier() {
-    final String deconame = getClassOrStaticMethodDecorator();
-    if (PyNames.CLASSMETHOD.equals(deconame)) {
-      return CLASSMETHOD;
-    }
-    else if (PyNames.STATICMETHOD.equals(deconame)) {
-      return STATICMETHOD;
+    final PyKnownDecorator decorator = getClassOrStaticMethodDecorator();
+    if (decorator != null) {
+      if (decorator.isClassMethod()) {
+        return CLASSMETHOD;
+      }
+      else if (decorator.isStaticMethod()) {
+        return STATICMETHOD;
+      }
     }
 
     final String funcName = getName();
@@ -547,12 +575,6 @@ public class PyFunctionImpl extends PyBaseElementImpl<PyFunctionStub> implements
       // implicit classmethod __class_getitem__
       if (PyNames.CLASS_GETITEM.equals(funcName) && level.isAtLeast(LanguageLevel.PYTHON37)) {
         return CLASSMETHOD;
-      }
-
-      final TypeEvalContext context = TypeEvalContext.codeInsightFallback(getProject());
-      for (PyKnownDecoratorUtil.KnownDecorator knownDecorator : PyKnownDecoratorUtil.getKnownDecorators(this, context)) {
-        if (knownDecorator == PyKnownDecoratorUtil.KnownDecorator.ABC_ABSTRACTCLASSMETHOD) return CLASSMETHOD;
-        if (knownDecorator == PyKnownDecoratorUtil.KnownDecorator.ABC_ABSTRACTSTATICMETHOD) return STATICMETHOD;
       }
     }
 
@@ -683,21 +705,17 @@ public class PyFunctionImpl extends PyBaseElementImpl<PyFunctionStub> implements
    *
    * @return name of the built-in decorator, or null (even if there are non-built-in decorators).
    */
-  private @Nullable String getClassOrStaticMethodDecorator() {
+  private @Nullable PyKnownDecorator getClassOrStaticMethodDecorator() {
     PyDecoratorList decolist = getDecoratorList();
     if (decolist != null) {
       PyDecorator[] decos = decolist.getDecorators();
       if (decos.length > 0) {
         for (int i = decos.length - 1; i >= 0; i -= 1) {
           PyDecorator deco = decos[i];
-          String deconame = deco.getName();
-          if (PyNames.CLASSMETHOD.equals(deconame) || PyNames.STATICMETHOD.equals(deconame)) {
-            return deconame;
-          }
-          for (PyKnownDecoratorProvider provider : PyKnownDecoratorProvider.EP_NAME.getIterable()) {
-            String name = provider.toKnownDecorator(deconame);
-            if (name != null) {
-              return name;
+          List<PyKnownDecorator> knownDecorators = PyKnownDecoratorUtil.asKnownDecorators(deco, TypeEvalContext.codeInsightFallback(getProject()));
+          for (PyKnownDecorator decorator : knownDecorators) {
+            if (decorator.isClassMethod() || decorator.isStaticMethod()) {
+              return decorator;
             }
           }
         }

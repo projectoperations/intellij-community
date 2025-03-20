@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.highlighting
 
 import com.intellij.codeInsight.CodeInsightSettings
@@ -6,6 +6,7 @@ import com.intellij.codeInsight.daemon.impl.DaemonProgressIndicator
 import com.intellij.codeInsight.daemon.impl.HighlightingSessionImpl
 import com.intellij.codeInsight.daemon.impl.IdentifierHighlighterPass
 import com.intellij.codeInsight.daemon.impl.IdentifierHighlighterPassFactory
+import com.intellij.codeInsight.multiverse.EditorContextManager
 import com.intellij.codeInsight.template.Template
 import com.intellij.codeInsight.template.TemplateEditingAdapter
 import com.intellij.codeInsight.template.TemplateManager
@@ -308,7 +309,7 @@ private fun highlightSelection(project: Project, editor: Editor, executor: Execu
   findModel.stringToFind = toFind
   val threshold = intValue("editor.highlight.selected.text.max.occurrences.threshold", 50)
   ReadAction.nonBlocking<List<FindResult>> {
-    if (!BackgroundHighlightingUtil.isValidEditor(editor)) return@nonBlocking emptyList<FindResult>()
+    if (!BackgroundHighlightingUtil.isValidEditor(editor) || !caret.hasSelection()) return@nonBlocking emptyList<FindResult>()
     var result = findManager.findString(sequence, 0, findModel, null)
     val results = ArrayList<FindResult>()
     var count = 0
@@ -384,9 +385,13 @@ private fun submitIdentifierHighlighterPass(
     @Suppress("DEPRECATION")
     ProgressIndicatorUtils.runWithWriteActionPriority(
       {
-        val hostPsiFile = PsiDocumentManager.getInstance(newFile.project).getPsiFile(hostEditor.document)
+        val project = newFile.project
+        val hostPsiFile = PsiDocumentManager.getInstance(project).getPsiFile(hostEditor.document)
                           ?: return@runWithWriteActionPriority
+
+        val context = EditorContextManager.getEditorContext(hostEditor, project)
         HighlightingSessionImpl.runInsideHighlightingSession(hostPsiFile,
+                                                             context,
                                                              hostEditor.colorsScheme,
                                                              ProperTextRange.create(hostPsiFile.textRange),
                                                              false) {

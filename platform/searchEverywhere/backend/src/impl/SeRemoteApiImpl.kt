@@ -1,6 +1,7 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.searchEverywhere.backend.impl
 
+import com.intellij.ide.rpc.DataContextId
 import com.intellij.platform.project.ProjectId
 import com.intellij.platform.project.findProject
 import com.intellij.platform.searchEverywhere.SeItemData
@@ -25,7 +26,8 @@ class SeRemoteApiImpl: SeRemoteApi {
   override suspend fun getItems(projectId: ProjectId,
                                 sessionRef: DurableRef<SeSessionEntity>,
                                 providerId: SeProviderId,
-                                params: SeParams): Flow<SeItemData> {
-    return SeBackendService.getInstance(projectId.findProject()).getItems(sessionRef, providerId, params)
+                                params: SeParams,
+                                dataContextId: DataContextId?): Flow<SeItemData> {
+    return SeBackendService.getInstance(projectId.findProject()).getItems(sessionRef, providerId, params, dataContextId)
   }
 }

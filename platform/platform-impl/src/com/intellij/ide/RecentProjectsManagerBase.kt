@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("ReplaceGetOrSet", "ReplacePutWithAssignment", "OVERRIDE_DEPRECATION", "LiftReturnOrAssignment")
 
 package com.intellij.ide
@@ -18,18 +18,18 @@ import com.intellij.openapi.application.ex.ApplicationManagerEx
 import com.intellij.openapi.components.*
 import com.intellij.openapi.diagnostic.getOrLogException
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.diagnostic.runAndLogException
 import com.intellij.openapi.options.advanced.AdvancedSettings
 import com.intellij.openapi.progress.runBlockingMaybeCancellable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectCloseListener
-import com.intellij.openapi.project.ProjectCoreUtil
 import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.project.ProjectStorePathManager
 import com.intellij.openapi.project.ex.ProjectManagerEx
-import com.intellij.openapi.project.impl.OpenProjectImplOptions
-import com.intellij.openapi.project.impl.createNewProjectFrameProducer
-import com.intellij.openapi.project.impl.frame
+import com.intellij.openapi.project.impl.createIdeFrame
 import com.intellij.openapi.util.ModificationTracker
 import com.intellij.openapi.util.io.FileUtilRt
+import com.intellij.openapi.util.io.toNioPathOrNull
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.wm.IdeFrame
 import com.intellij.openapi.wm.WindowManager
@@ -37,9 +37,11 @@ import com.intellij.openapi.wm.ex.WindowManagerEx
 import com.intellij.openapi.wm.impl.*
 import com.intellij.openapi.wm.impl.customFrameDecorations.header.CustomWindowHeaderUtil
 import com.intellij.platform.diagnostic.telemetry.impl.span
+import com.intellij.platform.eel.provider.EelInitialization
 import com.intellij.platform.ide.diagnostic.startUpPerformanceReporter.FUSProjectHotStartUpMeasurer
 import com.intellij.project.stateStore
 import com.intellij.util.PathUtilRt
+import com.intellij.util.PlatformUtils
 import com.intellij.util.io.createParentDirectories
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.BufferOverflow
@@ -61,7 +63,9 @@ import java.util.concurrent.atomic.LongAdder
 import javax.swing.Icon
 import javax.swing.JFrame
 import kotlin.collections.Map.Entry
+import kotlin.io.path.exists
 import kotlin.io.path.invariantSeparatorsPathString
+import kotlin.io.path.relativeTo
 import kotlin.time.Duration.Companion.milliseconds
 
 private val LOG = logger<RecentProjectsManager>()
@@ -117,11 +121,32 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
 
   final override fun getState(): RecentProjectManagerState = state
 
-  internal fun getProjectMetaInfo(projectStoreBaseDir: Path): RecentProjectMetaInfo? {
+  @Internal fun getProjectMetaInfo(projectStoreBaseDir: Path): RecentProjectMetaInfo? {
     val path = getProjectPath(projectStoreBaseDir) ?: return null
     synchronized(stateLock) {
       return state.additionalInfo.get(path)
     }
+  }
+
+  /**
+   * Fixes recent project paths after they were modified by Monolith IDE.
+   * See IJPL-179484 for details.
+   */
+  private fun transformFrontendPathIfNeeded(key: String): String {
+    LOG.runAndLogException {
+      val configDir = PathManager.getConfigDir()
+      val originalConfigDir = PathManager.getOriginalConfigDir()
+
+      val projectDir = key.toNioPathOrNull() ?: return key
+      if (projectDir.exists()) return key
+      if (!projectDir.startsWith(configDir)) return key
+
+      // `projectDir` is a valid path, leads to a non-existing location, inside the config folder
+      val relativeProjectDir = projectDir.relativeTo(configDir)
+      val fixedProjectDir = originalConfigDir.resolve(relativeProjectDir)
+      return FileUtilRt.toSystemIndependentName(fixedProjectDir.toString())
+    }
+    return key
   }
 
   final override fun loadState(state: RecentProjectManagerState) {
@@ -131,6 +156,19 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
 
       for ((path, value) in state.additionalInfo) {
         checkForNonsenseBounds("com.intellij.ide.RecentProjectsManagerBase.loadState(path=$path)", value.frame?.bounds)
+      }
+
+      // Remote Development: Restore correct paths after monolith settings save
+      if (PlatformUtils.isJetBrainsClient()) {
+        val newAdditionalInfo = linkedMapOf<String, RecentProjectMetaInfo>()
+        state.additionalInfo.forEach { key, value ->
+          newAdditionalInfo.put(transformFrontendPathIfNeeded(key), value)
+        }
+
+        if (newAdditionalInfo != state.additionalInfo) {
+          state.additionalInfo.clear()
+          state.additionalInfo.putAll(newAdditionalInfo)
+        }
       }
 
       // IDEA <= 2019.2 doesn't delete project info from additionalInfo on project delete
@@ -202,6 +240,10 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
     }
 
   override fun updateLastProjectPath() {
+    if (PlatformUtils.isJetBrainsClient()) {
+      LOG.info("Skipping last project path update for thin client")
+      return
+    }
     val openProjects = ProjectManagerEx.getOpenProjects()
     synchronized(stateLock) {
       for (info in state.additionalInfo.values) {
@@ -224,8 +266,12 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
     return projectIconHelper.getProjectIcon(path, isProjectValid)
   }
 
-  fun getProjectIcon(path: String, isProjectValid: Boolean, iconSize: Int, name: String? = null): Icon {
-    return projectIconHelper.getProjectIcon(path, isProjectValid, iconSize, name)
+  fun getProjectIcon(path: String, isProjectValid: Boolean, unscaledIconSize: Int, name: String? = null): Icon {
+    return projectIconHelper.getProjectIcon(path, isProjectValid, unscaledIconSize, name)
+  }
+
+  fun getNonLocalProjectIcon(id: String, isProjectValid: Boolean, unscaledIconSize: Int, name: String?): Icon {
+    return projectIconHelper.getNonLocalProjectIcon(id = id, isProjectValid = isProjectValid, iconSize = unscaledIconSize, name = name)
   }
 
   @Suppress("OVERRIDE_DEPRECATION")
@@ -429,6 +475,12 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
     }
   }
 
+  fun getActivationTimestamp(path: String): Long? {
+    synchronized(stateLock) {
+      return state.additionalInfo.get(path)?.activationTimestamp
+    }
+  }
+
   fun getCurrentBranchName(path: String): String? {
     return RecentProjectsBranchesProvider.getCurrentBranch(path)
   }
@@ -517,6 +569,7 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
                                    index: Int,
                                    someProjectWasOpened: Boolean): Boolean {
     val (key, value) = openPaths.get(index)
+    EelInitialization.runEelInitialization(key)
     val project = openProject(projectFile = Path.of(key), options = OpenProjectTask {
       forceOpenInNewFrame = true
       showWelcomeScreen = false
@@ -542,7 +595,7 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
       var activeTask: Pair<Path, OpenProjectTask>? = null
       for ((path, info) in toOpen) {
         val isActive = info == activeInfo
-        val ideFrame = createNewProjectFrameProducer(info.frame).create()
+        val ideFrame = createIdeFrame(info.frame ?: FrameInfo())
         info.frameTitle?.let {
           ideFrame.title = it
         }
@@ -571,8 +624,19 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
     }
 
     val projectManager = ProjectManagerEx.getInstanceEx()
-    for ((path, options) in taskList) {
-      projectManager.openProjectAsync(path, options)
+    try {
+      val iterator = taskList.iterator()
+      while (iterator.hasNext()) {
+        val (path, options) = iterator.next()
+        projectManager.openProjectAsync(path, options)
+        iterator.remove()
+      }
+    }
+    finally {
+      // cleanup unused pre-allocated frames if the operation failed or was canceled
+      for (task in taskList) {
+        task.second.frame?.dispose()
+      }
     }
     return true
   }
@@ -586,10 +650,11 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
    */
   fun setProjectHidden(project: Project, hidden: Boolean) {
     val path = getProjectPath(project) ?: return
-    val info = state.additionalInfo.get(path) ?: return
-    val oldHidden = info.hidden
-    info.hidden = hidden
-    if (oldHidden != hidden) {
+    synchronized(stateLock) {
+      val info = state.additionalInfo.get(path) ?: return
+      if (info.hidden == hidden) return
+
+      info.hidden = hidden
       modCounter.increment()
     }
   }
@@ -847,7 +912,7 @@ private fun readProjectName(path: String): String {
     return path
   }
 
-  val storePath = ProjectCoreUtil.getProjectStoreDirectory(file)
+  val storePath = ProjectStorePathManager.getInstance().getStoreDirectoryPath(file)
   return JpsPathUtil.readProjectName(storePath) ?: PathUtilRt.getFileName(path)
 }
 
@@ -907,3 +972,16 @@ internal fun getProjectNameOnlyByPath(path: String): String {
 @JvmInline
 @Internal
 value class ProjectNameOrPathIfNotYetComputed(val nameOnlyByProjectPath: String)
+
+@Internal
+data class OpenProjectImplOptions(
+  @JvmField val recentProjectMetaInfo: RecentProjectMetaInfo,
+  @JvmField val frameInfo: FrameInfo? = null,
+  @JvmField val frame: IdeFrameImpl? = null,
+)
+
+val OpenProjectTask.frame: IdeFrameImpl?
+  @Internal get() = (implOptions as OpenProjectImplOptions?)?.frame
+
+val OpenProjectTask.frameInfo: FrameInfo?
+  @Internal get() = (implOptions as OpenProjectImplOptions?)?.frameInfo

@@ -25,7 +25,7 @@ import java.util.regex.Pattern;
 @TestRoot("jps/graphImplementationTests/testData/incremental")
 public class IncrementalK2JvmJpsTestGenerated extends AbstractIncrementalK2JvmJpsTest {
     static void setUpTests() {
-        File kotlincFolder = getKotlincFolder("2.0.20-dev-1563");
+        File kotlincFolder = getKotlincFolder("2.1.10");
         System.setProperty("jps.kotlin.home", kotlincFolder.getAbsolutePath());
 
         // enable graph implementation
@@ -103,6 +103,26 @@ public class IncrementalK2JvmJpsTestGenerated extends AbstractIncrementalK2JvmJp
         @TestMetadata("annotations")
         public void testAnnotations() throws Exception {
             runTest("pureKotlin/annotations/");
+        }
+
+        @TestMetadata("deprecateFunction")
+        public void testDeprecateFunction() throws Exception {
+            runTest("pureKotlin/deprecateFunction/");
+        }
+
+        @TestMetadata("deprecateProperty")
+        public void testDeprecateProperty() throws Exception {
+            runTest("pureKotlin/deprecateProperty/");
+        }
+
+        @TestMetadata("deprecatePropertyGetter")
+        public void testDeprecatePropertyGetter() throws Exception {
+            runTest("pureKotlin/deprecatePropertyGetter/");
+        }
+
+        @TestMetadata("deprecatePropertySetter")
+        public void testDeprecatePropertySetter() throws Exception {
+            runTest("pureKotlin/deprecatePropertySetter/");
         }
 
         @TestMetadata("anonymousObjectChanged")
@@ -608,6 +628,11 @@ public class IncrementalK2JvmJpsTestGenerated extends AbstractIncrementalK2JvmJp
         @TestMetadata("removeTopLevelTypeAlias")
         public void testRemoveTopLevelTypeAlias() throws Exception {
             runTest("pureKotlin/removeTopLevelTypeAlias/");
+        }
+
+        @TestMetadata("changeTopLevelTypeAlias")
+        public void testChangeTopLevelTypeAlias() throws Exception {
+            runTest("pureKotlin/changeTopLevelTypeAlias/");
         }
 
         @TestMetadata("removeUnusedFile")

@@ -7,6 +7,12 @@ jvm_resources(
   strip_prefix = "resources"
 )
 
+jvm_resources(
+  name = "i18n_test_resources",
+  files = glob(["testData/**/*"]),
+  strip_prefix = "testData"
+)
+
 jvm_library(
   name = "i18n",
   module_name = "intellij.devkit.i18n",
@@ -17,7 +23,7 @@ jvm_library(
     "//platform/core-api:core",
     "//platform/ide-core-impl",
     "//plugins/properties/properties-psi-api:psi",
-    "//plugins/properties/properties-psi-impl:psi-impl",
+    "//plugins/properties/properties-psi-impl:backend-psi",
     "//plugins/java-i18n",
     "//jvm/jvm-analysis-api:analysis",
     "//platform/platform-impl:ide-impl",
@@ -40,7 +46,7 @@ jvm_library(
     "//platform/core-api:core",
     "//platform/ide-core-impl",
     "//plugins/properties/properties-psi-api:psi",
-    "//plugins/properties/properties-psi-impl:psi-impl",
+    "//plugins/properties/properties-psi-impl:backend-psi",
     "//plugins/java-i18n",
     "//plugins/java-i18n:java-i18n_test_lib",
     "//jvm/jvm-analysis-api:analysis",
@@ -57,7 +63,10 @@ jvm_library(
     "//spellchecker:spellchecker_test_lib",
     "//platform/core-ui",
   ],
-  runtime_deps = [":i18n_resources"]
+  runtime_deps = [
+    ":i18n_resources",
+    ":i18n_test_resources",
+  ]
 )
 
 jvm_test(
