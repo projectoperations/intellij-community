@@ -9,8 +9,8 @@
         <compilerArguments>
           <stringArguments>
             <stringArg name="jvmTarget" arg="17" />
-            <stringArg name="apiVersion" arg="2.0" />
-            <stringArg name="languageVersion" arg="2.0" />
+            <stringArg name="apiVersion" arg="2.2" />
+            <stringArg name="languageVersion" arg="2.2" />
           </stringArguments>
         </compilerArguments>
       </configuration>
@@ -34,6 +34,7 @@
     <orderEntry type="library" name="Guava" level="project" />
     <orderEntry type="library" name="vavr" level="project" />
     <orderEntry type="library" name="javax-inject" level="project" />
+    <orderEntry type="module" module-name="intellij.platform.jps.model" />
     <orderEntry type="module" module-name="kotlin.base.util" />
     <orderEntry type="module" module-name="intellij.platform.ide.impl" />
     <orderEntry type="module" module-name="kotlin.base.psi" />

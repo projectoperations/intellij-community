@@ -2,8 +2,10 @@
 package com.intellij.openapi.application
 
 import com.intellij.util.concurrency.annotations.RequiresBlockingContext
+import kotlinx.coroutines.Deferred
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.Contract
+import org.jetbrains.annotations.TestOnly
 import kotlin.coroutines.CoroutineContext
 
 @ApiStatus.Internal
@@ -112,6 +114,15 @@ interface ThreadingSupport {
   fun setWriteIntentReadActionListener(listener: WriteIntentReadActionListener)
 
   /**
+   * Removes a [WriteIntentReadActionListener].
+   *
+   * It is an error to remove the listener which was not set early.
+   *
+   * @param listener the listener to remove
+   */
+  fun removeWriteIntentReadActionListener(listener: WriteIntentReadActionListener)
+
+  /**
    * Removes a [WriteActionListener].
    *
    * It is error to remove listener which was not set early.
@@ -185,10 +196,16 @@ interface ThreadingSupport {
   fun setLockAcquisitionListener(listener: LockAcquisitionListener)
 
   @ApiStatus.Internal
-  fun setSuspendingWriteActionListener(listener: SuspendingWriteActionListener)
+  fun setLockAcquisitionInterceptor(consumer: (Deferred<*>) -> Unit)
 
   @ApiStatus.Internal
-  fun removeSuspendingWriteActionListener(listener: SuspendingWriteActionListener)
+  fun removeLockAcquisitionInterceptor()
+
+  @ApiStatus.Internal
+  fun setWriteLockReacquisitionListener(listener: WriteLockReacquisitionListener)
+
+  @ApiStatus.Internal
+  fun removeWriteLockReacquisitionListener(listener: WriteLockReacquisitionListener)
 
   @ApiStatus.Internal
   fun setLegacyIndicatorProvider(provider: LegacyProgressIndicatorProvider)
@@ -243,5 +260,44 @@ interface ThreadingSupport {
   @ApiStatus.Internal
   fun isInTopmostReadAction(): Boolean
 
+  /**
+   * This is a very hacky function ABSOLUTELY NOT FOR PRODUCTION.
+   * Consider the following old code:
+   * ```kotlin
+   * launch(Dispatchers.EDT) {
+   *   writeIntentReadAction {
+   *     // do something
+   *     IndexingTestUtil.waitUntilIndexesAreReady()
+   *     // do something else
+   *   }
+   * }
+   *
+   * launch(Dispatchers.Default) {
+   *   backgroundWriteAction {}
+   * }
+   * ```
+   *
+   * This is a deadlock, because `waitUntilIndexesAreReady` spins the event queue inside, and it waits for some write action to happen.
+   * When WA is executed on background, the code above would result in a deadlock, because the code in WI waits for (lower-level) Write to finish.
+   *
+   * This function is a TEMPORARY fix for tests. When we are ready (i.e., when we eliminate write action by default), this hack will be removed.
+   */
+  @ApiStatus.Internal
+  @TestOnly
+  fun <T> releaseTheAcquiredWriteIntentLockThenExecuteActionAndTakeWriteIntentLockBack(action: () -> T): T = action()
+
+  /**
+   * Makes [runPreventiveWriteIntentReadAction] no-op inside [action].
+   * This is needed for platform code that is sure that the called action would not abuse locks
+   */
+  @ApiStatus.Internal
+  fun <T> relaxPreventiveLockingActions(action: () -> T) : T
+
   class LockAccessDisallowed(override val message: String) : IllegalStateException(message)
+
+  /**
+   * Defers [action] while write action is pending or in progress.
+   * [action] is guaranteed to run. It may run immediately on the current thread or after some time on an unspecified thread.
+   */
+  fun runWhenWriteActionIsCompleted(action: () -> Unit)
 }

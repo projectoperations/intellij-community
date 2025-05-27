@@ -70,7 +70,7 @@ import com.intellij.openapi.vfs.newvfs.events.VFilePropertyChangeEvent;
 import com.intellij.profile.ProfileChangeAdapter;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.PsiManagerEx;
-import com.intellij.psi.impl.file.impl.FileManagerImpl;
+import com.intellij.psi.impl.file.impl.FileManagerEx;
 import com.intellij.testFramework.LightVirtualFile;
 import com.intellij.ui.AppUIUtil;
 import com.intellij.ui.ComponentUtil;
@@ -202,8 +202,10 @@ public final class DaemonListeners implements Disposable {
         boolean showing = ComponentUtil.isShowing(editor.getContentComponent(), true);
         boolean worthBothering = worthBothering(document, editorProject);
         if (!showing || !worthBothering) {
-          LOG.debug("Not worth bothering about editor created for: " + editor.getVirtualFile() + " because editor isShowing(): " +
-                    showing + "; project is open and file is mine: " + worthBothering);
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("Not worth bothering about editor created for: " + editor.getVirtualFile() + " because editor isShowing(): " +
+                      showing + "; project is open and file is mine: " + worthBothering);
+          }
           return;
         }
 
@@ -212,15 +214,15 @@ public final class DaemonListeners implements Disposable {
         }
 
         // worthBothering() checks for getCachedPsiFile, so call getPsiFile
-        PsiFile file = editorProject == null ? null : PsiDocumentManager.getInstance(editorProject).getPsiFile(document);
+        PsiFile psiFile = editorProject == null ? null : PsiDocumentManager.getInstance(editorProject).getPsiFile(document);
         ErrorStripeUpdateManager errorStripeManager = ErrorStripeUpdateManager.getInstance(myProject);
         // ScratchLineMarkersTestGenerated/FileEditorManagerTest is failed for some reason, so, let's execute now if test in EDT
         if (ApplicationManager.getApplication().isUnitTestMode()) {
           //noinspection deprecation
-          errorStripeManager.repaintErrorStripePanel(editor, file);
+          errorStripeManager.repaintErrorStripePanel(editor, psiFile);
         }
         else {
-          errorStripeManager.launchRepaintErrorStripePanel(editorMarkup, file);
+          errorStripeManager.launchRepaintErrorStripePanel(editorMarkup, psiFile);
         }
       }
 
@@ -237,7 +239,7 @@ public final class DaemonListeners implements Disposable {
       }
     }, this);
 
-    myPsiChangeHandler = new PsiChangeHandler(myProject, connection, daemonCodeAnalyzer, this);
+    myPsiChangeHandler = new PsiChangeHandler(myProject, daemonCodeAnalyzer, this);
     PsiManager.getInstance(myProject).addPsiTreeChangeListener(myPsiChangeHandler, this);
 
     connection.subscribe(ModuleRootListener.TOPIC, new ModuleRootListener() {
@@ -306,7 +308,7 @@ public final class DaemonListeners implements Disposable {
         if (!virtualFile.isValid()) {
           return;
         }
-        FileManagerImpl fileManager = (FileManagerImpl)PsiManagerEx.getInstanceEx(myProject).getFileManager();
+        FileManagerEx fileManager = (FileManagerEx)PsiManagerEx.getInstanceEx(myProject).getFileManager();
         PsiFile psiFile = fileManager.getFastCachedPsiFile(virtualFile, CodeInsightContexts.anyContext());
         if (psiFile == null || myDaemonCodeAnalyzer.isHighlightingAvailable(psiFile)) {
           return;
@@ -351,7 +353,6 @@ public final class DaemonListeners implements Disposable {
 
     connection.subscribe(SeverityRegistrar.SEVERITIES_CHANGED_TOPIC, () -> stopDaemonAndRestartAllFiles("Severities changed"));
 
-    //noinspection rawtypes
     connection.subscribe(FacetManager.FACETS_TOPIC, new FacetManagerListener() {
       @Override
       public void facetRenamed(@NotNull Facet facet, @NotNull String oldName) {
@@ -402,13 +403,13 @@ public final class DaemonListeners implements Disposable {
     });
     connection.subscribe(FileHighlightingSettingListener.SETTING_CHANGE, (root, setting) ->
       ApplicationManager.getApplication().runWriteAction(() -> {
-        PsiFile file = root.getContainingFile();
-        if (file != null) {
+        PsiFile psiFile = root.getContainingFile();
+        if (psiFile != null) {
           // force clearing all PSI caches, including those in WholeFileInspectionFactory
           PsiManager.getInstance(myProject).dropPsiCaches();
           for (Editor editor : myActiveEditors) {
-            if (Objects.equals(editor.getVirtualFile(), file.getVirtualFile())) {
-              ErrorStripeUpdateManager.getInstance(myProject).launchRepaintErrorStripePanel(editor, file);
+            if (Objects.equals(editor.getVirtualFile(), psiFile.getVirtualFile())) {
+              ErrorStripeUpdateManager.getInstance(myProject).launchRepaintErrorStripePanel(editor, psiFile);
             }
           }
         }
@@ -535,7 +536,7 @@ public final class DaemonListeners implements Disposable {
     if (daemonCodeAnalyzer.cutOperationJustHappened()) {
       return false;
     }
-    return CanISilentlyChange.thisFile(file).canIReally(isInContent, extensionsAllowToChangeFileSilently);
+    return HighlightingSessionImpl.canChangeFileSilently(file, isInContent, extensionsAllowToChangeFileSilently);
   }
 
   /**
@@ -608,7 +609,7 @@ public final class DaemonListeners implements Disposable {
       if (myEscPressed) {
         if (affectedDocument != null) {
           // prevent Esc key to leave the document in the not-highlighted state
-          // todo ijpl-339 investigate this place
+          // todo IJPL-339 investigate this place
           if (!myDaemonCodeAnalyzer.getFileStatusMap().allDirtyScopesAreNull(affectedDocument, CodeInsightContexts.anyContext())) {
             stopDaemon(true, "Command finish");
           }

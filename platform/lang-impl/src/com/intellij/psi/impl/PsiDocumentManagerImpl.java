@@ -1,19 +1,16 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi.impl;
 
-import com.intellij.codeInsight.multiverse.CodeInsightContexts;
 import com.intellij.ide.IdeEventQueue;
 import com.intellij.injected.editor.DocumentWindow;
 import com.intellij.lang.ASTNode;
 import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.EditorFactory;
 import com.intellij.openapi.editor.event.DocumentEvent;
 import com.intellij.openapi.editor.impl.event.EditorEventMulticasterImpl;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
-import com.intellij.openapi.fileEditor.FileDocumentManagerListener;
 import com.intellij.openapi.fileEditor.impl.FileDocumentManagerImpl;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
@@ -33,6 +30,7 @@ import com.intellij.util.ArrayUtil;
 import com.intellij.util.FileContentUtil;
 import com.intellij.util.InjectionUtils;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -49,16 +47,6 @@ public final class PsiDocumentManagerImpl extends PsiDocumentManagerBase {
     EditorFactory editorFactory = EditorFactory.getInstance();
     editorFactory.getEventMulticaster().addDocumentListener(this, this);
     ((EditorEventMulticasterImpl)editorFactory.getEventMulticaster()).addPrioritizedDocumentListener(new PriorityEventCollector(), this);
-    project.getMessageBus().connect(this).subscribe(FileDocumentManagerListener.TOPIC, new FileDocumentManagerListener() {
-      @Override
-      public void fileContentLoaded(final @NotNull VirtualFile virtualFile, @NotNull Document document) {
-        PsiFile psiFile = ReadAction.compute(() -> {
-          // todo ijpl-339 figure out which psi file to pass here or get rid of psi file at all
-          return myProject.isDisposed() || !virtualFile.isValid() ? null : getCachedPsiFile(virtualFile, CodeInsightContexts.anyContext());
-        });
-        fireDocumentCreated(document, psiFile);
-      }
-    });
   }
 
   @Override
@@ -162,7 +150,7 @@ public final class PsiDocumentManagerImpl extends PsiDocumentManagerBase {
       }
     }
     return false;
-    // todo ijpl-339 is it correct?
+    // todo IJPL-339 is it correct?
   }
 
   @Override
@@ -172,7 +160,7 @@ public final class PsiDocumentManagerImpl extends PsiDocumentManagerBase {
 
     List<FileViewProvider> viewProviders;
     if (doc instanceof DocumentWindow) {
-      // todo ijpl-339 implement it
+      // todo IJPL-339 implement it
       Document topDoc = ((DocumentWindow)doc).getDelegate();
       List<FileViewProvider> topViewProviders = getCachedViewProviders(topDoc);
       if (ContainerUtil.exists(topViewProviders, topViewProvider -> InjectionUtils.shouldFormatOnlyInjectedCode(topViewProvider))) { // todo is it correct?
@@ -186,20 +174,21 @@ public final class PsiDocumentManagerImpl extends PsiDocumentManagerBase {
       viewProviders = getCachedViewProviders(doc);
     }
 
-    // todo ijpl-339 is it correct?
+    // todo IJPL-339 is it correct?
     for (FileViewProvider viewProvider : viewProviders) {
       component.doPostponedFormatting(viewProvider);
     }
   }
 
+  @ApiStatus.Internal
   @NotNull
   @Override
-  protected List<BooleanRunnable> reparseChangedInjectedFragments(@NotNull Document hostDocument,
-                                                                  @NotNull PsiFile hostPsiFile,
-                                                                  @NotNull TextRange hostChangedRange,
-                                                                  @NotNull ProgressIndicator indicator,
-                                                                  @NotNull ASTNode oldRoot,
-                                                                  @NotNull ASTNode newRoot) {
+  public List<BooleanRunnable> reparseChangedInjectedFragments(@NotNull Document hostDocument,
+                                                               @NotNull PsiFile hostPsiFile,
+                                                               @NotNull TextRange hostChangedRange,
+                                                               @NotNull ProgressIndicator indicator,
+                                                               @NotNull ASTNode oldRoot,
+                                                               @NotNull ASTNode newRoot) {
     List<DocumentWindow> changedInjected = InjectedLanguageManager.getInstance(myProject).getCachedInjectedDocumentsInRange(hostPsiFile, hostChangedRange);
     if (changedInjected.isEmpty()) return Collections.emptyList();
     FileViewProvider hostViewProvider = hostPsiFile.getViewProvider();

@@ -3,8 +3,8 @@ package com.intellij.terminal.backend.util
 import com.google.common.base.Ascii
 import com.intellij.execution.configurations.PathEnvironmentVariableUtil
 import com.intellij.openapi.project.Project
-import com.intellij.terminal.JBTerminalSystemSettingsProviderBase
-import com.intellij.terminal.backend.startTerminalSession
+import com.intellij.terminal.backend.TerminalSessionsManager
+import com.intellij.terminal.backend.util.TerminalSessionTestUtil.createShellCommand
 import com.intellij.terminal.session.TerminalOutputEvent
 import com.intellij.terminal.session.TerminalSession
 import com.intellij.util.EnvironmentUtil
@@ -17,25 +17,47 @@ import kotlinx.coroutines.launch
 import org.jetbrains.plugins.terminal.ShellStartupOptions
 import org.jetbrains.plugins.terminal.TerminalEngine
 import org.jetbrains.plugins.terminal.reworked.util.TerminalTestUtil
+import org.jetbrains.plugins.terminal.runner.LocalTerminalStartCommandBuilder
 import java.nio.file.Files
 import java.nio.file.Path
 
 internal object TerminalSessionTestUtil {
-  fun startTestTerminalSession(
-    shellPath: String,
+  suspend fun startTestTerminalSession(
     project: Project,
+    shellPath: String,
     coroutineScope: CoroutineScope,
-    size: TermSize = TermSize(80, 24),
   ): TerminalSession {
+    val shellCommand = createShellCommand(shellPath)
+    val options = ShellStartupOptions.Builder().shellCommand(shellCommand).build()
+    return startTestTerminalSession(project, options, coroutineScope)
+  }
+
+  /**
+   * @param options should already contain configured [ShellStartupOptions.shellCommand].
+   * Use [createShellCommand] to create the default command from the shell path.
+   */
+  suspend fun startTestTerminalSession(
+    project: Project,
+    options: ShellStartupOptions,
+    coroutineScope: CoroutineScope,
+  ): TerminalSession {
+    assert(options.shellCommand != null) { "shellCommand should be configured in the provided options" }
+
     TerminalTestUtil.setTerminalEngineForTest(TerminalEngine.REWORKED, coroutineScope.asDisposable())
 
-    val options = ShellStartupOptions.Builder()
-      .shellCommand(listOf(shellPath))
-      .initialTermSize(size)
-      .envVariables(mapOf(EnvironmentUtil.DISABLE_OMZ_AUTO_UPDATE to "true", "HISTFILE" to "/dev/null"))
+    val allOptions = options.builder()
+      .envVariables(options.envVariables + mapOf(EnvironmentUtil.DISABLE_OMZ_AUTO_UPDATE to "true", "HISTFILE" to "/dev/null"))
+      .workingDirectory(options.workingDirectory ?: System.getProperty("user.home"))
+      .initialTermSize(options.initialTermSize ?: TermSize(80, 24))
       .build()
-    val (session, _) = startTerminalSession(project, options, JBTerminalSystemSettingsProviderBase(), coroutineScope)
-    return session
+
+    val manager = TerminalSessionsManager.getInstance()
+    val sessionStartResult = manager.startSession(allOptions, project, coroutineScope)
+    return manager.getSession(sessionStartResult.sessionId)!!
+  }
+
+  fun createShellCommand(shellPath: String): List<String> {
+    return LocalTerminalStartCommandBuilder.convertShellPathToCommand(shellPath)
   }
 
   suspend fun TerminalSession.awaitOutputEvent(targetEvent: TerminalOutputEvent) {

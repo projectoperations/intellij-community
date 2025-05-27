@@ -12,11 +12,15 @@ jvm_library(
   visibility = ["//visibility:public"],
   srcs = glob(["testSrc/**/*.kt", "testSrc/**/*.java"], allow_empty = True),
   deps = [
+    "//platform/editor-ui-api:editor-ui",
+    "//jps/model-api:model",
     "//platform/lang-api:lang",
     "//platform/platform-api:ide",
     "//platform/lang-impl",
     "//platform/platform-impl:ide-impl",
     "//platform/platform-impl:ide-impl_test_lib",
+    "//platform/refactoring",
+    "//platform/structure-view-impl:structureView-impl",
     "//platform/testFramework",
     "//platform/testFramework:testFramework_test_lib",
     "//spellchecker",
@@ -33,6 +37,8 @@ jvm_library(
     "//platform/structuralsearch:structuralSearch-tests_test_lib",
     "//tools/intellij.tools.ide.metrics.benchmark:ide-metrics-benchmark",
     "//tools/intellij.tools.ide.metrics.benchmark:ide-metrics-benchmark_test_lib",
+    "//platform/diff-impl",
+    "@lib//:fastutil-min",
   ]
 )
 

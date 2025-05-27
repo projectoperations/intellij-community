@@ -81,6 +81,7 @@ data class Config private constructor(
    *
    * @property experimentGroup The ID of A/B experiment group.
    * @property sessionsLimit The limit of sessions in the evaluation.
+   * @property strictSessionsLimit Boolean to force evaluation to adhere to sessionsLimit, even if it needs to stop mid-file
    * @property filesLimit The limit of files in the evaluation.
    * @property sessionProbability The probability of a session being evaluated.
    * @property sessionSeed The seed for the random session sampling.
@@ -95,6 +96,7 @@ data class Config private constructor(
   data class ActionsInterpretation internal constructor(
     val experimentGroup: Int?,
     val sessionsLimit: Int?,
+    val strictSessionsLimit: Boolean?,
     val filesLimit: Int?,
     val sessionProbability: Double,
     val sessionSeed: Long?,
@@ -106,7 +108,8 @@ data class Config private constructor(
     val logLocationAndItemText: Boolean,
     val trainTestSplit: Int,
     val registry: String,
-  )
+    val iterationCount: Int?
+    )
 
   /**
    * Represents the configuration for reordering elements step.
@@ -149,9 +152,11 @@ data class Config private constructor(
     var logLocationAndItemText = false
     var trainTestSplit: Int = 70
     var registry: String = ""
+    var iterationCount: Int? = null
     var evaluationTitle: String = "BASIC"
     var experimentGroup: Int? = null
     var sessionsLimit: Int? = null
+    var strictSessionsLimit: Boolean? = null
     var filesLimit: Int? = null
     var sessionProbability: Double = 1.0
     var sessionSeed: Long? = null
@@ -177,9 +182,11 @@ data class Config private constructor(
       trainTestSplit = config.interpret.trainTestSplit
       experimentGroup = config.interpret.experimentGroup
       sessionsLimit = config.interpret.sessionsLimit
+      strictSessionsLimit = config.interpret.strictSessionsLimit
       filesLimit = config.interpret.filesLimit
       sessionProbability = config.interpret.sessionProbability
       sessionSeed = config.interpret.sessionSeed
+      iterationCount = config.interpret.iterationCount
       useReordering = config.reorder.useReordering
       reorderingTitle = config.reorder.title
       featuresForReordering.addAll(config.reorder.features)
@@ -214,6 +221,7 @@ data class Config private constructor(
       ActionsInterpretation(
         experimentGroup,
         sessionsLimit,
+        strictSessionsLimit,
         filesLimit,
         sessionProbability,
         sessionSeed,
@@ -225,6 +233,7 @@ data class Config private constructor(
         logLocationAndItemText,
         trainTestSplit,
         registry,
+        iterationCount
       ),
       ReorderElements(
         useReordering,

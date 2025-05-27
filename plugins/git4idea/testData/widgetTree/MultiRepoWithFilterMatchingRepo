@@ -1,5 +1,8 @@
+-Update Project...
+------
 -bro-repo
+-project
 ------
 -project
  -Local
-  bro
+  project-branch [vcs/branchNode.svg]

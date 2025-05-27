@@ -121,11 +121,12 @@ final class PluginUpdateDialog extends DialogWrapper {
           node.setChangeNotes(descriptor.getChangeNotes());
           node.setVersion(descriptor.getVersion());
           node.setVendor(descriptor.getVendor());
-          node.setOrganization(descriptor.getOrganization());
+          node.setVendorDetails(descriptor.getOrganization());
           node.setDependencies(descriptor.getDependencies());
           descriptor = node;
         }
-        @SuppressWarnings("unchecked") ListPluginComponent component = new ListPluginComponent(myPluginModel, descriptor, group, LinkListener.NULL, true);
+        PluginUiModelAdapter uiModelAdapter = new PluginUiModelAdapter(descriptor);
+        @SuppressWarnings("unchecked") ListPluginComponent component = new ListPluginComponent(new PluginModelFacade(myPluginModel), uiModelAdapter, group, LinkListener.NULL, true);
         component.setOnlyUpdateMode();
         component.getChooseUpdateButton().addActionListener(e -> updateButtons());
         return component;

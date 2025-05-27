@@ -14,7 +14,7 @@ import org.jetbrains.jps.model.module.JpsModuleReference
 import org.jetbrains.jps.model.module.JpsTestModuleProperties
 import org.jetbrains.jps.util.JpsPathUtil
 import java.nio.file.Path
-import java.util.*
+import java.util.TreeSet
 import kotlin.io.path.invariantSeparatorsPathString
 import kotlin.io.path.nameWithoutExtension
 import kotlin.io.path.relativeTo
@@ -57,9 +57,8 @@ internal fun generateDeps(
 
     if (element is JpsModuleDependency) {
       val dependencyModule = element.moduleReference.resolve()!!
-      // todo runtime dependency (getBazelDependencyLabel() is null only because fake "main" modules do not have content roots, and we don't know where to create BUILD file)
       val dependencyModuleDescriptor = context.getKnownModuleDescriptorOrError(dependencyModule)
-      val label = context.getBazelDependencyLabel(module = dependencyModuleDescriptor, dependent = module) ?: continue
+      val label = context.getBazelDependencyLabel(module = dependencyModuleDescriptor, dependent = module)
 
       // intellij.platform.configurationStore.tests uses internal symbols from intellij.platform.configurationStore.impl
       val dependencyModuleName = dependencyModule.name
@@ -228,6 +227,26 @@ internal fun generateDeps(
       "Do not export jetbrains-jewel-markdown-laf-bridge-styling (module=$dependentModuleName})"
     }
   }
+
+  fun checkForDuplicates(listMoniker: String, list: List<String>) {
+    if (list.distinct() == list) {
+      return
+    }
+
+    val duplicates = list
+      .groupBy { it }
+      .filter { it.value.size > 1 }
+      .map { it.key }
+      .sorted()
+    error("Duplicate $listMoniker ${duplicates} for module '${module.module.name}',\ncheck ${module.imlFile}")
+  }
+
+  checkForDuplicates("bazel deps", deps)
+  checkForDuplicates("bazel associates", associates)
+  checkForDuplicates("bazel runtimeDeps", runtimeDeps)
+  checkForDuplicates("bazel exports", exports)
+  checkForDuplicates("bazel provided", provided)
+
   return ModuleDeps(deps = deps, associates = associates, runtimeDeps = runtimeDeps, exports = exports, provided = provided, plugins = plugins.toList())
 }
 
@@ -293,7 +312,7 @@ private fun addDep(
         else {
           if (hasOnlyTestResources(dependencyModuleDescriptor)) {
             // module with only test resources
-            runtimeDeps.add(dependencyLabel + TEST_RESOURCES_TARGET_SUFFIX)
+            runtimeDeps.add(addSuffix(dependencyLabel, TEST_RESOURCES_TARGET_SUFFIX))
             if (isExported) {
               throw RuntimeException("Do not export test dependency (module=${dependentModule.module.name}, exported=${dependencyModuleDescriptor.module.name})")
             }
@@ -364,6 +383,16 @@ private fun addDep(
   }
 }
 
+private fun addSuffix(s: String, @Suppress("SameParameterValue") labelSuffix: String): String {
+  val lastSlashIndex = s.lastIndexOf('/')
+  return (if (s.indexOf(':', lastSlashIndex) == -1) {
+    s + ":" + s.substring(lastSlashIndex + 1)
+  }
+  else {
+    s
+  }) + labelSuffix
+}
+
 internal fun hasOnlyTestResources(moduleDescriptor: ModuleDescriptor): Boolean {
   return !moduleDescriptor.testResources.isEmpty() &&
          moduleDescriptor.sources.isEmpty() &&
@@ -390,11 +419,11 @@ private fun getLabelForTest(dependencyLabel: String): String {
 
 private val camelCaseToSnakeCasePattern = Regex("(?<=.)[A-Z]")
 
-private fun camelToSnakeCase(s: String): String {
+internal fun camelToSnakeCase(s: String, replacement: Char = '_'): String {
   return when {
     s.startsWith("JUnit") -> "junit" + s.removePrefix("JUnit")
     s.all { it.isUpperCase() } -> s.lowercase()
-    else -> s.replace(" ", "").replace("_RC", "_rc").replace("SNAPSHOT", "snapshot").replace(camelCaseToSnakeCasePattern, "_$0").lowercase()
+    else -> s.replace(" ", "").replace("_RC", "_rc").replace("SNAPSHOT", "snapshot").replace(camelCaseToSnakeCasePattern, "${replacement}$0").lowercase()
   }
 }
 

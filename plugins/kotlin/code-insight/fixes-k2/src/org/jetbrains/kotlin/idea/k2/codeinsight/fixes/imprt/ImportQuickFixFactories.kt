@@ -43,7 +43,7 @@ object ImportQuickFixFactories {
     val wrongNumberOfTypeArgumentsFactory: KotlinQuickFixFactory.IntentionBased<KaFirDiagnostic.WrongNumberOfTypeArguments> =
         ImportQuickFixProvider.upcast()
 
-    val newInferenceNoInformationForParameterFactory: KotlinQuickFixFactory.IntentionBased<KaFirDiagnostic.NewInferenceNoInformationForParameter> =
+    val newInferenceNoInformationForParameterFactory: KotlinQuickFixFactory.IntentionBased<KaFirDiagnostic.CannotInferParameterType> =
         ImportQuickFixProvider.upcast()
 
     val noGetMethodFactory: KotlinQuickFixFactory.IntentionBased<KaFirDiagnostic.NoGetMethod> =
@@ -55,10 +55,17 @@ object ImportQuickFixFactories {
     val componentFunctionMissingFactory: KotlinQuickFixFactory.IntentionBased<KaFirDiagnostic.ComponentFunctionMissing> =
         ImportQuickFixProvider.upcast()
 
+    // TODO: Reconsider this factory after KT-76253 is fixed
+    val componentFunctionAmbiguityFactory: KotlinQuickFixFactory.IntentionBased<KaFirDiagnostic.ComponentFunctionAmbiguity> =
+        ImportQuickFixProvider.upcast()
+
     val iteratorMissingFactory: KotlinQuickFixFactory.IntentionBased<KaFirDiagnostic.IteratorMissing> =
         ImportQuickFixProvider.upcast()
 
     val iteratorAmbiguityFactory: KotlinQuickFixFactory.IntentionBased<KaFirDiagnostic.IteratorAmbiguity> =
+        ImportQuickFixProvider.upcast()
+
+    val functionExpectedFactory: KotlinQuickFixFactory.IntentionBased<KaFirDiagnostic.FunctionExpected> =
         ImportQuickFixProvider.upcast()
 }
 

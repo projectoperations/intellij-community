@@ -18,6 +18,7 @@ import com.intellij.openapi.application.impl.ApplicationInfoImpl;
 import com.intellij.openapi.application.migrations.JpaBuddyMigration242;
 import com.intellij.openapi.application.migrations.NotebooksMigration242;
 import com.intellij.openapi.application.migrations.PythonProMigration242;
+import com.intellij.openapi.application.migrations.SpaceMigration252;
 import com.intellij.openapi.components.StoragePathMacros;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.extensions.PluginId;
@@ -28,6 +29,7 @@ import com.intellij.openapi.progress.EmptyProgressIndicator;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.ex.ProjectManagerEx;
+import com.intellij.openapi.project.impl.shared.P3DynamicPluginSynchronizerKt;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.updateSettings.impl.PluginDownloader;
 import com.intellij.openapi.util.*;
@@ -76,7 +78,7 @@ import java.util.zip.ZipFile;
 
 import static com.intellij.ide.CommandLineProcessorKt.isIdeStartupWizardEnabled;
 import static com.intellij.ide.SpecialConfigFiles.*;
-import static com.intellij.ide.plugins.BundledPluginsStateKt.BUNDLED_PLUGINS_FILENAME;
+import static com.intellij.ide.plugins.BundledPluginsState.BUNDLED_PLUGINS_FILENAME;
 import static com.intellij.openapi.application.ImportOldConfigsState.InitialImportScenario.*;
 import static com.intellij.openapi.application.migrations.Localization242Kt.enableL10nIfPluginInstalled;
 import static com.intellij.openapi.application.migrations.PluginMigrationKt.MIGRATION_INSTALLED_PLUGINS_TXT;
@@ -105,6 +107,9 @@ public final class ConfigImportHelper {
   private static final String PLUGINS = "plugins";
   private static final String SYSTEM = "system";
   private static final Set<String> SESSION_FILES = Set.of(CUSTOM_MARKER_FILE_NAME, LOCK_FILE, PORT_LOCK_FILE, TOKEN_FILE, USER_WEB_TOKEN);
+
+  public static final String FRONTEND_PLUGINS_TO_MIGRATE_DIR_NAME = "frontend-to-migrate";
+
 
   private ConfigImportHelper() { }
 
@@ -571,7 +576,7 @@ public final class ConfigImportHelper {
     }
 
     @Unmodifiable
-    @NotNull List<Path> getPaths() {
+    public @NotNull List<Path> getPaths() {
       return ContainerUtil.map(directories, it -> it.first);
     }
 
@@ -587,7 +592,7 @@ public final class ConfigImportHelper {
       return getNameWithVersion(config);
     }
 
-    @NotNull List<Path> findRelatedDirectories(@NotNull Path config, boolean forAutoClean) {
+    public @NotNull List<Path> findRelatedDirectories(@NotNull Path config, boolean forAutoClean) {
       return getRelatedDirectories(config, forAutoClean);
     }
   }
@@ -598,11 +603,14 @@ public final class ConfigImportHelper {
     return directories.fromSameProduct && directories.directories.size() > 1;
   }
 
-  static @NotNull ConfigDirsSearchResult findConfigDirectories(@NotNull Path newConfigDir) {
+  @VisibleForTesting
+  @ApiStatus.Internal
+  public static @NotNull ConfigDirsSearchResult findConfigDirectories(@NotNull Path newConfigDir) {
     return findConfigDirectories(newConfigDir, null, List.of());
   }
 
-  static @NotNull ConfigDirsSearchResult findConfigDirectories(@NotNull Path newConfigDir,
+  @VisibleForTesting
+  public static @NotNull ConfigDirsSearchResult findConfigDirectories(@NotNull Path newConfigDir,
                                                                @Nullable ConfigImportSettings settings,
                                                                @NotNull List<String> otherProductPrefixes) {
     // looking for existing config directories ...
@@ -940,6 +948,11 @@ public final class ConfigImportHelper {
       return headless;
     }
 
+    @ApiStatus.Internal
+    public @NotNull Logger getLog() {
+      return log;
+    }
+
     public void setHeadless(boolean headless) {
       this.headless = headless;
     }
@@ -980,12 +993,12 @@ public final class ConfigImportHelper {
   }
 
   @VisibleForTesting
-  static void doImport(@NotNull Path oldConfigDir,
-                       @NotNull Path newConfigDir,
-                       @Nullable Path oldIdeHome,
-                       @NotNull Path oldPluginsDir,
-                       @NotNull Path newPluginsDir,
-                       @NotNull ConfigImportOptions options) throws IOException {
+  public static void doImport(@NotNull Path oldConfigDir,
+                              @NotNull Path newConfigDir,
+                              @Nullable Path oldIdeHome,
+                              @NotNull Path oldPluginsDir,
+                              @NotNull Path newPluginsDir,
+                              @NotNull ConfigImportOptions options) throws IOException {
     Logger log = options.log;
     if (Files.isRegularFile(oldConfigDir)) {
       new Decompressor.Zip(oldConfigDir).extract(newConfigDir);
@@ -997,7 +1010,9 @@ public final class ConfigImportHelper {
     Files.walkFileTree(oldConfigDir, new SimpleFileVisitor<>() {
       @Override
       public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
-        return blockImport(dir, oldConfigDir, newConfigDir, oldPluginsDir, options.importSettings) ? FileVisitResult.SKIP_SUBTREE : FileVisitResult.CONTINUE;
+        return blockImport(dir, oldConfigDir, newConfigDir, oldPluginsDir, options.importSettings)
+               ? FileVisitResult.SKIP_SUBTREE
+               : FileVisitResult.CONTINUE;
       }
 
       @Override
@@ -1078,6 +1093,56 @@ public final class ConfigImportHelper {
     List<IdeaPluginDescriptor> pluginsToDownload = new ArrayList<>();
 
     @Nullable Map<PluginId, Set<String>> brokenPluginVersions = options.brokenPluginsFetcher.fetchBrokenPlugins(newConfigDir);
+    if (!collectPluginsToMigrate(oldPluginsDir, options, brokenPluginVersions, pluginsToMigrate, pluginsToDownload)) {
+      log.info("Error loading list of plugins from old dir, migrating entire plugin directory");
+      FileUtil.copyDir(oldPluginsDir.toFile(), newPluginsDir.toFile());
+      return;
+    }
+
+    if (options.importSettings != null) {
+      options.importSettings.processPluginsToMigrate(newConfigDir, oldConfigDir, oldPluginsDir, 
+                                                     options, brokenPluginVersions,
+                                                     pluginsToMigrate, pluginsToDownload);
+    }
+
+    if (!PlatformUtils.isJetBrainsClient()) {
+      /* The plugins for the frontend process are stored in a 'frontend' subdirectory. 
+         If a new version of a regular IDE is started, we need to store the frontend plugins from the previous version somewhere in 
+         the new plugin directory. 
+         When the frontend variant of the new version starts, it migrates these plugins. 
+         This logic can be removed when IJPL-170369 is fixed. */
+      Path oldFrontendPlugins = oldPluginsDir.resolve("frontend");
+      if (Files.isDirectory(oldFrontendPlugins)) {
+        NioFiles.copyRecursively(oldFrontendPlugins, newPluginsDir.resolve(FRONTEND_PLUGINS_TO_MIGRATE_DIR_NAME));
+      }
+    }
+
+    migrateGlobalPlugins(newConfigDir, oldConfigDir, pluginsToMigrate, pluginsToDownload, options.log);
+
+    pluginsToMigrate.removeIf(hasPendingUpdate);
+    if (!pluginsToMigrate.isEmpty()) {
+      migratePlugins(newPluginsDir, pluginsToMigrate, log);
+    }
+
+    pluginsToDownload.removeIf(hasPendingUpdate);
+    if (!pluginsToDownload.isEmpty()) {
+      downloadUpdatesForPlugins(newPluginsDir, options, pluginsToDownload, brokenPluginVersions);
+
+      // migrating plugins for which we weren't able to download updates
+      migratePlugins(newPluginsDir, pluginsToDownload, log);
+    }
+  }
+
+  /**
+   * Collects plugins which should be migrated from the previous IDE's version, and stores plugins which should be copied in 
+   * {@code pluginsToMigrate} and the plugins which should be downloaded from the plugin repository in {@code pluginsToDownload}.
+   * @return {@code false} if failed to collect plugins or {@code true} otherwise
+   */
+  public static boolean collectPluginsToMigrate(@NotNull Path oldPluginsDir,
+                                                @NotNull ConfigImportOptions options,
+                                                @Nullable Map<PluginId, Set<String>> brokenPluginVersions,
+                                                @NotNull List<IdeaPluginDescriptor> pluginsToMigrate,
+                                                @NotNull List<IdeaPluginDescriptor> pluginsToDownload) {
     @Nullable PluginLoadingResult oldIdeLoadingResult = null;
     try {
       /* FIXME
@@ -1087,16 +1152,20 @@ public final class ConfigImportHelper {
        * in production, if bundledPluginPath is null, the path from our IDE instance (!) bundled plugin path is used instead
        * so it looks like in production we effectively use bundled plugin path from the current IDE, not from the old one
        */
-      oldIdeLoadingResult = PluginDescriptorLoader.loadDescriptorsFromOtherIde(
-        oldPluginsDir, options.bundledPluginPath, brokenPluginVersions, options.compatibleBuildNumber);
+      var pluginLists = PluginDescriptorLoader.loadDescriptorsFromOtherIde(
+        oldPluginsDir, options.bundledPluginPath, options.compatibleBuildNumber
+      );
+      var initContext = new ProductPluginInitContext(
+        options.compatibleBuildNumber, Collections.emptySet(), Collections.emptySet(), brokenPluginVersions
+      );
+      oldIdeLoadingResult = new PluginLoadingResult();
+      oldIdeLoadingResult.initAndAddAll(pluginLists, initContext);
     }
     catch (ExecutionException | InterruptedException e) {
-      log.info("Error loading list of plugins from old dir, migrating entire plugin directory");
-      FileUtil.copyDir(oldPluginsDir.toFile(), newPluginsDir.toFile());
-      return;
+      return false;
     }
     catch (IOException e) {
-      log.info("Non-existing plugins directory: " + oldPluginsDir, e);
+      options.log.info("Non-existing plugins directory: " + oldPluginsDir, e);
     }
 
     if (oldIdeLoadingResult != null) {
@@ -1127,33 +1196,7 @@ public final class ConfigImportHelper {
         partitionNonBundled(oldIdeLoadingResult.getIncompleteIdMap().values(), pluginsToDownload, pluginsToMigrate, __ -> true);
       }
     }
-
-    Path disabledPluginsFile = oldConfigDir.resolve(DisabledPluginsState.DISABLED_PLUGINS_FILENAME);
-    Set<PluginId> disabledPlugins =
-      Files.exists(disabledPluginsFile) ? DisabledPluginsState.Companion.loadDisabledPlugins(disabledPluginsFile) : Set.of();
-    for (IdeaPluginDescriptor pluginToMigrate : pluginsToMigrate) {
-      if (disabledPlugins.contains(pluginToMigrate.getPluginId())) {
-        pluginToMigrate.setEnabled(false);
-      }
-    }
-    if (options.importSettings != null) {
-      options.importSettings.processPluginsToMigrate(newConfigDir, oldConfigDir, pluginsToMigrate, pluginsToDownload);
-    }
-
-    migrateGlobalPlugins(newConfigDir, oldConfigDir, pluginsToMigrate, pluginsToDownload, options.log);
-
-    pluginsToMigrate.removeIf(hasPendingUpdate);
-    if (!pluginsToMigrate.isEmpty()) {
-      migratePlugins(newPluginsDir, pluginsToMigrate, log);
-    }
-
-    pluginsToDownload.removeIf(hasPendingUpdate);
-    if (!pluginsToDownload.isEmpty()) {
-      downloadUpdatesForPlugins(newPluginsDir, options, pluginsToDownload, brokenPluginVersions);
-
-      // migrating plugins for which we weren't able to download updates
-      migratePlugins(newPluginsDir, pluginsToDownload, log);
-    }
+    return true;
   }
 
   private static void performMigrations(PluginMigrationOptions options) {
@@ -1162,6 +1205,7 @@ public final class ConfigImportHelper {
     new PythonProMigration242().migratePlugins(options);
     new NotebooksMigration242().migratePlugins(options);
     new JpaBuddyMigration242().migratePlugins(options);
+    new SpaceMigration252().migratePlugins(options);
   }
 
   private static void migrateGlobalPlugins(Path newConfigDir,
@@ -1222,7 +1266,7 @@ public final class ConfigImportHelper {
       }
 
       try {
-        IdeaPluginDescriptorImpl descriptor = PluginDescriptorLoader.loadDescriptorFromArtifact(Paths.get(source), null);
+        IdeaPluginDescriptorImpl descriptor = PluginDescriptorLoader.loadAndInitDescriptorFromArtifact(Paths.get(source), null);
         if (descriptor != null) {
           result.add(descriptor.getPluginId());
         }
@@ -1451,7 +1495,8 @@ public final class ConfigImportHelper {
     return true;
   }
 
-  static void setKeymapIfNeeded(@NotNull Path oldConfigDir, @NotNull Path newConfigDir, @NotNull Logger log) {
+  @VisibleForTesting
+  public static void setKeymapIfNeeded(@NotNull Path oldConfigDir, @NotNull Path newConfigDir, @NotNull Logger log) {
     String nameWithVersion = getNameWithVersion(oldConfigDir);
     Matcher m = matchNameWithVersion(nameWithVersion);
     if (m.matches() && VersionComparatorUtil.compare("2019.1", m.group(1)) >= 0) {
@@ -1646,12 +1691,19 @@ public final class ConfigImportHelper {
 
   private static boolean blockImport(Path path, Path oldConfig, Path newConfig, Path oldPluginsDir, @Nullable ConfigImportSettings settings) {
     if (ProjectManagerEx.Companion.isChildProcessPath(path)) return true;
-    if (oldConfig.equals(path.getParent())) {
-      Path fileName = path.getFileName();
+    Path fileName = path.getFileName();
+    Path parent = path.getParent();
+    if (oldConfig.equals(parent)) {
       return shouldSkipFileDuringImport(path, settings) ||
              Files.exists(newConfig.resolve(fileName)) ||
              path.startsWith(oldPluginsDir);
     }
+    if (parent.getFileName().toString().equals(PathManager.OPTIONS_DIRECTORY) && oldConfig.equals(parent.getParent())) {
+      if (fileName.toString().equals(P3DynamicPluginSynchronizerKt.DYNAMIC_PLUGINS_SYNCHRONIZER_FILE_NAME)) {
+        return true;
+      }
+    }
+      
     if (settings != null && settings.shouldSkipPath(path)) {
       return true; // this check needs to repeat even for non-root paths
     }

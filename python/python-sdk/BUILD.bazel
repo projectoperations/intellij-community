@@ -20,6 +20,7 @@ jvm_library(
     "//platform/analysis-api:analysis",
     "//platform/analysis-impl",
     "//platform/core-api:core",
+    "//jps/model-api:model",
     "//platform/util",
     "//platform/platform-util-io:ide-util-io",
     "//python/openapi:community",
@@ -39,7 +40,10 @@ jvm_library(
     "//platform/eel-impl",
     "//platform/eel-provider",
   ],
-  runtime_deps = [":sdk_resources"]
+  runtime_deps = [
+    ":sdk_resources",
+    "//platform/backend",
+  ]
 )
 
 jvm_library(
@@ -55,6 +59,7 @@ jvm_library(
     "//platform/analysis-api:analysis",
     "//platform/analysis-impl",
     "//platform/core-api:core",
+    "//jps/model-api:model",
     "//platform/util",
     "//platform/platform-util-io:ide-util-io",
     "//python/openapi:community",

@@ -18,9 +18,18 @@ abstract class MavenProjectReaderTestCase : MavenMultiVersionImportingTestCase()
   protected suspend fun readProject(file: VirtualFile,
                                     locator: MavenProjectReaderProjectLocator,
                                     vararg profiles: String): MavenProjectReaderResult {
+    MavenSettingsCache.getInstance(project).reloadAsync()
     val mavenEmbedderWrappers = project.service<MavenEmbedderWrappersManager>().createMavenEmbedderWrappers()
     val reader = MavenProjectReader(project, mavenEmbedderWrappers, mavenGeneralSettings, MavenExplicitProfiles(listOf(*profiles)), locator)
     val result = mavenEmbedderWrappers.use { reader.readProjectAsync(file) }
+    return result
+  }
+
+  protected suspend fun evaluateEffectivePom(file: VirtualFile): String? {
+    val mavenEmbedderWrappers = project.service<MavenEmbedderWrappersManager>().createMavenEmbedderWrappers()
+    val result = mavenEmbedderWrappers.use {
+      mavenEmbedderWrappers.getEmbedder(projectPath).evaluateEffectivePom(file, emptyList(), emptyList())
+    }
     return result
   }
 

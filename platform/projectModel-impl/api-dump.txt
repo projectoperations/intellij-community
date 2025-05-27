@@ -40,8 +40,6 @@ c:com.intellij.configurationStore.JbXmlOutputter
 - <init>(java.lang.String,com.intellij.openapi.util.JDOMUtil$ElementOutputFilter,com.intellij.application.options.ReplacePathToMacroMap,com.intellij.openapi.application.PathMacroFilter,Z,java.lang.String):V
 - b:<init>(java.lang.String,com.intellij.openapi.util.JDOMUtil$ElementOutputFilter,com.intellij.application.options.ReplacePathToMacroMap,com.intellij.openapi.application.PathMacroFilter,Z,java.lang.String,I,kotlin.jvm.internal.DefaultConstructorMarker):V
 - sf:collapseMacrosAndWrite(org.jdom.Element,com.intellij.openapi.components.ComponentManager):java.lang.String
-- f:output(org.jdom.DocType,java.io.Writer):V
-- f:output(org.jdom.Document,java.io.Writer):V
 - f:output(org.jdom.Element,java.io.Writer):V
 - f:printElement(java.io.Writer,org.jdom.Element,I):V
 - p:writeContent(java.io.Writer,org.jdom.Element,I,Z):Z
@@ -118,6 +116,7 @@ c:com.intellij.openapi.components.PathMacroManager
 - expandPaths(org.jdom.Element):V
 - getExpandMacroMap():com.intellij.openapi.components.ExpandMacroToPathMap
 - s:getInstance(com.intellij.openapi.components.ComponentManager):com.intellij.openapi.components.PathMacroManager
+- s:getInstance(com.intellij.openapi.module.Module):com.intellij.openapi.components.PathMacroManager
 - getMacroFilter():com.intellij.openapi.application.PathMacroFilter
 - f:getReplacePathMap():com.intellij.application.options.ReplacePathToMacroMap
 - ps:pathsEqual(java.lang.String,java.lang.String):Z

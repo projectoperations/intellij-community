@@ -3,6 +3,7 @@ package com.intellij.platform.syntax.psi.impl
 
 import com.intellij.lang.*
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.progress.EmptyProgressIndicator
 import com.intellij.openapi.progress.ProgressIndicatorProvider
 import com.intellij.openapi.progress.ProgressManager
@@ -11,15 +12,11 @@ import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.UnprotectedUserDataHolder
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.platform.syntax.SyntaxElementType
-import com.intellij.platform.syntax.lexer.Lexer
 import com.intellij.platform.syntax.lexer.TokenList
 import com.intellij.platform.syntax.parser.*
 import com.intellij.platform.syntax.parser.SyntaxTreeBuilder
 import com.intellij.platform.syntax.parser.SyntaxTreeBuilderFactory.builder
-import com.intellij.platform.syntax.psi.ElementTypeConverter
-import com.intellij.platform.syntax.psi.LanguageSyntaxDefinition
-import com.intellij.platform.syntax.psi.PsiSyntaxBuilder
-import com.intellij.platform.syntax.psi.convertNotNull
+import com.intellij.platform.syntax.psi.*
 import com.intellij.psi.PsiFile
 import com.intellij.psi.impl.BlockSupportImpl
 import com.intellij.psi.impl.DiffLog
@@ -28,7 +25,10 @@ import com.intellij.psi.impl.source.tree.FileElement
 import com.intellij.psi.impl.source.tree.LazyParseableElement
 import com.intellij.psi.text.BlockSupport
 import com.intellij.psi.text.BlockSupport.ReparsedSuccessfullyException
-import com.intellij.psi.tree.*
+import com.intellij.psi.tree.CustomLanguageASTComparator
+import com.intellij.psi.tree.IElementType
+import com.intellij.psi.tree.IFileElementType
+import com.intellij.psi.tree.ILazyParseableElementTypeBase
 import com.intellij.util.CharTable
 import com.intellij.util.ThreeState
 import com.intellij.util.TripleFunction
@@ -42,14 +42,13 @@ internal class PsiSyntaxBuilderImpl(
   internal var file: PsiFile?,
   private val parserDefinition: ParserDefinition,
   syntaxDefinition: LanguageSyntaxDefinition,
-  val lexer: Lexer,
   internal var charTable: CharTable?,
   private val text: CharSequence,
   private val originalTree: ASTNode?,
   private val lastCommittedText: CharSequence?,
   private val parentLightTree: FlyweightCapableTreeStructure<LighterASTNode>?,
   internal val startOffset: Int,
-  cachedLexemes: TokenList?,
+  private val tokenList: TokenList,
   private val tokenConverter: ElementTypeConverter,
   opaquePolicy: OpaqueElementPolicy?,
   whitespaceOrCommentBindingPolicy: WhitespaceOrCommentBindingPolicy?,
@@ -59,18 +58,20 @@ internal class PsiSyntaxBuilderImpl(
     text = text,
     whitespaces = syntaxDefinition.getWhitespaceTokens(),
     comments = syntaxDefinition.getCommentTokens(),
-    lexer = lexer
+    tokenList = tokenList,
   )
     .withStartOffset(startOffset)
-    .withCachedLexemes(cachedLexemes)
     .withDebugMode(false)
     .withLanguage(this.file?.getLanguage()?.toString())
     .withCancellationProvider { ProgressManager.checkCanceled() }
     .withWhitespaceOrCommentBindingPolicy(whitespaceOrCommentBindingPolicy)
     .withOpaquePolicy(opaquePolicy)
+    .withLogger(syntaxTreeBuilderLogger)
     .build()
 
   internal val textArray: CharArray? = CharArrayUtil.fromSequenceWithoutCopying(text)
+
+  private var customComparator: TripleFunction<ASTNode, LighterASTNode, FlyweightCapableTreeStructure<LighterASTNode>, ThreeState>? = null
 
   private var productionResult: ProductionResult? = null
 
@@ -128,13 +129,16 @@ internal class PsiSyntaxBuilderImpl(
     builder.setDebugMode(value)
   }
 
+  override fun setCustomComparator(comparator: TripleFunction<ASTNode, LighterASTNode, FlyweightCapableTreeStructure<LighterASTNode>, ThreeState>) {
+    customComparator = comparator
+  }
+
   private fun merge(oldRoot: ASTNode, newRoot: CompositeNode, lastCommittedText: CharSequence): DiffLog {
     val diffLog = DiffLog()
     val builder = ConvertFromTokensToASTBuilder(newRoot, diffLog)
     val treeStructure = MyTreeStructure(newRoot, null)
     val customLanguageASTComparators = CustomLanguageASTComparator.getMatchingComparators(this.file!!)
-    val data = getUserData(CUSTOM_COMPARATOR)
-    val comparator = MyComparator(treeStructure, customLanguageASTComparators, data)
+    val comparator = MyComparator(treeStructure, customLanguageASTComparators, customComparator)
     val indicator = ProgressIndicatorProvider.getGlobalProgressIndicator() ?: EmptyProgressIndicator()
     BlockSupportImpl.diffTrees(oldRoot, builder, comparator, treeStructure, indicator, lastCommittedText)
     return diffLog
@@ -196,8 +200,8 @@ internal class PsiSyntaxBuilderImpl(
     @Suppress("UNCHECKED_CAST")
     val originalLexTypes = arrayOfNulls<SyntaxElementType>(tokenCount) as Array<SyntaxElementType>
     productionResult.copyTokenTypesToArray(originalLexTypes, 0, 0, tokenCount)
-    @Suppress("UNCHECKED_CAST")
-    val lexTypes = tokenConverter.convert(originalLexTypes) as Array<IElementType>
+    val lexTypes = tokenConverter.convert(originalLexTypes)
+    assertAllElementsConverted(lexTypes, originalLexTypes)
 
     val compositeOptionalData = CompositeOptionalData()
 
@@ -209,7 +213,7 @@ internal class PsiSyntaxBuilderImpl(
       whitespaceTokens = parserDefinition.whitespaceTokens,
       lexemeCount = tokenCount,
       lexTypes = originalLexTypes,
-      convertedLexTypes = lexTypes,
+      convertedLexTypes = lexTypes as Array<IElementType>,
       charTable = this.charTable,
       astFactory = parserDefinition as? ASTFactory,
       textArray = this.textArray,
@@ -277,6 +281,17 @@ internal class PsiSyntaxBuilderImpl(
     return rootMarker
   }
 
+  private fun assertAllElementsConverted(
+    lexTypes: Array<IElementType?>,
+    originalLexTypes: Array<SyntaxElementType>,
+  ) {
+    for (i in 0..<lexTypes.size) {
+      if (lexTypes[i] == null) {
+        throw IllegalStateException("IElementType for token ${originalLexTypes[i]} is missing. TokenConverter = $tokenConverter")
+      }
+    }
+  }
+
   private fun markCollapsedNodes(
     productionResult: ProductionResult,
     nodeData: NodeData,
@@ -321,17 +336,6 @@ internal class PsiSyntaxBuilderImpl(
   }
 
   companion object {
-    // todo replace with proper API?
-    // function stored in PsiSyntaxBuilderImpl's user data that is called during reparse when the algorithm is not sure what to merge
-    @JvmField
-    val CUSTOM_COMPARATOR: Key<TripleFunction<ASTNode?, LighterASTNode?, FlyweightCapableTreeStructure<LighterASTNode>?, ThreeState>> = Key.create("CUSTOM_COMPARATOR")
-
-    // todo let's try to get rid of this method
-    @JvmStatic
-    fun registerWhitespaceToken(type: IElementType) {
-      ourAnyLanguageWhitespaceTokens = TokenSet.orSet(ourAnyLanguageWhitespaceTokens, TokenSet.create(type))
-    }
-
     // todo introduce proper API?
     @JvmStatic
     fun getErrorMessage(node: LighterASTNode): @NlsContexts.DetailedDescription String? {
@@ -366,6 +370,6 @@ internal val LAZY_PARSEABLE_TOKENS = Key.create<TokenList>("LAZY_PARSEABLE_TOKEN
 internal const val UNBALANCED_MESSAGE: @NonNls String = "Unbalanced tree. Most probably caused by unbalanced markers. " +
                                                         "Try calling setDebugMode(true) against PsiBuilder passed to identify exact location of the problem"
 
-private val LOG = Logger.getInstance(PsiSyntaxBuilderImpl::class.java)
+private val LOG: Logger = Logger.getInstance(PsiSyntaxBuilderImpl::class.java)
 
-internal var ourAnyLanguageWhitespaceTokens: TokenSet = TokenSet.EMPTY
+private val syntaxTreeBuilderLogger: com.intellij.platform.syntax.Logger = logger<SyntaxTreeBuilder>().asSyntaxLogger()

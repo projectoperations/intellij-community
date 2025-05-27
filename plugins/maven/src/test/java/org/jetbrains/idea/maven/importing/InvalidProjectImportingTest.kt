@@ -64,7 +64,7 @@ class InvalidProjectImportingTest : MavenMultiVersionImportingTestCase() {
     createProjectPom("""
                        <groupId>test</groupId>
                        <artifactId>project</artifactId>
-                       <packaging>jar</packaging>
+                       <packaging>pom</packaging>
                        <version>1</version>
                        <modules>
                          <module>m1</module>
@@ -92,7 +92,7 @@ class InvalidProjectImportingTest : MavenMultiVersionImportingTestCase() {
     updateProjectPom("""
                        <groupId>test</groupId>
                        <artifactId>project</artifactId>
-                       <packaging>jar</packaging>
+                       <packaging>pom</packaging>
                        <version>1</version>
                        <modules>
                          <module>m1</module>
@@ -121,7 +121,7 @@ class InvalidProjectImportingTest : MavenMultiVersionImportingTestCase() {
     createProjectPom("""
                        <groupId>test</groupId>
                        <artifactId>project</artifactId>
-                       <packaging>jar</packaging>
+                       <packaging>pom</packaging>
                        <version>1</version>
                        <modules>
                          <module>m1</module>
@@ -146,15 +146,15 @@ class InvalidProjectImportingTest : MavenMultiVersionImportingTestCase() {
     assertModuleLibDeps("m1", "Maven: somegroup:artifact:1.0")
 
 
-    createProjectPom("""
+    updateProjectPom("""
                        <groupId>test</groupId>
-                       <packaging>jar</packaging>
+                       <packaging>pom</packaging>
                        <version>1</version>
                        <modules>
                          <module>m1</module>
                        </modules>
                        """.trimIndent())
-    createModulePom("m1", """
+    updateModulePom("m1", """
       <groupId>test</groupId>
       <artifactId>m1</artifactId>
       <version>1</version>
@@ -165,7 +165,7 @@ class InvalidProjectImportingTest : MavenMultiVersionImportingTestCase() {
       </dependencies>
       """.trimIndent())
 
-    importProjectAsync()
+    updateAllProjects()
     assertModules("project", "m1")
     assertModuleLibDeps("m1", "Maven: somegroup:artifact:1.0")
   }
@@ -272,8 +272,7 @@ class InvalidProjectImportingTest : MavenMultiVersionImportingTestCase() {
       assertTrue(problems[1]!!.description, problems[1]!!.description == "Module 'foo' not found")
     }
     forMaven4 {
-      UsefulTestCase.assertSize(1, problems)
-      assertTrue(problems[0]!!.description, problems[0]!!.description == "Module 'foo' not found")
+      assertContain(problems.map { it.description }, "Module 'foo' not found")
     }
   }
 
@@ -292,7 +291,8 @@ class InvalidProjectImportingTest : MavenMultiVersionImportingTestCase() {
     assertModules("project")
 
     val root = rootProjects[0]
-    assertProblems(root, "Module 'foo' not found")
+    val problem = root.problems.firstOrNull { it.description!!.contains("Module 'foo' not found") }
+    assertNotNull("Expected: Module 'foo' not found", problem)
   }
 
   @Test
@@ -342,7 +342,14 @@ class InvalidProjectImportingTest : MavenMultiVersionImportingTestCase() {
     assertModules("project", "foo")
 
     val root = rootProjects[0]
-    assertProblems(getModules(root)[0], "'pom.xml' has syntax errors")
+    val mavenProject = getModules(root)[0]
+    forMaven3 {
+      val problem = mavenProject.problems[0].description!!
+      assertTrue(problem.contains("Non-parseable POM"))
+    }
+    forMaven4 {
+      assertProblems(mavenProject, "'pom.xml' has syntax errors")
+    }
   }
 
   @Test

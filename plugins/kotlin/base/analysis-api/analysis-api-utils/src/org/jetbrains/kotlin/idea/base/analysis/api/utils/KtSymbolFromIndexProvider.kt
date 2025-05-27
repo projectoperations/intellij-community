@@ -11,16 +11,22 @@ import com.intellij.psi.PsiMethod
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.search.PsiShortNamesCache
 import com.intellij.util.Processor
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
+import org.jetbrains.kotlin.analysis.api.KaPlatformInterface
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.components.KaBuiltinTypes
+import org.jetbrains.kotlin.analysis.api.platform.projectStructure.KotlinProjectStructureProvider
+import org.jetbrains.kotlin.analysis.api.projectStructure.KaDanglingFileModule
+import org.jetbrains.kotlin.analysis.api.projectStructure.KaModule
+import org.jetbrains.kotlin.analysis.api.projectStructure.KaSourceModule
 import org.jetbrains.kotlin.analysis.api.symbols.*
 import org.jetbrains.kotlin.analysis.api.types.*
 import org.jetbrains.kotlin.base.analysis.isExcludedFromAutoImport
 import org.jetbrains.kotlin.idea.base.psi.kotlinFqName
 import org.jetbrains.kotlin.idea.stubindex.*
 import org.jetbrains.kotlin.name.Name
-import org.jetbrains.kotlin.platform.isCommon
+import org.jetbrains.kotlin.platform.isMultiPlatform
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.isExpectDeclaration
 import org.jetbrains.kotlin.psi.psiUtil.isExtensionDeclaration
@@ -33,22 +39,27 @@ class KtSymbolFromIndexProvider(
     private val project: Project
         get() = file.project
 
+    private fun keyFilter(nameFilter: (Name) -> Boolean): (String) -> Boolean = { name ->
+        val name = name.substringAfterLast('.')
+        nameFilter(Name.identifier(name))
+    }
+
     context(KaSession)
     private fun <T : PsiElement> T.isAcceptable(psiFilter: (T) -> Boolean): Boolean {
         if (!psiFilter(this)) return false
 
         if (kotlinFqName?.isExcludedFromAutoImport(project, file) == true) return false
-        
+
         if (this !is KtDeclaration) {
             // no more checks for non-kotlin elements
             return true
         }
 
-        if (isExpectDeclaration() && !useSiteModule.targetPlatform.isCommon()) {
+        if (isIgnoredExpectDeclaration()) {
             // filter out expect declarations outside of common modules
             return false
         }
-        
+
         if (isFromKotlinMetadataOrBuiltins()) {
             return false
         }
@@ -83,7 +94,7 @@ class KtSymbolFromIndexProvider(
         scope: GlobalSearchScope = analysisScope,
         psiFilter: (KtClassLikeDeclaration) -> Boolean = { true },
     ): Sequence<KaClassLikeSymbol> {
-        val keyFilter: (String) -> Boolean = { nameFilter(getShortName(it)) }
+        val keyFilter: (String) -> Boolean = keyFilter(nameFilter)
         val resolveExtensionScope = resolveExtensionScopeWithTopLevelDeclarations
 
         return getClassLikeSymbols(
@@ -120,7 +131,7 @@ class KtSymbolFromIndexProvider(
     ): Sequence<KaClassSymbol> = KotlinSubclassObjectNameIndex.getAllElements<KtObjectDeclaration>(
         project,
         scope,
-        keyFilter = { nameFilter(getShortName(it)) },
+        keyFilter = keyFilter(nameFilter),
     ) { it.isAcceptable(psiFilter) }
         .map { it.symbol }
 
@@ -132,7 +143,7 @@ class KtSymbolFromIndexProvider(
     ): Sequence<KaEnumEntrySymbol> = KotlinFullClassNameIndex.getAllElements<KtEnumEntry>(
         project = project,
         scope = scope,
-        keyFilter = { nameFilter(getShortName(it)) },
+        keyFilter = keyFilter(nameFilter),
     ) { it.isAcceptable(psiFilter) }
         .map { it.symbol }
 
@@ -193,7 +204,7 @@ class KtSymbolFromIndexProvider(
         index.getAllElements<KtCallableDeclaration>(
             project = project,
             scope = scope,
-            keyFilter = { nameFilter(getShortName(it)) },
+            keyFilter = keyFilter(nameFilter),
         ) { declaration ->
             declaration.isAcceptable(psiFilter)
                     && !declaration.isExtensionDeclaration()
@@ -212,7 +223,8 @@ class KtSymbolFromIndexProvider(
         KotlinFunctionShortNameIndex,
         KotlinPropertyShortNameIndex,
     ).flatMap { helper ->
-        val processor = CancelableCollectFilterProcessor { declaration: KtNamedDeclaration ->
+        val results = mutableListOf<KtNamedDeclaration>()
+        val processor = cancelableCollectFilterProcessor(results) { declaration: KtNamedDeclaration ->
             declaration is KtCallableDeclaration
                     && declaration.isAcceptable(psiFilter)
         }
@@ -224,7 +236,7 @@ class KtSymbolFromIndexProvider(
             processor = processor,
         )
 
-        processor.results
+        results
     }.map { it.symbol }
         .filterIsInstance<KaCallableSymbol>() +
             resolveExtensionScopeWithTopLevelDeclarations.callables(name)
@@ -280,7 +292,8 @@ class KtSymbolFromIndexProvider(
         KotlinTopLevelFunctionFqnNameIndex,
         KotlinTopLevelPropertyFqnNameIndex,
     ).flatMap { helper ->
-        val processor = CancelableCollectFilterProcessor { declaration: KtCallableDeclaration ->
+        val results = mutableListOf<KtCallableDeclaration>()
+        val processor = cancelableCollectFilterProcessor(results) { declaration: KtCallableDeclaration ->
             declaration.isAcceptable(psiFilter)
                     && declaration.receiverTypeReference == null
         }
@@ -288,15 +301,45 @@ class KtSymbolFromIndexProvider(
         helper.processAllElements(
             project = project,
             scope = scope,
-            filter = { nameFilter(getShortName(it)) },
+            filter = keyFilter(nameFilter),
             processor = processor,
         )
 
-        processor.results
+        results
     }.map { it.symbol }
         .filterIsInstance<KaCallableSymbol>() +
             resolveExtensionScopeWithTopLevelDeclarations.callables(nameFilter)
                 .filterNot { it.isExtension }
+
+    /**
+     * Returns top-level callables, including extensions.
+     */
+    context(KaSession)
+    @OptIn(KaExperimentalApi::class)
+    fun getTopLevelCallableSymbolsByNameFilterIncludingExtensions(
+        nameFilter: (Name) -> Boolean,
+        scope: GlobalSearchScope = analysisScope,
+        psiFilter: (KtCallableDeclaration) -> Boolean = { true }
+    ): Sequence<KaCallableSymbol> = sequenceOf(
+        KotlinTopLevelFunctionFqnNameIndex,
+        KotlinTopLevelPropertyFqnNameIndex,
+    ).flatMap { helper ->
+        val results = mutableListOf<KtCallableDeclaration>()
+        val processor = cancelableCollectFilterProcessor(results) { declaration: KtCallableDeclaration ->
+            declaration.isAcceptable(psiFilter)
+        }
+
+        helper.processAllElements(
+            project = project,
+            scope = scope,
+            filter = keyFilter(nameFilter),
+            processor = processor,
+        )
+
+        results
+    }.map { it.symbol }
+        .filterIsInstance<KaCallableSymbol>() +
+            resolveExtensionScopeWithTopLevelDeclarations.callables(nameFilter)
 
     context(KaSession)
     @OptIn(KaExperimentalApi::class)
@@ -390,9 +433,6 @@ class KtSymbolFromIndexProvider(
             .getPoint(project) // could have been ::lazySequence in this case
             .let { it as ExtensionPointImpl<PsiShortNamesCache> }
             .filterNot { it::class.java.name == "org.jetbrains.kotlin.idea.caches.KotlinShortNamesCache" }
-
-    private fun getShortName(fqName: String) = Name.identifier(fqName.substringAfterLast('.'))
-
 }
 
 private fun findAllNamesForTypes(
@@ -404,7 +444,14 @@ private fun findAllNamesForTypes(
     fun findAllNamesForType(type: KaType): Set<Name> = when (type) {
         is KaFlexibleType -> findAllNamesForType(type.lowerBound)
 
+        is KaDefinitelyNotNullType -> findAllNamesForType(type.original)
+        
         is KaIntersectionType -> findAllNamesForTypes(project, type.conjuncts, scope, builtinTypes)
+
+        is KaCapturedType -> type.projection
+            .type
+            ?.let { findAllNamesForType(it) }
+            ?: emptySet()
 
         is KaTypeParameterType -> {
             // when no explicit upper bounds, we consider `Any` to be an upper bound
@@ -479,4 +526,44 @@ private fun MutableSet<Name>.createNamesProcessor(
         ?.takeIf(nameFilter)
         ?.let(this@createNamesProcessor::add)
     true
+}
+
+/**
+ * Returns whether the module can declare expect declarations that could be implemented by an implementing module.
+ */
+private fun KaModule.canHaveExpectDeclarations(): Boolean {
+    if (targetPlatform.isMultiPlatform()) return true
+
+    @OptIn(KaPlatformInterface::class)
+    val contextModule = (this as? KaDanglingFileModule)?.contextModule ?: this
+    // We return true in this case out of caution, because we do not know for sure.
+    if (contextModule !is KaSourceModule) return true
+
+    // We can assume that only modules that have some implementing module can have expect declarations because otherwise
+    // they do not make sense.
+    return KotlinProjectStructureProvider.getInstance(project)
+        .getImplementingModules(contextModule)
+        .isNotEmpty()
+}
+
+/**
+ * We ignore expect declarations within completion in leaf modules because they will already be filled by their (more relevant)
+ * actual counterpart.
+ */
+context(KaSession)
+@ApiStatus.Internal
+fun KaDeclarationSymbol.isIgnoredExpectDeclaration(): Boolean {
+    if (!isExpect) return false
+    return !useSiteModule.canHaveExpectDeclarations()
+}
+
+
+/**
+ * See [KaDeclarationSymbol.isIgnoredExpectDeclaration].
+ */
+context(KaSession)
+@ApiStatus.Internal
+fun KtDeclaration.isIgnoredExpectDeclaration(): Boolean {
+    if (!isExpectDeclaration()) return false
+    return !useSiteModule.canHaveExpectDeclarations()
 }

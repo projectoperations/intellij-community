@@ -44,14 +44,16 @@ private object TestGradleProjectConfigurationActivityKey: ActivityKey {
 
 suspend fun awaitGradleOpenProjectConfiguration(openProject: suspend () -> Project): Project {
   return openProject().withProjectAsync { project ->
-    TestObservation.awaitConfiguration(DEFAULT_SYNC_TIMEOUT, project)
+    TestObservation.awaitConfiguration(project, DEFAULT_SYNC_TIMEOUT)
     IndexingTestUtil.suspendUntilIndexesAreReady(project)
   }
 }
 
 suspend fun <R> awaitGradleProjectConfiguration(project: Project, action: suspend () -> R): R {
-  return project.trackActivity(TestGradleProjectConfigurationActivityKey, action).also {
-    TestObservation.awaitConfiguration(DEFAULT_SYNC_TIMEOUT, project)
+  try {
+    return project.trackActivity(TestGradleProjectConfigurationActivityKey, action)
+  } finally {
+    TestObservation.awaitConfiguration(project, DEFAULT_SYNC_TIMEOUT)
     IndexingTestUtil.suspendUntilIndexesAreReady(project)
   }
 }

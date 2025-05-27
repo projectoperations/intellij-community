@@ -25,10 +25,12 @@ def _jvm_resources_impl(ctx):
             "supports-workers": "1",
             "supports-multiplex-workers": "1",
             "supports-worker-cancellation": "1",
+            "supports-path-mapping": "1",
+            "supports-multiplex-sandboxing": "1",
         },
         env = {
-            # for Java source files
             "LC_CTYPE": "en_US.UTF-8",
+            "MALLOC_ARENA_MAX": "2",
         },
     )
     return [
@@ -59,7 +61,7 @@ jvm_resources = rule(
         ),
         # see https://bazel.build/extending/rules#private_attributes_and_implicit_dependencies about implicit dependencies
         "_worker": attr.label(
-            default = Label("//:worker-impl"),
+            default = Label("//:resource-packager"),
             executable = True,
             allow_files = True,
             cfg = "exec",

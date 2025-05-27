@@ -12,11 +12,13 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.invokeLater
 import com.intellij.openapi.command.undo.UndoUtil
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.EditorKind
 import com.intellij.openapi.editor.colors.EditorFontType
+import com.intellij.openapi.editor.colors.impl.FontPreferencesImpl
 import com.intellij.openapi.editor.event.EditorMouseEvent
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.ex.EditorGutterFreePainterAreaState
@@ -27,10 +29,13 @@ import com.intellij.openapi.editor.impl.view.DoubleWidthCharacterStrategy
 import com.intellij.openapi.editor.impl.view.FontLayoutService
 import com.intellij.openapi.editor.markup.EffectType
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.openapi.fileEditor.impl.zoomIndicator.ZoomIndicatorManager
+import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.options.advanced.AdvancedSettings
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.Key
+import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.terminal.JBTerminalSystemSettingsProviderBase
 import com.intellij.terminal.TerminalColorPalette
 import com.intellij.ui.components.JBLayeredPane
@@ -60,6 +65,8 @@ import java.awt.Color
 import java.awt.Component
 import java.awt.Dimension
 import java.awt.Font
+import java.awt.datatransfer.DataFlavor
+import java.awt.datatransfer.Transferable
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
 import java.awt.event.InputEvent
@@ -289,13 +296,34 @@ object TerminalUiUtils {
 
 fun EditorImpl.applyFontSettings(newSettings: JBTerminalSystemSettingsProviderBase) {
   colorsScheme.apply {
-    editorFontName = newSettings.terminalFont.fontName
-    setEditorFontSize(newSettings.terminalFont.size2D)
+    val newPreferences = FontPreferencesImpl()
+    newSettings.fontPreferences.copyTo(newPreferences)
+    // the font size in the settings is unscaled, we need to get the scaled one separately
+    for (fontFamily in newPreferences.effectiveFontFamilies) {
+      newPreferences.setFontSize(fontFamily, newSettings.terminalFontSize)
+    }
+    fontPreferences = newPreferences
+    // for some reason, even though fontPreferences contains lineSpacing, the editor doesn't take it from there
     lineSpacing = newSettings.lineSpacing
   }
   settings.apply {
     characterGridWidthMultiplier = newSettings.columnSpacing
   }
+}
+
+@ApiStatus.Internal
+fun EditorImpl.setTerminalFontSize(
+  fontSize: Float,
+  showZoomIndicator: Boolean,
+) {
+  if (!showZoomIndicator) {
+    putUserData(ZoomIndicatorManager.SUPPRESS_ZOOM_INDICATOR_ONCE, true)
+  }
+  setFontSize(
+    fontSize,
+    ChangeTerminalFontSizeStrategy.preferredZoomPointRelative(this),
+    true
+  )
 }
 
 internal fun Editor.getCharSize(): Dimension2D {
@@ -495,4 +523,47 @@ inline fun <T> TerminalTextBuffer.withLock(callable: (TerminalTextBuffer) -> T):
 
 fun JBLayeredPane.addToLayer(component: JComponent, layer: Int) {
   add(component, layer as Any) // Any is needed to resolve to the correct overload.
+}
+
+@ApiStatus.Internal
+fun getClipboardText(useSystemSelectionClipboardIfAvailable: Boolean = false): String? {
+  if (useSystemSelectionClipboardIfAvailable) {
+    val text = getTextContent(CopyPasteManager.getInstance().systemSelectionContents)
+    if (text != null) {
+      return text
+    }
+  }
+  return getTextContent(CopyPasteManager.getInstance().contents)
+}
+
+private fun getTextContent(content: Transferable?): String? {
+  if (content == null) return null
+
+  return try {
+    if (content.isDataFlavorSupported(DataFlavor.stringFlavor)) {
+      content.getTransferData(DataFlavor.stringFlavor) as String
+    }
+    else null
+  }
+  catch (t: Throwable) {
+    logger<TerminalUiUtils>().error("Failed to get text from clipboard", t)
+    return null
+  }
+}
+
+/**
+ * The following logic was borrowed from JediTerm.
+ * Sanitize clipboard text to use CR as the line separator.
+ * See https://github.com/JetBrains/jediterm/issues/136.
+ */
+@ApiStatus.Internal
+fun sanitizeLineSeparators(text: String): String {
+  // On Windows, Java automatically does this CRLF->LF sanitization, but
+  // other terminals on Unix typically also do this sanitization.
+  var t = text
+  if (!SystemInfoRt.isWindows) {
+    t = text.replace("\r\n", "\n")
+  }
+  // Now convert this into what the terminal typically expects.
+  return t.replace("\n", "\r")
 }

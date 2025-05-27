@@ -13,6 +13,7 @@ jvm_library(
   visibility = ["//visibility:public"],
   srcs = glob(["src/**/*.kt", "src/**/*.java"], allow_empty = True),
   deps = [
+    "//platform/editor-ui-api:editor-ui",
     "//platform/lang-api:lang",
     "//platform/util:util-ui",
     "//platform/util/concurrency",
@@ -21,6 +22,7 @@ jvm_library(
     "@lib//:kotlinx-serialization-core",
     "@lib//:kotlinx-serialization-json",
     "@lib//:kotlin-stdlib",
+    "//platform/core-api:core",
   ],
   exports = [
     "//platform/lang-api:lang",

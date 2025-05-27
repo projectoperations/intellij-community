@@ -17,11 +17,11 @@ import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.wm.impl.welcomeScreen.FlatWelcomeFrame
 import com.intellij.openapi.wm.impl.welcomeScreen.RecentProjectPanel
-import com.intellij.openapi.wm.impl.welcomeScreen.WelcomeScreenUIManager
 import com.intellij.openapi.wm.impl.welcomeScreen.cloneableProjects.CloneableProjectsService
 import com.intellij.openapi.wm.impl.welcomeScreen.cloneableProjects.CloneableProjectsService.CloneStatus
 import com.intellij.openapi.wm.impl.welcomeScreen.cloneableProjects.CloneableProjectsService.CloneableProject
 import com.intellij.openapi.wm.impl.welcomeScreen.projectActions.RecentProjectsWelcomeScreenActionBase
+import com.intellij.toolWindow.ToolWindowPane
 import com.intellij.ui.*
 import com.intellij.ui.components.TextComponentEmptyText
 import com.intellij.ui.components.panels.VerticalLayout
@@ -44,6 +44,7 @@ import com.intellij.util.ui.*
 import com.intellij.util.ui.accessibility.AccessibleContextUtil
 import com.intellij.util.ui.components.BorderLayoutPanel
 import com.intellij.util.ui.tree.TreeUtil
+import org.jetbrains.annotations.ApiStatus
 import java.awt.*
 import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
@@ -57,7 +58,8 @@ import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.TreeCellRenderer
 import javax.swing.tree.TreePath
 
-internal class RecentProjectFilteringTree(
+@ApiStatus.Internal
+class RecentProjectFilteringTree(
   treeComponent: Tree,
   parentDisposable: Disposable,
   collectors: List<() -> List<RecentProjectTreeItem>>,
@@ -97,7 +99,6 @@ internal class RecentProjectFilteringTree(
     treeComponent.isRootVisible = false
     treeComponent.cellRenderer = ProjectActionRenderer(filePathChecker::isValid, projectActionButtonViewModel)
     treeComponent.rowHeight = 0 // Fix tree renderer size on macOS
-    treeComponent.background = WelcomeScreenUIManager.getProjectsBackground()
     treeComponent.toggleClickCount = 0
 
     treeComponent.setUI(FullRendererComponentTreeUI())
@@ -184,7 +185,7 @@ internal class RecentProjectFilteringTree(
     }
   }
 
-  internal fun selectLastOpenedProject() {
+  fun selectLastOpenedProject() {
     val recentProjectsManager = RecentProjectsManagerBase.getInstanceEx()
     val projectPath = recentProjectsManager.getLastOpenedProject() ?: return
 
@@ -390,7 +391,6 @@ internal class RecentProjectFilteringTree(
       private val projectNameLabel = JLabel()
       private val providerPathLabel = ComponentPanelBuilder.createNonWrappingCommentComponent("").apply {
         foreground = NamedColorUtil.getInactiveTextColor()
-        icon = AllIcons.Nodes.Console
       }
       private val projectPathLabel = ComponentPanelBuilder.createNonWrappingCommentComponent("").apply {
         foreground = NamedColorUtil.getInactiveTextColor()
@@ -411,6 +411,9 @@ internal class RecentProjectFilteringTree(
         add(projectPathLabel)
         add(projectBranchNameLabel)
       }
+      private val projectProgressBar = JProgressBar().apply {
+        isOpaque = false
+      }
       private val updateScaleHelper = UpdateScaleHelper()
 
       init {
@@ -420,6 +423,7 @@ internal class RecentProjectFilteringTree(
                 gaps = if (ExperimentalUI.isNewUI()) UnscaledGaps(6, 6, 0, 8) else UnscaledGaps(top = 8, right = 8),
                 verticalAlign = VerticalAlign.TOP)
           .cell(projectNamePanel, resizableColumn = true, horizontalAlign = HorizontalAlign.FILL, gaps = UnscaledGaps(4, 4, 4, 4))
+          .cell(projectProgressBar, gaps = UnscaledGaps(left = 8, right = 8))
           .cell(projectActions, gaps = UnscaledGaps(right = ActionsButton.RIGHT_GAP))
       }
 
@@ -437,7 +441,8 @@ internal class RecentProjectFilteringTree(
                            providerPath = null,
                            tooltip = tooltip,
                            projectIcon = projectIcon,
-                           isProjectValid = isProjectValid)
+                           isProjectValid = isProjectValid,
+                           providerIcon = null)
 
         if (isProjectValid) {
           buttonViewModel.prepareActionsButton(projectActions, rowHovered, AllIcons.Ide.Notification.Gear,
@@ -462,10 +467,19 @@ internal class RecentProjectFilteringTree(
                            providerPath = item.providerPath,
                            tooltip = null,
                            projectIcon = projectIcon,
-                           isProjectValid = isProjectValid)
+                           isProjectValid = isProjectValid,
+                           providerIcon = item.providerIcon)
 
-        buttonViewModel.prepareActionsButton(projectActions, rowHovered, AllIcons.Ide.Notification.Gear,
-                                             AllIcons.Ide.Notification.GearHover)
+        buttonViewModel.prepareActionsButton(projectActions, rowHovered,
+                                             AllIcons.Ide.Notification.Gear,
+                                             AllIcons.Ide.Notification.GearHover,
+                                             alwaysReserveSpace = true)
+
+        if (item.isProjectOpening) {
+          projectProgressBar.isVisible = true
+          projectProgressBar.isEnabled = true
+          projectProgressBar.isIndeterminate = true
+        }
 
         return this
       }
@@ -478,15 +492,21 @@ internal class RecentProjectFilteringTree(
         tooltip: @NlsSafe String?,
         projectIcon: Icon,
         isProjectValid: Boolean,
+        providerIcon: Icon?,
       ) {
         updateScaleHelper.saveScaleAndUpdateUIIfChanged(this)
         projectNameLabel.apply {
           text = displayName
           foreground = if (isProjectValid) UIUtil.getListForeground() else NamedColorUtil.getInactiveTextColor()
+          accessibleContext.accessibleName =
+            if (isProjectValid) displayName
+            else IdeBundle.message("welcome.screen.recent.projects.name.label.unavailable.accessible.name", displayName)
         }
         providerPathLabel.apply {
           text = providerPath ?: ""
           isVisible = providerPath != null
+          icon = providerIcon
+          verticalTextPosition = SwingConstants.CENTER
         }
         projectPathLabel.apply {
           text = projectPath ?: ""
@@ -500,8 +520,10 @@ internal class RecentProjectFilteringTree(
         projectBranchNameLabel.apply {
           isVisible = branchName != null
           text = branchName ?: ""
+          accessibleContext.accessibleName = IdeBundle.message("welcome.screen.recent.projects.branch.label.accessible.name", text)
         }
 
+        projectProgressBar.isVisible = false
         projectActions.isVisible = false
 
         if (tooltip != toolTipText) {
@@ -509,12 +531,16 @@ internal class RecentProjectFilteringTree(
           toolTipText = tooltip
         }
 
-        AccessibleContextUtil.setCombinedName(this, projectNameLabel,
-                                              "-", providerPathLabel.takeIf { providerPathLabel.isVisible },
-                                              "-", projectPathLabel.takeIf { projectPathLabel.isVisible }) // NON-NLS
-        AccessibleContextUtil.setCombinedDescription(this, projectNameLabel,
-                                                     "-", providerPathLabel.takeIf { providerPathLabel.isVisible },
-                                                     "-", projectPathLabel.takeIf { projectPathLabel.isVisible }) // NON-NLS
+        getAccessibleContext().accessibleName = AccessibleContextUtil.getCombinedName(
+          ", ",
+          projectNameLabel,
+          providerPathLabel.takeIf { providerPathLabel.isVisible },
+          projectPathLabel.takeIf { projectPathLabel.isVisible },
+          projectBranchNameLabel.takeIf { projectBranchNameLabel.isVisible },
+        )
+        // Need to override the default description, which is the tooltip text,
+        // because we already have the tooltip content in the accessible name.
+        getAccessibleContext().accessibleDescription = ""
       }
 
       // Allow the recent project tree to reduce size of wide elements
@@ -679,6 +705,13 @@ internal class RecentProjectFilteringTree(
           else -> {}
         }
 
+        getAccessibleContext().accessibleName = AccessibleContextUtil.getCombinedName(
+          ", ",
+          projectNameLabel,
+          projectPathLabel.takeIf { projectPathLabel.isVisible },
+          projectProgressLabel.takeIf { projectProgressBarPanel.isVisible },
+        )
+
         return this
       }
     }
@@ -693,10 +726,17 @@ internal class RecentProjectFilteringTree(
     var isButtonHovered: Boolean = false,
   ) {
 
-    fun prepareActionsButton(button: ActionsButton, rowHovered: Boolean, icon: Icon, hoveredIcon: Icon) {
-      val hovered = isButtonHovered && rowHovered
-      button.isVisible = rowHovered
-      button.setState(if (hovered) hoveredIcon else icon, hovered)
+    fun prepareActionsButton(button: ActionsButton, rowHovered: Boolean, icon: Icon, hoveredIcon: Icon, alwaysReserveSpace: Boolean = false) {
+      val buttonHovered = isButtonHovered && rowHovered
+      val buttonIcon = if (buttonHovered) hoveredIcon else icon
+      if (alwaysReserveSpace) {
+        button.isVisible = true
+        button.setState(if (rowHovered) buttonIcon else EmptyIcon.create(buttonIcon), buttonHovered)
+      }
+      else {
+        button.isVisible = rowHovered
+        button.setState(buttonIcon, buttonHovered)
+      }
     }
   }
 
@@ -756,9 +796,13 @@ internal class RecentProjectFilteringTree(
 
     private fun createActionEvent(tree: Tree, inputEvent: InputEvent?): AnActionEvent {
       val dataContext = DataManager.getInstance().getDataContext(tree)
-      val actionPlace =
-        if (UIUtil.uiParents(tree, true).filter(FlatWelcomeFrame::class.java).isEmpty) ActionPlaces.POPUP
-        else ActionPlaces.WELCOME_SCREEN
+      val actionPlace = UIUtil.uiParents(tree, true).let { parents ->
+        for (parent in parents) {
+          if (parent is ToolWindowPane) return@let ActionPlaces.WELCOME_SCREEN_NON_MODAL
+          if (parent is FlatWelcomeFrame) return@let ActionPlaces.WELCOME_SCREEN
+        }
+        return@let ActionPlaces.POPUP
+      }
 
       return if (inputEvent == null) AnActionEvent.createFromDataContext(actionPlace, null, dataContext)
       else AnActionEvent.createFromInputEvent(inputEvent, actionPlace, null, dataContext)
@@ -780,7 +824,8 @@ internal class RecentProjectFilteringTree(
           item.openProject(actionEvent)
         }
         is ProviderRecentProjectItem -> {
-          item.openProject()
+          val actionEvent = createActionEvent(tree, inputEvent)
+          item.openProject(actionEvent)
         }
         is ProjectsGroupItem -> {
           val treePath = tree.selectionPath ?: return

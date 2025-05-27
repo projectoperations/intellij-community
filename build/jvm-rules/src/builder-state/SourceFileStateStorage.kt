@@ -1,8 +1,10 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("UnstableApiUsage", "ReplaceJavaStaticMethodWithKotlinAnalog", "ReplaceGetOrSet")
 
-package org.jetbrains.bazel.jvm.jps.state
+package org.jetbrains.bazel.jvm.worker.state
 
+import androidx.collection.MutableScatterMap
+import androidx.collection.ScatterMap
 import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.api.common.Attributes
 import io.opentelemetry.api.trace.Span
@@ -18,11 +20,7 @@ import org.apache.arrow.vector.types.pojo.ArrowType
 import org.apache.arrow.vector.types.pojo.Field
 import org.apache.arrow.vector.types.pojo.FieldType
 import org.apache.arrow.vector.types.pojo.Schema
-import org.jetbrains.annotations.VisibleForTesting
-import org.jetbrains.bazel.jvm.emptyList
-import org.jetbrains.bazel.jvm.emptyStringArray
-import org.jetbrains.bazel.jvm.hashMap
-import java.io.IOException
+import org.jetbrains.bazel.jvm.util.emptyStringArray
 import java.nio.file.Path
 
 // https://observablehq.com/@huggingface/apache-arrow-quick-view
@@ -38,65 +36,14 @@ private val outputListField = Field(
 
 private val sourceDescriptorSchema = Schema(java.util.List.of(sourceFileField, digestField, isChangedField, outputListField))
 
-// returns a reason to force rebuild
-private fun checkConfiguration(
-  metadata: Map<String, String>,
-  targetDigests: TargetConfigurationDigestContainer,
-): String? {
-  for (kind in TargetConfigurationDigestProperty.entries) {
-    val storedHashAsString = metadata.get(kind.name)?.let { metadata.get(kind.name) }
-    val actualHash = targetDigests.get(kind)
-    if (actualHash != java.lang.Long.parseUnsignedLong(storedHashAsString, Character.MAX_RADIX)) {
-      val expectedAsString = java.lang.Long.toUnsignedString(actualHash, Character.MAX_RADIX)
-      return "configuration digest mismatch (${kind.description}): expected $expectedAsString, got $storedHashAsString"
-    }
-  }
-  return null
-}
-
-@VisibleForTesting
 fun loadBuildState(
   buildStateFile: Path,
   relativizer: PathRelativizer,
   allocator: RootAllocator,
-  sourceFileToDigest: Map<Path, ByteArray>,
-): SourceFileStateResult? {
-  return loadBuildState(
-    buildStateFile = buildStateFile,
-    relativizer = relativizer,
-    allocator = allocator,
-    sourceFileToDigest = sourceFileToDigest,
-    targetDigests = null,
-    parentSpan = null,
-  )
-}
-
-fun loadBuildState(
-  buildStateFile: Path,
-  relativizer: PathRelativizer,
-  allocator: RootAllocator,
-  sourceFileToDigest: Map<Path, ByteArray>,
-  targetDigests: TargetConfigurationDigestContainer?,
+  sourceFileToDigest: ScatterMap<Path, ByteArray>,
   parentSpan: Span?,
 ): SourceFileStateResult? {
   return readArrowFile(buildStateFile, allocator, parentSpan) { fileReader ->
-    if (targetDigests != null) {
-      val rebuildRequested = checkConfiguration(metadata = fileReader.metaData, targetDigests = targetDigests)
-      if (rebuildRequested != null) {
-        if (parentSpan == null) {
-          throw IOException(rebuildRequested)
-        }
-        else {
-          return@readArrowFile SourceFileStateResult(
-            rebuildRequested = rebuildRequested,
-            map = createInitialSourceMap(sourceFileToDigest),
-            changedOrAddedFiles = emptyList(),
-            deletedFiles = emptyList(),
-          )
-        }
-      }
-    }
-
     doLoad(
       root = fileReader.vectorSchemaRoot,
       actualDigestMap = sourceFileToDigest,
@@ -106,9 +53,9 @@ fun loadBuildState(
   }
 }
 
-fun createInitialSourceMap(actualDigestMap: Map<Path, ByteArray>): Map<Path, SourceDescriptor> {
-  val result = hashMap<Path, SourceDescriptor>(actualDigestMap.size)
-  for ((path, digest) in actualDigestMap) {
+fun createInitialSourceMap(actualDigestMap: ScatterMap<Path, ByteArray>): ScatterMap<Path, SourceDescriptor> {
+  val result = MutableScatterMap<Path, SourceDescriptor>(actualDigestMap.size)
+  actualDigestMap.forEach { path, digest ->
     result.put(path, SourceDescriptor(sourceFile = path, digest = digest, outputs = emptyStringArray, isChanged = true))
   }
   return result
@@ -118,7 +65,6 @@ suspend fun saveBuildState(
   buildStateFile: Path,
   list: Array<SourceDescriptor>,
   relativizer: PathRelativizer,
-  metadata: Map<String, String>,
   allocator: RootAllocator,
 ) {
   VectorSchemaRoot.create(sourceDescriptorSchema, allocator).use { root ->
@@ -163,15 +109,13 @@ suspend fun saveBuildState(
     root.setRowCount(rowIndex)
 
     withContext(Dispatchers.IO) {
-      writeVectorToFile(buildStateFile, root, metadata)
+      writeVectorToFile(buildStateFile, root)
     }
   }
 }
 
 data class SourceFileStateResult(
-  @JvmField val rebuildRequested: String?,
-
-  @JvmField val map: Map<Path, SourceDescriptor>,
+  @JvmField val map: ScatterMap<Path, SourceDescriptor>,
   @JvmField val changedOrAddedFiles: List<Path>,
   @JvmField val deletedFiles: List<RemovedFileInfo>,
 )
@@ -184,7 +128,7 @@ class RemovedFileInfo(
 @OptIn(ExperimentalStdlibApi::class)
 private fun doLoad(
   root: VectorSchemaRoot,
-  actualDigestMap: Map<Path, ByteArray>,
+  actualDigestMap: ScatterMap<Path, ByteArray>,
   relativizer: PathRelativizer,
   parentSpan: Span?,
 ): SourceFileStateResult {
@@ -195,8 +139,9 @@ private fun doLoad(
   val outputListInnerVector = outputListVector.addOrGetVector<VarCharVector>(notNullUtfStringFieldType).vector
 
   // init a new state
-  val result = hashMap<Path, SourceDescriptor>(actualDigestMap.size)
-  val newFiles = hashMap(actualDigestMap)
+  val result = MutableScatterMap<Path, SourceDescriptor>(actualDigestMap.size)
+  val newFiles = MutableScatterMap<Path, ByteArray>(actualDigestMap.size)
+  newFiles.putAll(actualDigestMap)
   var outputIndex = 0
   val changedFiles = ArrayList<Path>()
   val deletedFiles = ArrayList<RemovedFileInfo>()
@@ -251,14 +196,16 @@ private fun doLoad(
     outputIndex++
   }
 
-  // if a file was not removed from newFiles, it means that file is unknown and so, a new one
+  // if a file was not removed from newFiles, it means that the file is unknown and so, a new one
   if (newFiles.isNotEmpty()) {
-    for (entry in newFiles) {
-      // for now, missing digest means that file is changed (not compiled)
-      result.put(entry.key, SourceDescriptor(sourceFile = entry.key, digest = entry.value, outputs = emptyStringArray, isChanged = true))
+    newFiles.forEach { path, digest ->
+      // for now, missing digest means that the file is changed (not compiled)
+      result.put(path, SourceDescriptor(sourceFile = path, digest = digest, outputs = emptyStringArray, isChanged = true))
     }
-    changedFiles.addAll(newFiles.keys)
+    newFiles.forEachKey {
+      changedFiles.add(it)
+    }
   }
 
-  return SourceFileStateResult(map = result, changedOrAddedFiles = changedFiles, deletedFiles = deletedFiles, rebuildRequested = null)
+  return SourceFileStateResult(map = result, changedOrAddedFiles = changedFiles, deletedFiles = deletedFiles)
 }

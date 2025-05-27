@@ -10,23 +10,32 @@ import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.signatures.KaCallableSignature
 import org.jetbrains.kotlin.analysis.api.signatures.KaFunctionSignature
 import org.jetbrains.kotlin.analysis.api.signatures.KaVariableSignature
-import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
-import org.jetbrains.kotlin.analysis.api.symbols.KaClassLikeSymbol
-import org.jetbrains.kotlin.analysis.api.symbols.KaClassifierSymbol
-import org.jetbrains.kotlin.analysis.api.symbols.KaTypeParameterSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.*
 import org.jetbrains.kotlin.analysis.api.symbols.markers.KaNamedSymbol
 import org.jetbrains.kotlin.analysis.api.types.KaType
+import org.jetbrains.kotlin.idea.completion.ItemPriority
 import org.jetbrains.kotlin.idea.completion.impl.k2.ImportStrategyDetector
+import org.jetbrains.kotlin.idea.completion.impl.k2.handlers.GetOperatorInsertionHandler
 import org.jetbrains.kotlin.idea.completion.impl.k2.lookups.factories.NamedArgumentLookupElementFactory
 import org.jetbrains.kotlin.idea.completion.impl.k2.lookups.factories.TypeLookupElementFactory
 import org.jetbrains.kotlin.idea.completion.lookups.CallableInsertionOptions
 import org.jetbrains.kotlin.idea.completion.lookups.ImportStrategy
 import org.jetbrains.kotlin.idea.completion.lookups.detectCallableOptions
+import org.jetbrains.kotlin.idea.completion.priority
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 
 @ApiStatus.Internal
 object KotlinFirLookupElementFactory {
+    context(KaSession)
+    @OptIn(KaExperimentalApi::class)
+    fun createConstructorCallLookupElement(
+        symbol: KaNamedClassSymbol,
+        importingStrategy: ImportStrategy = ImportStrategy.DoNothing,
+    ): LookupElementBuilder? {
+        val constructorSymbols = symbol.memberScope.constructors.toList().takeIf { it.isNotEmpty() } ?: return null
+        return ClassLookupElementFactory.createConstructorLookup(symbol, constructorSymbols, importingStrategy)
+    }
 
     context(KaSession)
     fun createClassifierLookupElement(
@@ -71,14 +80,15 @@ object KotlinFirLookupElementFactory {
     }
 
     context(KaSession)
-    @ApiStatus.Experimental
-    fun createCallableLookupElementWithTrailingLambda(
-        name: Name,
+    fun createGetOperatorLookupElement(
         signature: KaCallableSignature<*>,
         options: CallableInsertionOptions,
-    ): LookupElementBuilder? = when (signature) {
-        is KaFunctionSignature<*> -> FunctionLookupElementFactory.createLookupWithTrailingLambda(name, signature, options)
-        else -> null
+        expectedType: KaType? = null,
+    ): LookupElementBuilder {
+        val indexingLookupElement = createCallableLookupElement(Name.identifier("[]"), signature, options, expectedType)
+            .withInsertHandler(GetOperatorInsertionHandler)
+        indexingLookupElement.priority = ItemPriority.GET_OPERATOR
+        return indexingLookupElement
     }
 
     fun createPackagePartLookupElement(packagePartFqName: FqName): LookupElement =

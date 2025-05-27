@@ -4,7 +4,6 @@ package com.intellij.openapi.editor.impl;
 import com.intellij.codeWithMe.ClientId;
 import com.intellij.diagnostic.Dumpable;
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.*;
 import com.intellij.openapi.editor.colors.EditorColors;
@@ -64,6 +63,7 @@ public final class FoldingModelImpl extends InlayModel.SimpleAdapter
   private final List<FoldingListener> myListeners = ContainerUtil.createLockFreeCopyOnWriteList();
   private final Set<CustomFoldRegionImpl> myAffectedCustomRegions = new HashSet<>();
   private final AtomicBoolean myIsZombieRaised = new AtomicBoolean();
+  private final AtomicBoolean myIsAutoCreatedZombieRaised = new AtomicBoolean();
 
   private TextAttributes myFoldTextAttributes;
   private boolean myIsFoldingEnabled = true;
@@ -202,7 +202,7 @@ public final class FoldingModelImpl extends InlayModel.SimpleAdapter
 
   @Override
   public @Nullable FoldRegion getFoldRegion(int startOffset, int endOffset) {
-    assertReadAccess();
+    EditorThreading.assertInteractionAllowed();
     return myFoldTree.getRegionAt(startOffset, endOffset);
   }
 
@@ -213,13 +213,13 @@ public final class FoldingModelImpl extends InlayModel.SimpleAdapter
 
   @Override
   public @NotNull List<@NotNull FoldRegion> getRegionsOverlappingWith(int startOffset, int endOffset) {
-    assertReadAccess();
+    EditorThreading.assertInteractionAllowed();
     return myFoldTree.fetchOverlapping(startOffset, endOffset);
   }
 
   @Override
   public FoldRegion @NotNull [] getAllFoldRegions() {
-    assertReadAccess();
+    EditorThreading.assertInteractionAllowed();
     return myFoldTree.fetchAllRegions();
   }
 
@@ -245,7 +245,7 @@ public final class FoldingModelImpl extends InlayModel.SimpleAdapter
 
   @Override
   public boolean isOffsetCollapsed(int offset) {
-    assertReadAccess();
+    EditorThreading.assertInteractionAllowed();
     return getCollapsedRegionAtOffset(offset) != null;
   }
 
@@ -284,7 +284,7 @@ public final class FoldingModelImpl extends InlayModel.SimpleAdapter
 
   @Override
   public boolean hasDocumentRegionChangedFor(@NotNull FoldRegion region) {
-    assertReadAccess();
+    EditorThreading.assertInteractionAllowed();
     return region instanceof FoldRegionImpl && ((FoldRegionImpl)region).hasDocumentRegionChanged();
   }
 
@@ -417,6 +417,11 @@ public final class FoldingModelImpl extends InlayModel.SimpleAdapter
   @ApiStatus.Internal
   public AtomicBoolean getIsZombieRaised() {
     return myIsZombieRaised;
+  }
+
+  @ApiStatus.Internal
+  public AtomicBoolean getIsAutoCreatedZombieRaised() {
+    return myIsAutoCreatedZombieRaised;
   }
 
   void refreshSettings() {
@@ -688,7 +693,7 @@ public final class FoldingModelImpl extends InlayModel.SimpleAdapter
   }
 
   private boolean isOffsetInsideCollapsedRegion(int offset) {
-    assertReadAccess();
+    EditorThreading.assertInteractionAllowed();
     FoldRegion region = getCollapsedRegionAtOffset(offset);
     return region != null && region.getStartOffset() < offset;
   }
@@ -844,10 +849,6 @@ public final class FoldingModelImpl extends InlayModel.SimpleAdapter
 
   private static void assertIsDispatchThreadForEditor() {
     ThreadingAssertions.assertEventDispatchThread();
-  }
-
-  private static void assertReadAccess() {
-    ApplicationManager.getApplication().assertReadAccessAllowed();
   }
 
   private final class MyMarkerTree extends HardReferencingRangeMarkerTree<FoldRegionImpl> {

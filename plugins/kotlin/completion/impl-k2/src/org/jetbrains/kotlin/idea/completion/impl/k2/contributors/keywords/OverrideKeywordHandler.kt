@@ -124,7 +124,6 @@ internal class OverrideKeywordHandler(
         val memberSymbol = symbolPointer.restoreSymbol()
         requireNotNull(memberSymbol) { "${symbolPointer::class} can't be restored" }
         check(memberSymbol is KaNamedSymbol)
-        check(classOrObject !is KtEnumEntry)
 
         val baseIcon = getBaseIcon(memberSymbol)
         val isImplement = memberSymbol.modality == KaSymbolModality.ABSTRACT
@@ -146,7 +145,7 @@ internal class OverrideKeywordHandler(
             tailText = memberSymbol.contextReceivers
                 .takeUnless { it.isEmpty() }
                 ?.joinToString(prefix = " for ") { it.type.renderVerbose() }, // TODO could be a different DeclarationRenderer rendering only tail text information
-            isImplement = isImplement,
+            isImplemented = isImplement,
             icon = icon,
             baseClassName = containingSymbol?.name?.asString(),
             baseClassIcon = member.memberInfo.containingSymbolIcon,
@@ -196,7 +195,7 @@ private val TextRenderer = KaDeclarationRendererForSource.WITH_SHORT_NAMES.with 
     }
 
     contextReceiversRenderer = contextReceiversRenderer.with {
-        contextReceiverLabelRenderer = WITHOUT_LABEL
+        contextReceiverListRenderer = ContextParametersListRenderer
     }
 
     typeRenderer = typeRenderer.with {

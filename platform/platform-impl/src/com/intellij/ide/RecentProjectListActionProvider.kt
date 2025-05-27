@@ -18,6 +18,7 @@ import com.intellij.openapi.wm.impl.welcomeScreen.recentProjects.ProjectsGroupIt
 import com.intellij.openapi.wm.impl.welcomeScreen.recentProjects.ProviderRecentProjectItem
 import com.intellij.openapi.wm.impl.welcomeScreen.recentProjects.RecentProjectItem
 import com.intellij.openapi.wm.impl.welcomeScreen.recentProjects.RecentProjectTreeItem
+import org.jetbrains.annotations.ApiStatus
 import javax.swing.Icon
 
 open class RecentProjectListActionProvider {
@@ -30,7 +31,8 @@ open class RecentProjectListActionProvider {
 
   internal fun collectProjectsWithoutCurrent(currentProject: Project): List<RecentProjectTreeItem> = collectProjects(currentProject)
 
-  internal fun collectProjects(): List<RecentProjectTreeItem> = collectProjects(projectToFilterOut = null)
+  @ApiStatus.Internal
+  fun collectProjects(): List<RecentProjectTreeItem> = collectProjects(projectToFilterOut = null)
 
   private fun collectProjects(projectToFilterOut: Project?): List<RecentProjectTreeItem> {
     val recentProjectManager = RecentProjectsManager.getInstance() as RecentProjectsManagerBase
@@ -305,7 +307,7 @@ private class RemoteRecentProjectAction(val projectId: String, val project: Rece
   }
 
   override fun actionPerformed(e: AnActionEvent) {
-    project.openProject()
+    project.openProject(e)
   }
 
   override val projectNameToDisplay: @NlsSafe String = project.displayName
@@ -315,7 +317,10 @@ private class RemoteRecentProjectAction(val projectId: String, val project: Rece
   override val projectIcon: Icon
     get() = project.icon
             ?: RecentProjectsManagerBase.getInstanceEx().getNonLocalProjectIcon(projectId, true, unscaledProjectIconSize(), project.displayName)
+  override val providerIcon: Icon? get() = project.providerIcon
   override val activationTimestamp: Long? get() = project.activationTimestamp
+
+  override val isProjectOpening: Boolean get() = project.projectOpenState == OpenRecentProjectStatus.Progress
 }
 
 private fun getProviderProjectId(provider: RecentProjectProvider, project: RecentProject): String {

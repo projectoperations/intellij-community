@@ -56,6 +56,7 @@ import org.jetbrains.jps.model.serialization.JpsModelSerializationDataService;
 import org.jetbrains.jps.model.serialization.PathMacroUtil;
 import org.jetbrains.jps.service.JpsServiceManager;
 import org.jetbrains.jps.service.SharedThreadPool;
+import org.jetbrains.jps.util.Iterators;
 
 import javax.tools.Diagnostic;
 import javax.tools.DiagnosticListener;
@@ -537,7 +538,7 @@ public final class JavaBuilder extends ModuleLevelBuilder {
       return invokeJavac(compilerSdkVersion, context, chunk, compilingTool, options, files, classesConsumer, (_options, _files, _outSink) -> {
         logJavacCall(chunk, _options, "in-process");
         return JavacMain.compile(
-          _options, _files, classPath, platformCp, modulePath, upgradeModulePath, sourcePath, outs, diagnosticSink, _outSink, context.getCancelStatus(), compilingTool, null
+          _options, _files, classPath, platformCp, modulePath, upgradeModulePath, sourcePath, outs, diagnosticSink, _outSink, context.getCancelStatus(), compilingTool, (InputFileDataProvider)null
         );
       });
     }

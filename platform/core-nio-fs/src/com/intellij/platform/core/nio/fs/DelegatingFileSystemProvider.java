@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.core.nio.fs;
 
 import org.jetbrains.annotations.Contract;
@@ -32,7 +32,8 @@ import java.util.concurrent.ExecutorService;
 public abstract class DelegatingFileSystemProvider<
   P extends DelegatingFileSystemProvider<P, F>,
   F extends DelegatingFileSystem<P>
-  > extends FileSystemProvider {
+  > extends FileSystemProvider
+  implements RoutingAwareFileSystemProvider {
 
   /**
    * @return A delegating file system which is bound to this provider.
@@ -61,6 +62,13 @@ public abstract class DelegatingFileSystemProvider<
    */
   @Contract("null -> null; !null -> !null")
   protected abstract @Nullable Path toDelegatePath(@Nullable Path path);
+
+  @Override
+  public boolean canHandleRouting(@NotNull Path path) {
+    FileSystemProvider delegate = getDelegate(path, null);
+    return path.getFileSystem().provider().equals(delegate) ||
+           delegate instanceof RoutingAwareFileSystemProvider rafsp && rafsp.canHandleRouting(path);
+  }
 
   @Override
   public @Nullable F newFileSystem(Path path, Map<String, ?> env) throws IOException {

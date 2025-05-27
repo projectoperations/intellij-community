@@ -231,8 +231,10 @@ public @interface NotNull {
             if (configureFiles) {
                 configureFiles()
             }
-            doRefactoring(configure)
-            compareEditorsWithExpectedData()
+            withCustomCompilerOptions(file.text, project, module) {
+                doRefactoring(configure)
+                compareEditorsWithExpectedData()
+            }
         }
     }
 
@@ -403,13 +405,6 @@ public @interface NotNull {
               "test function for ${file.name} not found",
               fileName in functionNames,
             )
-        }
-    }
-
-    fun testPreferContainedInClass() {
-        configureFiles()
-        doTestWithIgnoredDirective {
-            assertEquals("param", createChangeInfo().newParameters[0].name)
         }
     }
 

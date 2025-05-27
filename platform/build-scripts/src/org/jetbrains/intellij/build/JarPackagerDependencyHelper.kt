@@ -41,6 +41,7 @@ internal class JarPackagerDependencyHelper(private val context: CompilationConte
     // todo use some marker
     if (moduleName == "intellij.rdct.testFramework" ||
         moduleName == "intellij.platform.split.testFramework" ||
+        moduleName == "intellij.python.junit5Tests" ||
         moduleName == "intellij.rdct.tests.distributed") {
       return true
     }
@@ -51,7 +52,8 @@ internal class JarPackagerDependencyHelper(private val context: CompilationConte
       }
 
       return moduleName != "intellij.rider.test.framework" &&
-             moduleName != "intellij.rider.test.framework.core"
+             moduleName != "intellij.rider.test.framework.core" &&
+             moduleName != "intellij.rider.test.framework.testng"
     }
     return moduleName.endsWith("._test")
   }

@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.command.impl;
 
 import com.intellij.diagnostic.Dumpable;
@@ -7,10 +7,7 @@ import com.intellij.history.LocalHistoryAction;
 import com.intellij.ide.IdeBundle;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.UndoConfirmationPolicy;
-import com.intellij.openapi.command.undo.AdjustableUndoableAction;
-import com.intellij.openapi.command.undo.DocumentReference;
-import com.intellij.openapi.command.undo.UndoableAction;
-import com.intellij.openapi.command.undo.UnexpectedUndoException;
+import com.intellij.openapi.command.undo.*;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.ex.DocumentEx;
 import com.intellij.openapi.project.Project;
@@ -28,13 +25,36 @@ final class UndoableGroup implements Dumpable {
   private static final Logger LOG = Logger.getInstance(UndoableGroup.class);
   private static final int BULK_MODE_ACTION_THRESHOLD = 50;
 
+  static @NotNull UndoableGroup copyWith(
+    @NotNull UndoableGroup undoableGroup,
+    @NlsContexts.Command String commandName,
+    boolean isGlobal,
+    @NotNull List<? extends UndoableAction> actions,
+    @NotNull UndoRedoStacksHolder stacksHolder,
+    @Nullable Project project
+  ) {
+    return new UndoableGroup(
+      commandName,
+      isGlobal,
+      undoableGroup.getCommandTimestamp(),
+      undoableGroup.getStateBefore(),
+      undoableGroup.getStateAfter(),
+      actions,
+      stacksHolder,
+      project,
+      undoableGroup.getConfirmationPolicy(),
+      undoableGroup.isTransparent(),
+      undoableGroup.isValid()
+    );
+  }
+
   private final @NlsContexts.Command String myCommandName;
   private final boolean myGlobal;
   private final int myCommandTimestamp;
   private final boolean myTransparent;
   private final List<? extends UndoableAction> myActions;
-  private EditorAndState myStateBefore;
-  private EditorAndState myStateAfter;
+  private @Nullable EditorAndState myStateBefore;
+  private @Nullable EditorAndState myStateAfter;
   private UndoableGroupOriginalContext myGroupOriginalContext;
   private final Project myProject;
   private final UndoConfirmationPolicy myConfirmationPolicy;
@@ -45,8 +65,8 @@ final class UndoableGroup implements Dumpable {
   UndoableGroup(@NlsContexts.Command String commandName,
                 boolean isGlobal,
                 int commandTimestamp,
-                EditorAndState stateBefore,
-                EditorAndState stateAfter,
+                @Nullable EditorAndState stateBefore,
+                @Nullable EditorAndState stateAfter,
                 @NotNull List<? extends UndoableAction> actions,
                 @NotNull UndoRedoStacksHolder stacksHolder,
                 @Nullable Project project,
@@ -301,19 +321,19 @@ final class UndoableGroup implements Dumpable {
     return result;
   }
 
-  EditorAndState getStateBefore() {
+  @Nullable EditorAndState getStateBefore() {
     return myStateBefore;
   }
 
-  EditorAndState getStateAfter() {
+  @Nullable EditorAndState getStateAfter() {
     return myStateAfter;
   }
 
-  void setStateBefore(EditorAndState stateBefore) {
+  void setStateBefore(@NotNull EditorAndState stateBefore) {
     myStateBefore = stateBefore;
   }
 
-  void setStateAfter(EditorAndState stateAfter) {
+  void setStateAfter(@NotNull EditorAndState stateAfter) {
     myStateAfter = stateAfter;
   }
 
@@ -397,21 +417,13 @@ final class UndoableGroup implements Dumpable {
     return result.toString();
   }
 
-  static final class UndoableGroupOriginalContext {
-    private final UndoableGroup myOriginalGroup;
-    private final UndoableGroup myCurrentStackGroup;
+  @NotNull String dumpState0() {
+    return UndoDumpUnit.fromGroup(this).toString();
+  }
 
-    UndoableGroupOriginalContext(@NotNull UndoableGroup originalGroup, @NotNull UndoableGroup currentStackGroup) {
-      myOriginalGroup = originalGroup;
-      myCurrentStackGroup = currentStackGroup;
-    }
-
-    UndoableGroup getOriginalGroup() {
-      return myOriginalGroup;
-    }
-
-    UndoableGroup getCurrentStackGroup(){
-      return myCurrentStackGroup;
-    }
+  record UndoableGroupOriginalContext(
+    @NotNull UndoableGroup originalGroup,
+    @NotNull UndoableGroup currentStackGroup
+  ) {
   }
 }

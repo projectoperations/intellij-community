@@ -36,6 +36,16 @@ match m:
         """);
   }
 
+  public void testMatchLiteralPatternNarrowsWalrus() {
+    doTestByText("""
+from typing import assert_type, Literal
+
+match m := input():
+    case "one" | "two":
+        assert_type(m, Literal["one", "two"])
+        """);
+  }
+
   public void testMatchValuePatternNarrows() {
     doTestByText("""
 from typing import assert_type
@@ -399,6 +409,22 @@ match m:
                    """);
   }
 
+  // PY-79716
+  public void testMatchClassPatternShadowingCapture() {
+    doTestByText("""
+from typing import assert_type
+
+class C:
+    foo: str
+    bar: int
+
+def f(x):
+    match x:
+        case C(foo=x, bar=y):
+            assert_type(x, str)
+                   """);
+  }
+
   public void testMatchClassPatternCaptureSelf() {
     doTestByText("""
 from typing import assert_type
@@ -462,5 +488,228 @@ match m:
      case tuple():
          assert_type(m, tuple)"""
     );
+  }
+
+  public void testMatchClassPatternCapture() {
+    doTestByText("""
+from typing import assert_type
+
+class A:
+    __match_args__ = ("a", "b")
+    a: str
+    b: int
+
+m: A
+
+match m:
+    case A(i, j):
+        assert_type(i, str)
+        assert_type(j, int)
+                   """);
+  }
+
+  public void testMatchClassPatternCaptureDataclass() {
+    doTestByText("""
+from dataclasses import dataclass
+from typing import assert_type
+
+@dataclass
+class A:
+    a: str
+    b: int
+
+m: A
+
+match m:
+    case A(i, j):
+        assert_type(i, str)
+        assert_type(j, int)
+                   """);
+  }
+
+  public void testMatchClassPatternCaptureDataclassNoMatchArgs() {
+    doTestByText("""
+from dataclasses import dataclass
+from typing import assert_type
+
+@dataclass(match_args=False)
+class A:
+    a: str
+    b: int
+
+m: A
+
+match m:
+    case A(i, j):
+        assert_type(i, Any)
+        assert_type(j, Any)
+                   """);
+  }
+
+  public void testMatchClassPatternCaptureDataclassTransform() {
+    doTestByText("""
+from typing import dataclass_transform, Callable
+
+
+@dataclass_transform()
+def f[T](**kwargs) -> Callable[[type[T]], T]:
+    ...
+
+@f(match_args=True)
+class C:
+    foo: int
+    bar: str
+
+
+x = C(foo=1, bar="s")
+match x:
+    case C(y, z):
+        assert_type(y, int)
+        assert_type(z, str)
+                   """);
+  }
+
+  public void testTypeNarrowingUnionOfTuples() {
+    doTestByText("""
+from typing import assert_type
+
+
+def func(val: tuple[int] | tuple[int, str]):
+    match val:
+        case (x,):
+            assert_type(val, tuple[int])
+        case (x, y):
+            assert_type(val, tuple[int, str])
+                   """);
+  }
+
+  public void testTypeNarrowingUnpackedTupleOfSizeOneAtTheStart() {
+    doTestByText("""
+from typing import assert_type
+
+
+def func(val: tuple[*tuple[str], int]):
+    match val:
+        case (x, y):
+            assert_type(val, tuple[str, int])
+                   """);
+  }
+
+  public void testTypeNarrowingUnpackedTupleOfSizeTwoAtTheStart() {
+    doTestByText("""
+from typing import assert_type
+
+
+def func(val: tuple[*tuple[str, int], int]):
+    match val:
+        case (x, y, z):
+            assert_type(val, tuple[str, int, int])
+                   """);
+  }
+
+  public void testTypeNarrowingTwoUnpackedTuples() {
+    doTestByText("""
+from typing import assert_type
+
+
+def func(val: tuple[*tuple[str, int], str, *tuple[int, str]]):
+    match val:
+        case (x, y, z, a, b):
+            assert_type(val, tuple[str, int, str, int, str])
+                   """);
+  }
+
+  public void testTypeNarrowingUnboundUnpackedTupleAtTheStart() {
+    doTestByText("""
+from typing import assert_type
+
+
+def func(val: tuple[*tuple[str, ...], int]):
+    match val:
+        case (x,):
+            assert_type(val,  tuple[int])
+        case (x, y):
+            assert_type(val, tuple[str, int])
+        case (x, y, z):
+            assert_type(val, tuple[str, str, int])
+                   """);
+  }
+
+  public void testTypeNarrowingUnboundUnpackedTupleInTheMiddle() {
+    doTestByText("""
+from typing import assert_type
+
+
+def func(val: tuple[int, *tuple[str, ...], int]):
+    match val:
+        case (x, y):
+            assert_type(val, tuple[int, int])
+        case (x, y, z):
+            assert_type(val, tuple[int, str, int])
+        case (x, y, z, a):
+            assert_type(val, tuple[int, str, str, int])
+                   """);
+  }
+
+  public void testTypeNarrowingUnboundUnpackedTupleAtTheEnd() {
+    doTestByText("""
+from typing import assert_type
+
+
+def func(val: tuple[int, int] | tuple[int, *tuple[str, ...]]):
+    match val:
+        case (x,):
+            assert_type(val, tuple[int])
+        case (x, y):
+            assert_type(val, tuple[int, int] | tuple[int, str])
+        case (x, y, z):
+            assert_type(val, tuple[int, str, str])
+                   """);
+  }
+
+  public void testTypeNarrowingUnboundUnpackedAndBoundUnpackedTuple() {
+    doTestByText("""
+from typing import assert_type
+
+
+def func(val: tuple[*tuple[str, ...], *tuple[int, str]]):
+    match val:
+        case (x, y):
+            assert_type(val, tuple[int, str])
+        case (x, y, z):
+            assert_type(val, tuple[str, int, str])
+        case (x, y, z, a):
+            assert_type(val, tuple[str, str, int, str])
+                   """);
+  }
+
+  public void testTypeNarrowingDeepUnboundUnpackedTuple() {
+    doTestByText("""
+from typing import assert_type
+
+
+def func(val: tuple[*tuple[str, *tuple[int, ...]]]):
+    match val:
+        case (x,):
+            assert_type(val, tuple[str])
+        case (x, y):
+            assert_type(val, tuple[str, int])
+        case (x, y, z):
+            assert_type(val, tuple[str, int, int])
+                   """);
+  }
+
+  public void testTypeNarrowingTwoUnboundUnpackedTuples() {
+    doTestByText("""
+from typing import assert_type
+
+
+def func(val: tuple[*tuple[str, ...], *tuple[int, ...]]):
+    match val:
+        case (x, y):
+            # actual type doesn't matter here since the original type is invalid
+            # this test verifies that there are no exceptions or infinite loops
+            assert_type(val, tuple[str, *tuple[int, ...]])
+                   """);
   }
 }

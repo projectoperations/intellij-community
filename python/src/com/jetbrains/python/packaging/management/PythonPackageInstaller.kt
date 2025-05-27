@@ -1,81 +1,86 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.packaging.management
 
-import com.intellij.execution.ExecutionException
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.runBlockingCancellable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.jetbrains.python.PyBundle
+import com.jetbrains.python.errorProcessing.PyResult
+import com.jetbrains.python.packaging.PyPackage
 import com.jetbrains.python.packaging.PyRequirement
-import com.jetbrains.python.packaging.common.PythonPackageSpecificationBase
-import com.jetbrains.python.packaging.common.PythonSimplePackageSpecification
+import com.jetbrains.python.packaging.common.PythonPackage
+import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.CheckReturnValue
 
+@ApiStatus.Internal
 class PythonPackagesInstaller {
   companion object {
     @JvmStatic
+    @RequiresBackgroundThread
+    @CheckReturnValue
     fun installPackages(
       project: Project,
       sdk: Sdk,
       requirements: List<PyRequirement>?,
       extraArgs: List<String>,
       indicator: ProgressIndicator,
-    ): ExecutionException? {
-      runBlockingCancellable {
-        val manager = PythonPackageManager.forSdk(project, sdk)
+    ): PyResult<Unit> = runBlockingCancellable {
+      val manager = PythonPackageManager.forSdk(project, sdk)
 
-        return@runBlockingCancellable if (requirements.isNullOrEmpty()) {
-          installWithoutRequirements(manager, indicator)
-        }
-        else {
-          installWithRequirements(manager, requirements, extraArgs, indicator)
-        }
-      }.exceptionOrNull()?.let {
-        return ExecutionException(it)
+      return@runBlockingCancellable if (requirements.isNullOrEmpty()) {
+        installWithoutRequirements(manager, indicator)
       }
-
-      return null
+      else {
+        installWithRequirements(manager, requirements, extraArgs)
+      }
     }
 
+    @CheckReturnValue
     private suspend fun installWithoutRequirements(
       manager: PythonPackageManager,
       indicator: ProgressIndicator,
-    ): Result<Unit> {
+    ): PyResult<Unit> {
       indicator.text = PyBundle.message("python.packaging.installing.packages")
       indicator.isIndeterminate = true
 
-      val emptySpecification = PythonPackageSpecificationBase("", null, null, null)
-      manager.installPackage(emptySpecification, emptyList()).getOrElse {
-        return Result.failure(it)
-      }
-
-      return Result.success(Unit)
+      val installAllRequirementsSpecification = PythonPackageInstallRequest.AllRequirements
+      return manager.installPackage(installAllRequirementsSpecification, emptyList()).mapSuccess { }
     }
 
-    private suspend fun installWithRequirements(
+    @CheckReturnValue
+    suspend fun installWithRequirements(
       manager: PythonPackageManager,
-      requirements: List<PyRequirement>,
+      requirements: Collection<PyRequirement>,
       extraArgs: List<String>,
-      indicator: ProgressIndicator,
-    ): Result<Unit> {
-      requirements.forEachIndexed { index, requirement ->
-        indicator.text = PyBundle.message("python.packaging.progress.text.installing.specific.package", requirement.presentableText)
-        updateProgress(indicator, index, requirements.size)
-
-        val specification = PythonSimplePackageSpecification(requirement.name, requirement.versionSpecs.firstOrNull()?.version, null)
-        manager.installPackage(specification, extraArgs).onFailure {
-          return Result.failure(it)
-        }
+    ): PyResult<Unit> {
+      manager.waitForInit()
+      val packageSpecifications = requirements.map { requirement ->
+        manager.findPackageSpecificationWithVersionSpec(requirement.name, versionSpec = requirement.versionSpecs.firstOrNull())
+        ?: return PyResult.localizedError(PyBundle.message("python.packaging.error.package.is.not.listed.in.repositories", requirement.name))
       }
-
-      return Result.success(Unit)
+      val request = PythonPackageInstallRequest.ByRepositoryPythonPackageSpecifications(packageSpecifications)
+      return manager.installPackage(request, extraArgs).mapSuccess { }
     }
 
-    private fun updateProgress(indicator: ProgressIndicator, index: Int, total: Int) {
-      indicator.isIndeterminate = index == 0
-      if (total > 0) {
-        indicator.fraction = index.toDouble() / total
-      }
+    @JvmStatic
+    @CheckReturnValue
+    fun uninstallPackages(project: Project, sdk: Sdk, packages: List<PyPackage>, indicator: ProgressIndicator): PyResult<Unit> = runBlockingCancellable {
+      indicator.isIndeterminate = true
+
+      val manager = PythonPackageManager.forSdk(project, sdk)
+      val pythonPackages = packages.map { it.toPythonPackage() }
+
+      return@runBlockingCancellable uninstallPackagesProcess(manager, pythonPackages)
     }
+
+
+    @CheckReturnValue
+    suspend fun uninstallPackagesProcess(manager: PythonPackageManager, packages: List<PythonPackage>): PyResult<Unit> {
+      return manager.uninstallPackage(*packages.map { it.name }.toTypedArray()).mapSuccess {}
+    }
+
+    private fun PyPackage.toPythonPackage(): PythonPackage = PythonPackage(this.name, this.version, false)
   }
 }

@@ -60,10 +60,9 @@ import com.intellij.openapi.wm.impl.IdeGlassPaneEx;
 import com.intellij.pom.Navigatable;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.search.GlobalSearchScope;
-import com.intellij.psi.search.GlobalSearchScopeUtil;
 import com.intellij.reference.SoftReference;
-import com.intellij.ui.AnimatedIcon;
 import com.intellij.ui.*;
+import com.intellij.ui.AnimatedIcon;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.ui.components.*;
 import com.intellij.ui.dsl.gridLayout.builders.RowBuilder;
@@ -102,16 +101,16 @@ import java.awt.event.*;
 import java.io.File;
 import java.lang.ref.Reference;
 import java.lang.ref.WeakReference;
+import java.util.*;
 import java.util.List;
 import java.util.Vector;
-import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
-import static com.intellij.find.impl.UiModelKt.usagePresentation;
 import static com.intellij.openapi.actionSystem.IdeActions.ACTION_OPEN_IN_RIGHT_SPLIT;
 import static com.intellij.ui.SimpleTextAttributes.LINK_PLAIN_ATTRIBUTES;
 import static com.intellij.ui.SimpleTextAttributes.STYLE_PLAIN;
@@ -325,6 +324,8 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
         dialogWindow.setLocationRelativeTo(null);
       }
       mySuggestRegexHintForEmptyResults = true;
+      // Until we use lux in split mode for this dialog, we have to handle popup action in backend
+      myDialog.getRootPane().putClientProperty("ComponentInModalWindowLikeContext", Boolean.TRUE);
       myDialog.show();
 
       myDialog.setOnDeactivationAction(() -> closeIfPossible());
@@ -914,6 +915,9 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
             // only insert when not already present.
             int row = -(p + 1);
             insertRow(row, v);
+          } else {
+            removeRow(p);
+            insertRow(p, v);
           }
         }
       }
@@ -1123,21 +1127,7 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
     int hash = System.identityHashCode(myResultsPreviewSearchProgress);
 
     // Use previously shown usage files as hint for faster search and better usage preview performance if pattern length increased
-    Set<VirtualFile> filesToScanInitially = new LinkedHashSet<>();
-
-    if (myHelper.myPreviousModel != null && myHelper.myPreviousModel.getStringToFind().length() < myHelper.getModel().getStringToFind().length()) {
-      DefaultTableModel previousModel = (DefaultTableModel)myResultsPreviewTable.getModel();
-      for (int i = 0, len = previousModel.getRowCount(); i < len; ++i) {
-        Object value = previousModel.getValueAt(i, 0);
-        if (value instanceof FindPopupItem) {
-          UsageInfoAdapter usage = ((FindPopupItem)value).getUsage();
-          if (usage instanceof UsageInfo2UsageAdapter) {
-            VirtualFile file = ((UsageInfo2UsageAdapter)usage).getFile();
-            if (file != null) filesToScanInitially.add(file);
-          }
-        }
-      }
-    }
+    Set<UsageInfoAdapter>  previousUsages = getPreviousUsages();
 
     myHelper.myPreviousModel = myHelper.getModel().clone();
 
@@ -1152,13 +1142,12 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
       return;
     }
 
-    FindInProjectExecutor projectExecutor = FindInProjectExecutor.Companion.getInstance();
+    FindAndReplaceExecutor projectExecutor = FindAndReplaceExecutor.Companion.getInstance();
     TableCellRenderer renderer = projectExecutor.createTableCellRenderer();
     if (renderer == null) renderer = new UsageTableCellRenderer();
     myResultsPreviewTable.getColumnModel().getColumn(0).setCellRenderer(renderer);
 
     AtomicInteger resultsCount = new AtomicInteger();
-    AtomicInteger resultsFilesCount = new AtomicInteger();
     FindInProjectUtil.setupViewPresentation(myUsageViewPresentation, findModel);
 
     Project project = myProject;
@@ -1167,30 +1156,26 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
       @Override
       public void run(@NotNull ProgressIndicator indicator) {
         GlobalSearchScope scope = ReadAction.nonBlocking(
-          () -> GlobalSearchScopeUtil.toGlobalSearchScope(FindInProjectUtil.getScopeFromModel(project, myHelper.myPreviousModel), project)
+          () -> FindInProjectUtil.getGlobalSearchScope(project, myHelper.myPreviousModel)
         ).wrapProgress(indicator).executeSynchronously();
 
         FindUsagesProcessPresentation processPresentation = FindInProjectUtil.setupProcessPresentation(myUsageViewPresentation);
-        ThreadLocal<String> lastUsageFileRef = new ThreadLocal<>();
         ThreadLocal<Reference<FindPopupItem>> recentItemRef = new ThreadLocal<>();
+        Set<String> filePaths = ConcurrentHashMap.newKeySet();
 
-        projectExecutor.findUsages(project, myResultsPreviewSearchProgress, processPresentation, findModel, filesToScanInitially, usage -> {
+        projectExecutor.findUsages(project, myResultsPreviewSearchProgress, processPresentation, findModel, previousUsages, (usage)-> {
           if (isCancelled()) {
             onStop(hash);
             return false;
           }
 
-          if (resultsCount.getAndIncrement() >= ShowUsagesAction.getUsagesPageSize()) {
+          int resCount = resultsCount.incrementAndGet();
+
+          if (resCount >= ShowUsagesAction.getUsagesPageSize()) {
             onStop(hash);
             return false;
           }
-
-          String file = lastUsageFileRef.get();
-          String usageFile = PathUtil.toSystemIndependentName(usage.getPath());
-          if (!usageFile.equals(file)) {
-            resultsFilesCount.incrementAndGet();
-            lastUsageFileRef.set(usageFile);
-          }
+          filePaths.add(usage.getPath());
 
           FindPopupItem recentItem = SoftReference.dereference(recentItemRef.get());
           FindPopupItem newItem;
@@ -1200,7 +1185,8 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
               ((UsageInfo2UsageAdapter)usage).updateCachedPresentation();
             }
 
-            newItem = new FindPopupItem(usage, usagePresentation(project, scope, usage));
+            UsagePresentation usagePresentation = UsagePresentationProvider.getPresentation(usage, project, scope);
+            newItem = new FindPopupItem(usage, usagePresentation);
           }
           else {
             // recompute presentation of a merged instance
@@ -1208,8 +1194,8 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
             if (recentItemUsage instanceof UsageInfo2UsageAdapter) {
               ((UsageInfo2UsageAdapter)recentItemUsage).updateCachedPresentation();
             }
-
-            newItem = recentItem.withPresentation(usagePresentation(project, scope, recentItemUsage));
+            UsagePresentation recentUsagePresentation = UsagePresentationProvider.getPresentation(recentItemUsage, project, scope);
+            newItem = recentItem.withPresentation(recentUsagePresentation);
           }
           recentItemRef.set(new WeakReference<>(newItem));
 
@@ -1220,18 +1206,13 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
             }
             myPreviewSplitter.getSecondComponent().setVisible(true);
             DefaultTableModel model = (DefaultTableModel)myResultsPreviewTable.getModel();
-            if (!merged) {
-              model.addRow(new Object[]{newItem});
-            }
-            else {
-              model.fireTableRowsUpdated(model.getRowCount() - 1, model.getRowCount() - 1);
-            }
+            model.addRow(new Object[]{newItem});
             myCodePreviewComponent.setVisible(true);
             if (model.getRowCount() == 1) {
               myResultsPreviewTable.setRowSelectionInterval(0, 0);
             }
             int occurrences = resultsCount.get();
-            int filesWithOccurrences = resultsFilesCount.get();
+            int filesWithOccurrences = filePaths.size();
             myCodePreviewComponent.setVisible(occurrences > 0);
             myReplaceAllButton.setEnabled(occurrences > 0);
             myReplaceSelectedButton.setEnabled(occurrences > 0);
@@ -1254,6 +1235,9 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
           }, state);
 
           return true;
+        }, () -> {
+            onFinish();
+          return null;
         });
       }
 
@@ -1271,6 +1255,10 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
 
       @Override
       public void onFinished() {
+        onFinish();
+      }
+
+      public void onFinish() {
         ApplicationManager.getApplication().invokeLater(() -> {
           if (!isCancelled()) {
             boolean isEmpty = resultsCount.get() == 0;
@@ -1282,6 +1270,22 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
         }, state);
       }
     }, myResultsPreviewSearchProgress);
+  }
+
+  private @NotNull Set<UsageInfoAdapter> getPreviousUsages() {
+    Set<UsageInfoAdapter> previousUsages = new LinkedHashSet<>();
+
+    if (myHelper.myPreviousModel != null && myHelper.myPreviousModel.getStringToFind().length() < myHelper.getModel().getStringToFind().length()) {
+      DefaultTableModel previousModel = (DefaultTableModel)myResultsPreviewTable.getModel();
+      for (int i = 0, len = previousModel.getRowCount(); i < len; ++i) {
+        Object value = previousModel.getValueAt(i, 0);
+        if (value instanceof FindPopupItem) {
+          UsageInfoAdapter usage = ((FindPopupItem)value).getUsage();
+          previousUsages.add(usage);
+        }
+      }
+    }
+    return previousUsages;
   }
 
   private void reset() {
@@ -1448,10 +1452,17 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
     if (hash != myLoadingHash) {
       return;
     }
+
     UIUtil.invokeLaterIfNeeded(() -> {
+      if (hash != myLoadingHash) {
+        return;
+      }
+      myLoadingHash = 0;
+
       //noinspection HardCodedStringLiteral
       showEmptyText(message);
       header.loadingIcon.setIcon(EmptyIcon.ICON_16);
+      myHelper.onSearchStop();
     });
   }
 

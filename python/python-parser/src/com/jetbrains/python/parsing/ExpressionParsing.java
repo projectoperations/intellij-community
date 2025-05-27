@@ -109,7 +109,7 @@ public class ExpressionParsing extends Parsing {
     if (atToken(PyTokenTypes.FSTRING_START)) {
       final String prefixThenQuotes = builder.getTokenText();
       assert prefixThenQuotes != null;
-      final String openingQuotes = prefixThenQuotes.replaceFirst("^[UuBbCcRrFf]*", "");
+      final String openingQuotes = prefixThenQuotes.replaceFirst("^[UuBbCcRrFfTt]*", "");
       final SyntaxTreeBuilder.Marker marker = builder.mark();
       nextToken();
       while (true) {
@@ -601,7 +601,7 @@ public class ExpressionParsing extends Parsing {
       sliceMarker.done(PyElementTypes.EMPTY_EXPRESSION);
       sliceItemStart.done(PyElementTypes.SLICE_ITEM);
       nextToken();
-      exprStart.done(PyElementTypes.SLICE_EXPRESSION);
+      exprStart.done(PyElementTypes.SUBSCRIPTION_EXPRESSION);
       return;
     }
     else {
@@ -653,7 +653,7 @@ public class ExpressionParsing extends Parsing {
       if (sliceOrTupleStart != null) {
         sliceOrTupleStart.drop();
       }
-      exprStart.done(PyElementTypes.SLICE_EXPRESSION);
+      exprStart.done(PyElementTypes.SUBSCRIPTION_EXPRESSION);
     }
     return inSlice;
   }

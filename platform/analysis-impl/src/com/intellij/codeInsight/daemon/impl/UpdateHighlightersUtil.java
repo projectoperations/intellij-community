@@ -163,8 +163,8 @@ public final class UpdateHighlightersUtil {
     PsiFile psiFile;
     try (AccessToken ignore = SlowOperations.knownIssue("IDEA-341181, IDEA-301732, EA-823296")) {
       psiFile = PsiDocumentManager.getInstance(project).getPsiFile(document);
-      if (psiFile instanceof PsiCompiledFile) {
-        psiFile = ((PsiCompiledFile)psiFile).getDecompiledPsiFile();
+      if (psiFile instanceof PsiCompiledFile compiled) {
+        psiFile = compiled.getDecompiledPsiFile();
       }
     }
     if (psiFile != null) {
@@ -454,6 +454,9 @@ public final class UpdateHighlightersUtil {
   }
   // disposes highlighter, and schedules removal from the file-level component if this highlighter happened to be file-level
   static void disposeWithFileLevelIgnoreErrors(@NotNull HighlightInfo info, @NotNull HighlightingSession highlightingSession) {
+    if (LOG.isTraceEnabled()) {
+      LOG.trace("disposeWithFileLevelIgnoreErrors: " + info);
+    }
     if (info.isFileLevelAnnotation()) {
       ((HighlightingSessionImpl)highlightingSession).removeFileLevelHighlight(info);
     }

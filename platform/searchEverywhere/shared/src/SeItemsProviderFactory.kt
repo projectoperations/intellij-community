@@ -5,12 +5,15 @@ import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.project.Project
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.Contract
 
 @ApiStatus.Experimental
 @ApiStatus.Internal
 interface SeItemsProviderFactory {
   val id: String
-  suspend fun getItemsProvider(project: Project, dataContext: DataContext): SeItemsProvider
+
+  @Contract("_, _ -> new", pure = true)
+  suspend fun getItemsProvider(project: Project?, dataContext: DataContext): SeItemsProvider?
 
   companion object {
     @ApiStatus.Internal

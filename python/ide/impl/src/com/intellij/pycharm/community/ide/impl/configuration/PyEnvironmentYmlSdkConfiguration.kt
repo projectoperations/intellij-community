@@ -1,10 +1,11 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.pycharm.community.ide.impl.configuration
 
 import com.intellij.codeInspection.util.IntentionName
 import com.intellij.execution.ExecutionException
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.runInEdt
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.progress.ProgressManager
@@ -24,6 +25,8 @@ import com.intellij.ui.IdeBorderFactory
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.ui.JBUI
+import com.intellij.webcore.packaging.PackageManagementService
+import com.intellij.webcore.packaging.PackagesNotificationPanel
 import com.jetbrains.python.PyBundle
 import com.jetbrains.python.configuration.PyConfigurableInterpreterList
 import com.jetbrains.python.pathValidation.PlatformAndRoot
@@ -40,12 +43,11 @@ import com.jetbrains.python.sdk.flavors.conda.CondaEnvSdkFlavor
 import com.jetbrains.python.sdk.flavors.conda.NewCondaEnvRequest
 import com.jetbrains.python.sdk.flavors.conda.PyCondaCommand
 import com.jetbrains.python.sdk.flavors.listCondaEnvironments
-import com.jetbrains.python.sdk.setAssociationToModule
+import com.jetbrains.python.sdk.setAssociationToModuleAsync
 import com.jetbrains.python.sdk.showSdkExecutionException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import java.awt.BorderLayout
-import java.awt.Insets
 import java.nio.file.Path
 import javax.swing.JComponent
 import javax.swing.JPanel
@@ -56,13 +58,13 @@ import javax.swing.JPanel
  */
 internal class PyEnvironmentYmlSdkConfiguration : PyProjectSdkConfigurationExtension {
   private val LOGGER = Logger.getInstance(PyEnvironmentYmlSdkConfiguration::class.java)
-
+  @RequiresBackgroundThread
   override fun createAndAddSdkForConfigurator(module: Module): Sdk? = createAndAddSdk(module, Source.CONFIGURATOR)
 
   override fun getIntention(module: Module): @IntentionName String? = getEnvironmentYml(module)?.let {
     PyCharmCommunityCustomizationBundle.message("sdk.create.condaenv.suggestion")
   }
-
+  @RequiresBackgroundThread
   override fun createAndAddSdkForInspection(module: Module): Sdk? = createAndAddSdk(module, Source.INSPECTION)
 
   private fun getEnvironmentYml(module: Module) = PyUtil.findInRoots(module, "environment.yml")
@@ -121,7 +123,7 @@ internal class PyEnvironmentYmlSdkConfiguration : PyProjectSdkConfigurationExten
     ApplicationManager.getApplication().invokeAndWait {
       LOGGER.debug("Adding conda environment: ${sdk.homePath}, associated ${shared}}, module path ${basePath})")
       if (!shared) {
-        sdk.setAssociationToModule(module)
+        sdk.setAssociationToModuleAsync(module)
       }
 
       SdkConfigurationUtil.addSdk(sdk)
@@ -142,11 +144,17 @@ internal class PyEnvironmentYmlSdkConfiguration : PyProjectSdkConfigurationExten
       val newCondaEnvInfo = NewCondaEnvRequest.LocalEnvByLocalEnvironmentFile(Path.of(environmentYml))
       PyCondaCommand(condaExecutable, null)
         .createCondaSdkAlongWithNewEnv(newCondaEnvInfo, Dispatchers.EDT, existingSdks.toList(), project)
-    }.getOrElse { e ->
-      if (e !is ExecutionException) throw e
+    }.getOr {
       PySdkConfigurationCollector.logCondaEnv(project, CondaEnvResult.CREATION_FAILURE)
-      LOGGER.warn("Exception during creating conda environment", e)
-      showSdkExecutionException(null, e, PyCharmCommunityCustomizationBundle.message("sdk.create.condaenv.exception.dialog.title"))
+      LOGGER.warn("Exception during creating conda environment $it")
+      PackageManagementService.ErrorDescription.fromMessage(it.error.message)?.let { description ->
+        runInEdt {
+          PackagesNotificationPanel.showError(
+            PyCharmCommunityCustomizationBundle.message("sdk.create.condaenv.exception.dialog.title"),
+            description
+          )
+        }
+      }
       return null
     }
 
@@ -200,7 +208,7 @@ internal class PyEnvironmentYmlSdkConfiguration : PyProjectSdkConfigurationExten
 
     override fun createCenterPanel(): JComponent {
       return JPanel(BorderLayout()).apply {
-        val border = IdeBorderFactory.createEmptyBorder(Insets(4, 0, 6, 0))
+        val border = IdeBorderFactory.createEmptyBorder(JBUI.insets(4, 0, 6, 0))
         val message = PyCharmCommunityCustomizationBundle.message("sdk.create.condaenv.permission")
 
         add(

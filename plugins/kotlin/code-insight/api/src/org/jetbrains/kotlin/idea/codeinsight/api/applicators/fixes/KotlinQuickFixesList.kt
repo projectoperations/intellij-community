@@ -3,6 +3,7 @@
 package org.jetbrains.kotlin.idea.codeinsight.api.applicators.fixes
 
 import com.intellij.codeInsight.intention.IntentionAction
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.psi.PsiElement
 import org.jetbrains.kotlin.analysis.api.KaSession
@@ -13,6 +14,9 @@ import kotlin.reflect.KClass
 class KotlinQuickFixesList @ForKtQuickFixesListBuilder constructor(
     private val quickFixes: Map<KClass<out KaDiagnosticWithPsi<*>>, List<KotlinQuickFixFactory<*>>>
 ) {
+    fun KaSession.canProduceQuickFixesFor(diagnostic: KaDiagnosticWithPsi<*>): Boolean =
+        quickFixes[diagnostic.diagnosticClass]?.isNotEmpty() == true
+
     fun KaSession.getQuickFixesFor(diagnostic: KaDiagnosticWithPsi<*>): List<IntentionAction> {
         val fixes = getQuickFixesWithCatchingFor(diagnostic)
         return fixes
@@ -88,8 +92,14 @@ class KtQuickFixesListBuilder private constructor() {
         diagnosticClass: KClass<DIAGNOSTIC>,
         factory: KotlinQuickFixFactory<DIAGNOSTIC>,
     ) {
-        require(diagnosticClass != KaDiagnosticWithPsi::class) {
-            "Specific diagnostic class expected instead of generic ${KaDiagnosticWithPsi::class}."
+        if (diagnosticClass == KaDiagnosticWithPsi::class) {
+            logger<KtQuickFixesListBuilder>().error(
+                """
+                Specific diagnostic class expected instead of generic ${KaDiagnosticWithPsi::class}.
+                Factory registered this way would never be used.
+                The registered factory class was: ${factory::class}.
+                """.trimIndent()
+            )
         }
 
         quickFixes.getOrPut(diagnosticClass) { mutableListOf() } += factory

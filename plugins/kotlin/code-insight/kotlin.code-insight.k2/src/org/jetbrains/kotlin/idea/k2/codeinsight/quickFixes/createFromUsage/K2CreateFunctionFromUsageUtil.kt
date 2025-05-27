@@ -32,7 +32,6 @@ import org.jetbrains.kotlin.asJava.toLightClass
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinNameSuggester
 import org.jetbrains.kotlin.idea.base.psi.classIdIfNonLocal
 import org.jetbrains.kotlin.idea.base.psi.kotlinFqName
-import org.jetbrains.kotlin.idea.caches.resolve.KtFileClassProviderImpl
 import org.jetbrains.kotlin.idea.codeinsight.utils.resolveExpression
 import org.jetbrains.kotlin.idea.refactoring.canRefactorElement
 import org.jetbrains.kotlin.lexer.KtTokens
@@ -91,6 +90,7 @@ object K2CreateFunctionFromUsageUtil {
                         argument(ktType)
                     }
                 }
+                parent is KtParameter && parent.defaultValue == current -> parent.returnType // KT-77254
                 parent is KtNamedFunction && parent.nameIdentifier == null && parent.bodyExpression == current && parent.parent is KtValueArgument -> {
                     (parent.expectedType as? KaFunctionType)?.returnType
                 }
@@ -158,7 +158,7 @@ object K2CreateFunctionFromUsageUtil {
     fun KaType.convertToJvmType(useSitePosition: PsiElement): JvmType? = asPsiType(useSitePosition, allowErrorTypes = false)
 
     context (KaSession)
-    private fun KtExpression.getClassOfExpressionType(): PsiElement? = when (val symbol = resolveExpression()) {
+    fun KtExpression.getClassOfExpressionType(): PsiElement? = when (val symbol = resolveExpression()) {
         //is KaCallableSymbol -> symbol.returnType.expandedClassSymbol // When the receiver is a function call or access to a variable
         is KaClassLikeSymbol -> symbol // When the receiver is an object
         else -> expressionType?.expandedSymbol
@@ -219,15 +219,6 @@ object K2CreateFunctionFromUsageUtil {
             else -> getContainerClass()
         }
     }
-    context (KaSession)
-    internal fun KtSimpleNameExpression.getReceiverOrContainerPsiElement(): PsiElement? {
-        val receiverExpression = getReceiverExpression()
-        return when (val ktClassOrPsiClass = receiverExpression?.getClassOfExpressionType()) {
-            is PsiClass -> ktClassOrPsiClass
-            is KtClassOrObject -> ktClassOrPsiClass
-            else -> K2CreateFunctionFromUsageBuilder.computeImplicitReceiverClass(this) ?: getNonStrictParentOfType<KtClassOrObject>()
-        }
-    }
 
     context (KaSession)
     internal fun KtSimpleNameExpression.getReceiverOrContainerClassPackageName(): FqName? =
@@ -238,12 +229,17 @@ object K2CreateFunctionFromUsageUtil {
         }
 
     private fun KtElement.getContainerClass(): JvmClass? {
-        val containingClass = getNonStrictParentOfType<KtClassOrObject>()
+        val containingClass = PsiTreeUtil.getParentOfType(
+            /* element = */ this,
+            /* aClass = */ KtClassOrObject::class.java,
+            /* strict = */ false,
+            /* ...stopAt = */ KtSuperTypeList::class.java, KtPrimaryConstructor::class.java, KtConstructorDelegationCall::class.java
+        )
         return containingClass?.toLightClass() ?: getContainingFileAsJvmClass()
     }
 
     private fun KtElement.getContainingFileAsJvmClass(): JvmClass? =
-        containingKtFile.findFacadeClass() ?: KtFileClassProviderImpl(project).getFileClasses(containingKtFile).firstOrNull()
+        containingKtFile.findFacadeClass() ?: JvmClassWrapperForKtClass(containingKtFile).takeUnless { containingKtFile.isCompiled }
 
     private val NAME_SUGGESTER = KotlinNameSuggester()
 

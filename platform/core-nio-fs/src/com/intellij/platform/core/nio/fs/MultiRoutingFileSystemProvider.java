@@ -17,8 +17,9 @@ import java.nio.file.Path;
 import java.nio.file.spi.FileSystemProvider;
 import java.nio.file.spi.FileTypeDetector;
 import java.util.*;
-import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
+import java.util.function.Consumer;
 
 /**
  * A file system that can delegate specific paths to other file systems.
@@ -53,6 +54,8 @@ public final class MultiRoutingFileSystemProvider
   public final FileSystemProvider myLocalProvider;
 
   private final MultiRoutingFileSystem myFileSystem;
+
+  volatile BiConsumer<String, Boolean> myPathSpy = (ignored, ignored2) -> {};
 
   /**
    * Adds a new backend filesystem that handles requests to specific roots.
@@ -101,6 +104,27 @@ public final class MultiRoutingFileSystemProvider
     }
   }
 
+  public static void setPathSpy(
+    @NotNull FileSystemProvider provider,
+    @NotNull BiConsumer<@NotNull String, @NotNull Boolean> pathSpy
+  ) {
+    if (provider.getClass().getName().equals(MultiRoutingFileSystemProvider.class.getName())) {
+      try {
+        provider.getClass().getMethod("setPathSpy", BiConsumer.class).invoke(provider, pathSpy);
+      }
+      catch (IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {
+        throw new RuntimeException(e);
+      }
+    }
+    else {
+      throw new IllegalArgumentException(String.format("%s is not an instance of %s", provider, MultiRoutingFileSystemProvider.class));
+    }
+  }
+
+  public void setPathSpy(@NotNull BiConsumer<String, Boolean> pathSpy) {
+    myPathSpy = pathSpy;
+  }
+
   public MultiRoutingFileSystemProvider(FileSystemProvider localFSProvider) {
     myLocalProvider = localFSProvider;
     myFileSystem = new MultiRoutingFileSystem(this, myLocalProvider.getFileSystem(URI.create("file:///")));
@@ -138,7 +162,7 @@ public final class MultiRoutingFileSystemProvider
     return null;
   }
 
-  private static final String KEY_MRFS = "MRFS." + ThreadLocalRandom.current().nextInt(0, Integer.MAX_VALUE);
+  private static final String KEY_MRFS = "MRFS";
   private static final String KEY_ROOT = "KEY_ROOT";
   private static final String KEY_PREFIX = "KEY_PREFIX";
   private static final String KEY_CASE_SENSITIVE = "KEY_CASE_SENSITIVE";
@@ -173,8 +197,11 @@ public final class MultiRoutingFileSystemProvider
       path1 = path1.toAbsolutePath();
     }
 
-    FileSystemProvider provider1 = myFileSystem.getBackend(path1.toString()).provider();
+    String path1String = path1.toString();
+    FileSystem backend1 = myFileSystem.getBackend(path1String);
+    FileSystemProvider provider1 = backend1.provider();
     if (path2 == null) {
+      myPathSpy.accept(path1String, provider1 != this);
       return provider1;
     }
 
@@ -182,35 +209,52 @@ public final class MultiRoutingFileSystemProvider
       path2 = path2.toAbsolutePath();
     }
 
-    FileSystemProvider provider2 = myFileSystem.getBackend(path2.toString()).provider();
+    String path2String = path2.toString();
+    FileSystem backend2 = myFileSystem.getBackend(path2String);
+    FileSystemProvider provider2 = backend2.provider();
 
     if (provider1.equals(provider2)) {
+      myPathSpy.accept(path1String, provider1 != this);
       return provider1;
     }
-    else if (canHandleRouting(provider1)) {
+
+    if (canHandleRouting(provider1, backend2.getPath(path2String))) {
+      myPathSpy.accept(path1String, provider1 != this);
       return provider1;
     }
-    else if (canHandleRouting(provider2)) {
+
+    if (canHandleRouting(provider2, backend1.getPath(path1String))) {
+      myPathSpy.accept(path2String, provider2 != this);
       return provider2;
     }
-    else {
-      throw new IllegalArgumentException(String.format("Provider mismatch: %s != %s", provider1, provider2));
-    }
+
+    throw new IllegalArgumentException(String.format("Provider mismatch: %s != %s", provider1, provider2));
   }
 
   /**
    * `intellij.platform.util` is not available in the boot classpath.
    * Hence, concurrent weak maps from the platform can't be used here.
    */
-  private static final Map<FileSystemProvider, Boolean> ourCanHandleRoutingCache = Collections.synchronizedMap(new WeakHashMap<>());
+  private static final Map<FileSystemProvider, Optional<Method>> ourCanHandleRoutingCache = Collections.synchronizedMap(new WeakHashMap<>());
 
-  private static boolean canHandleRouting(FileSystemProvider provider) {
+  private static boolean canHandleRouting(FileSystemProvider provider, @NotNull Path path) {
     if (provider instanceof RoutingAwareFileSystemProvider) {
       // `instanceof` is still faster than a successful cache hit.
       // Even if `instanceof` misses, its negative impact is negligible. See a benchmark in the commit message.
-      return ((RoutingAwareFileSystemProvider)provider).canHandleRouting();
+      return ((RoutingAwareFileSystemProvider)provider).canHandleRouting(path);
     }
-    return ourCanHandleRoutingCache.computeIfAbsent(provider, MultiRoutingFileSystemProvider::canHandleRoutingImpl);
+    Method method = ourCanHandleRoutingCache
+      .computeIfAbsent(provider, MultiRoutingFileSystemProvider::canHandleRoutingImpl)
+      .orElse(null);
+    if (method == null) {
+      return false;
+    }
+    try {
+      return (boolean)method.invoke(provider, path);
+    }
+    catch (IllegalAccessException | InvocationTargetException e) {
+      throw new RuntimeException(e);
+    }
   }
 
   /**
@@ -222,15 +266,15 @@ public final class MultiRoutingFileSystemProvider
    * Therefore, the usual expression {@code a instanceof B} doesn't work when {@code a} is an instance of {@code B} loaded by
    * a different classloader.
    */
-  private static boolean canHandleRoutingImpl(FileSystemProvider provider) {
+  private static Optional<Method> canHandleRoutingImpl(FileSystemProvider provider) {
     Class<?> providerClass = provider.getClass();
     do {
       for (Class<?> iface : providerClass.getInterfaces()) {
         if (iface.getName().equals(RoutingAwareFileSystemProvider.class.getName())) {
           try {
-            return (boolean)iface.getMethod("canHandleRouting").invoke(provider);
+            return Optional.of(iface.getMethod("canHandleRouting"));
           }
-          catch (NoSuchMethodException | InvocationTargetException | IllegalAccessException e) {
+          catch (NoSuchMethodException e) {
             throw new RuntimeException(e);
           }
         }
@@ -238,7 +282,7 @@ public final class MultiRoutingFileSystemProvider
       providerClass = providerClass.getSuperclass();
     }
     while (providerClass != null);
-    return false;
+    return Optional.empty();
   }
 
   @Contract("null -> null; !null -> !null")

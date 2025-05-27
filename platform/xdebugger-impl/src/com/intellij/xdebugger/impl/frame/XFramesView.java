@@ -64,6 +64,8 @@ import java.util.*;
 import java.util.List;
 import java.util.function.Consumer;
 
+import static com.intellij.xdebugger.impl.actions.FrontendDebuggerActionsKt.areFrontendDebuggerActionsEnabled;
+
 @ApiStatus.Internal
 public final class XFramesView extends XDebugView {
   private static final Logger LOG = Logger.getInstance(XFramesView.class);
@@ -86,7 +88,7 @@ public final class XFramesView extends XDebugView {
   private boolean myRefresh;
 
   public XFramesView(@NotNull XDebugSession session) {
-    this(XDebugSessionProxyKeeper.getInstance(session.getProject()).getOrCreateProxy(session));
+    this(XDebugSessionProxyKeeperKt.asProxy(session));
   }
 
   public XFramesView(@NotNull XDebugSessionProxy sessionProxy) {
@@ -112,7 +114,7 @@ public final class XFramesView extends XDebugView {
         }
       }
     };
-    myFramesList = new XDebuggerFramesList(myProject) {
+    myFramesList = new XDebuggerFramesList(myProject, sessionProxy) {
       @Override
       protected @NotNull OccurenceInfo goOccurrence(int step) {
         OccurenceInfo info = super.goOccurrence(step);
@@ -155,7 +157,10 @@ public final class XFramesView extends XDebugView {
         int i = myFramesList.locationToIndex(new Point(x, y));
         if (i != -1) myFramesList.selectFrame(i);
         ActionManager actionManager = ActionManager.getInstance();
-        ActionGroup group = (ActionGroup)actionManager.getAction(XDebuggerActions.FRAMES_TREE_POPUP_GROUP);
+        String actionGroup = areFrontendDebuggerActionsEnabled()
+                   ? XDebuggerActions.FRAMES_TREE_POPUP_GROUP_FRONTEND
+                   : XDebuggerActions.FRAMES_TREE_POPUP_GROUP;
+        ActionGroup group = (ActionGroup)actionManager.getAction(actionGroup);
         actionManager.createActionPopupMenu("XDebuggerFramesList", group).getComponent().show(comp, x, y);
       }
     });
@@ -220,10 +225,11 @@ public final class XFramesView extends XDebugView {
         XDebugSessionProxy session = getSession();
         // TODO there's, ostensibly, a long-living bug: thread list may change over time on a breakpoint with suspend thread policy;
         //  but myThreadsCalculated doesn't address this issue
-        if (session == null || myThreadsCalculated) {
+        if (session == null || !session.hasSuspendContext() || myThreadsCalculated) {
           return;
         }
-        session.computeExecutionStacks(ThreadsBuilder::new);
+        myBuilder = new ThreadsBuilder();
+        session.computeExecutionStacks(() -> myBuilder);
       }
     });
 
@@ -566,15 +572,12 @@ public final class XFramesView extends XDebugView {
     myExecutionStacksWithSelection.put(mySelectedStack, mySelectedFrame);
     withCurrentBuilder(b -> b.setToSelect(null));
 
-    Object selected = myFramesList.getSelectedValue();
-    if (selected instanceof XStackFrame) {
-      if (sessionProxy != null) {
-        if (force || (!refresh && sessionProxy.getCurrentStackFrame() != selected)) {
-          int mySelectedFrameIndex = myFramesList.getSelectedIndex();
-          sessionProxy.setCurrentStackFrame(mySelectedStack, (XStackFrame)selected, mySelectedFrameIndex == 0);
-          if (force) {
-            XDebuggerActionsCollector.frameSelected.log(XDebuggerActionsCollector.PLACE_FRAMES_VIEW);
-          }
+    if (myFramesList.getSelectedValue() instanceof XStackFrame frame && sessionProxy != null) {
+      if (force || (!refresh && sessionProxy.getCurrentStackFrame() != myFramesList.getSelectedValue())) {
+        int selectedIndex = myFramesList.getSelectedIndex();
+        sessionProxy.setCurrentStackFrame(mySelectedStack, frame, selectedIndex == 0);
+        if (force) {
+          XDebuggerActionsCollector.frameSelected.log(XDebuggerActionsCollector.PLACE_FRAMES_VIEW);
         }
       }
     }
@@ -725,14 +728,14 @@ public final class XFramesView extends XDebugView {
     }
 
     private boolean selectFrame(Object toSelect) {
-      if (toSelect instanceof XStackFrame) {
-        if (myFramesList.selectFrame((XStackFrame)toSelect)) return true;
+      if (toSelect instanceof XStackFrame frame) {
+        if (myFramesList.selectFrame(frame)) return true;
         if (myAllFramesLoaded && myFramesList.getSelectedValue() == null) {
           LOG.warn("Frame was not found, it was either hidden without placeholder (" + HiddenStackFramesItem.class + ") or " + myToSelect.getClass() + " must correctly override equals");
         }
       }
-      else if (toSelect instanceof Integer) {
-        if (myFramesList.selectFrame((int)toSelect)) return true;
+      else if (toSelect instanceof Integer selectIndex) {
+        if (myFramesList.selectFrame(selectIndex)) return true;
       }
       else if (toSelect == null && myFramesList.getSelectedIndex() == -1) {
         if (myFramesList.selectFrame(0)) return true;

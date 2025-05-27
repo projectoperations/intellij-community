@@ -1,78 +1,95 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.searchEverywhere.frontend.ui
 
-import com.intellij.ide.IdeBundle
+import com.intellij.icons.AllIcons
+import com.intellij.ide.DataManager
+import com.intellij.ide.actions.searcheverywhere.ExtendedInfo
+import com.intellij.ide.actions.searcheverywhere.footer.ExtendedInfoComponent
+import com.intellij.ide.ui.laf.darcula.ui.TextFieldWithPopupHandlerUI
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.*
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ex.ApplicationManagerEx
 import com.intellij.openapi.project.DumbAwareAction
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.intellij.openapi.ui.popup.ListItemDescriptorAdapter
+import com.intellij.openapi.util.NlsContexts
+import com.intellij.openapi.util.registry.Registry
 import com.intellij.platform.searchEverywhere.SeActionItemPresentation
 import com.intellij.platform.searchEverywhere.SeTargetItemPresentation
-import com.intellij.platform.searchEverywhere.SeTextItemPresentation
-import com.intellij.platform.searchEverywhere.frontend.providers.actions.SeActionItemPresentationRenderer
-import com.intellij.platform.searchEverywhere.frontend.providers.files.SeTargetItemPresentationRenderer
-import com.intellij.platform.searchEverywhere.frontend.resultsProcessing.SeSortedResultAddedEvent
-import com.intellij.platform.searchEverywhere.frontend.resultsProcessing.SeSortedResultReplacedEvent
+import com.intellij.platform.searchEverywhere.SeTextSearchItemPresentation
+import com.intellij.platform.searchEverywhere.frontend.tabs.actions.SeActionItemPresentationRenderer
+import com.intellij.platform.searchEverywhere.frontend.tabs.files.SeTargetItemPresentationRenderer
+import com.intellij.platform.searchEverywhere.frontend.tabs.text.SeTextSearchItemPresentationRenderer
 import com.intellij.platform.searchEverywhere.frontend.vm.SePopupVm
-import com.intellij.platform.searchEverywhere.frontend.vm.SeResultListStopEvent
-import com.intellij.platform.searchEverywhere.frontend.vm.SeResultListUpdateEvent
+import com.intellij.platform.searchEverywhere.providers.SeLog
+import com.intellij.ui.ExperimentalUI.Companion.isNewUI
 import com.intellij.ui.ScrollingUtil
+import com.intellij.ui.SearchTextField
+import com.intellij.ui.WindowMoveListener
+import com.intellij.ui.awt.RelativePoint
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
+import com.intellij.ui.components.fields.ExtendableTextComponent
 import com.intellij.ui.dsl.gridLayout.GridLayout
 import com.intellij.ui.dsl.gridLayout.HorizontalAlign
 import com.intellij.ui.dsl.gridLayout.VerticalAlign
 import com.intellij.ui.dsl.gridLayout.builders.RowsGridBuilder
-import com.intellij.ui.dsl.listCellRenderer.listCellRenderer
-import com.intellij.util.bindTextOnShow
+import com.intellij.ui.popup.list.GroupedItemsListRenderer
+import com.intellij.ui.scale.JBUIScale.scale
+import com.intellij.util.bindTextIn
 import com.intellij.util.containers.ContainerUtil
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.StartupUiUtil.isWaylandToolkit
 import com.intellij.util.ui.UIUtil
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import com.intellij.util.ui.launchOnShow
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
 import org.jetbrains.annotations.ApiStatus.Internal
+import java.awt.BorderLayout
+import java.awt.Point
 import java.awt.event.*
 import java.util.function.Supplier
 import javax.swing.*
+import javax.swing.event.ListSelectionEvent
+import javax.swing.text.Document
+import kotlin.concurrent.atomics.ExperimentalAtomicApi
 
+@OptIn(ExperimentalAtomicApi::class, ExperimentalCoroutinesApi::class)
 @Internal
-class SePopupContentPane(private val vm: SePopupVm): JPanel(), Disposable {
+class SePopupContentPane(private val project: Project?, private val vm: SePopupVm) : JPanel(), Disposable, UiDataProvider {
   val preferableFocusedComponent: JComponent get() = textField
+  val searchFieldDocument: Document get() = textField.document
 
   private val headerPane: SePopupHeaderPane = SePopupHeaderPane(vm.tabVms.map { it.name }, vm.currentTabIndex, vm.coroutineScope)
   private val textField: SeTextField = SeTextField()
 
-  private val resultListModel = JBList.createDefaultListModel<SeResultListRow>()
+  private val resultListModel = SeResultListModel { resultList.selectionModel }
   private val resultList: JBList<SeResultListRow> = JBList(resultListModel)
   private val resultsScrollPane = createListPane(resultList)
+
+  private val extendedInfoContainer: JComponent = JPanel(BorderLayout())
+  private var extendedInfoComponent: ExtendedInfoComponent? = null
 
   init {
     layout = GridLayout()
 
     val actionListCellRenderer = SeActionItemPresentationRenderer(resultList).get { textField.text ?: "" }
-    val fileListCellRenderer = SeTargetItemPresentationRenderer().get()
-    val defaultRenderer = listCellRenderer<SeResultListRow> {
-      when (val value = value) {
-        is SeResultListItemRow -> {
-          when (val presentation = value.item.presentation) {
-            is SeTextItemPresentation -> text(presentation.text)
-            else ->  throw IllegalStateException("Item is not handled: $presentation")
-          }
-        }
-        is SeResultListMoreRow -> text(IdeBundle.message("search.everywhere.points.loading"))
-      }
-    }
+    val targetListCellRenderer = SeTargetItemPresentationRenderer(resultList).get()
+    val textSearchItemListCellRenderer = SeTextSearchItemPresentationRenderer().get()
+    val defaultRenderer = SeDefaultListItemRenderer().get()
 
     resultList.setCellRenderer(ListCellRenderer { list, value, index, isSelected, cellHasFocus ->
       if (value is SeResultListItemRow && value.item.presentation is SeActionItemPresentation) {
         actionListCellRenderer.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus)
       }
       else if (value is SeResultListItemRow && value.item.presentation is SeTargetItemPresentation) {
-        fileListCellRenderer.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus)
+        targetListCellRenderer.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus)
+      }
+      else if (value is SeResultListItemRow && value.item.presentation is SeTextSearchItemPresentation) {
+        textSearchItemListCellRenderer.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus)
       }
       else {
         defaultRenderer.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus)
@@ -81,41 +98,71 @@ class SePopupContentPane(private val vm: SePopupVm): JPanel(), Disposable {
 
     resultList.setFocusable(false)
 
+    updateExtendedInfoContainer()
+
     RowsGridBuilder(this)
       .row().cell(headerPane, horizontalAlign = HorizontalAlign.FILL, resizableColumn = true)
       .row().cell(textField, horizontalAlign = HorizontalAlign.FILL, resizableColumn = true)
       .row(resizable = true).cell(resultsScrollPane, horizontalAlign = HorizontalAlign.FILL, verticalAlign = VerticalAlign.FILL, resizableColumn = true)
+      .row().cell(extendedInfoContainer, horizontalAlign = HorizontalAlign.FILL, resizableColumn = true)
 
-    textField.bindTextOnShow(vm.searchPattern, "Search Everywhere text field text binding")
+    textField.launchOnShow("Search Everywhere text field text binding") {
+      withContext(Dispatchers.EDT) {
+        textField.text = vm.searchPattern.value
+        textField.selectAll()
+      }
+      textField.bindTextIn(vm.searchPattern, this)
+    }
+
+    addHistoryExtensionToTextField()
 
     vm.coroutineScope.launch {
-      vm.searchResults.collectLatest { listEventFlow ->
+      vm.currentTabFlow.flatMapLatest {
         withContext(Dispatchers.EDT) {
-          resultListModel.removeAllElements()
-          if (vm.searchPattern.value.isNotEmpty()) {
-            resultListModel.addElement(SeResultListMoreRow)
-          }
+          resultListModel.reset()
         }
-
-        listEventFlow.collect { listEvent ->
+        it.searchResults
+      }.collectLatest { throttledResultEventFlow ->
+        coroutineScope {
           withContext(Dispatchers.EDT) {
-            when (listEvent) {
-              is SeResultListUpdateEvent -> {
-                when (val sortedEvent = listEvent.event) {
-                  is SeSortedResultAddedEvent -> {
-                    resultListModel.add(sortedEvent.index, SeResultListItemRow(sortedEvent.itemData))
-                  }
-                  is SeSortedResultReplacedEvent -> {
-                    resultListModel.removeElement(sortedEvent.indexToRemove)
-                    resultListModel.add(sortedEvent.index, SeResultListItemRow(sortedEvent.itemData))
-                  }
-                }
-              }
+            resultListModel.invalidate()
 
-              SeResultListStopEvent -> {
-                if (!resultListModel.isEmpty && resultListModel.lastElement() is SeResultListMoreRow) {
-                  resultListModel.removeElementAt(resultListModel.size() - 1)
-                }
+            if (vm.searchPattern.value.isNotEmpty()) {
+              textField.setSearchInProgress(true)
+            }
+          }
+
+          launch {
+            delay(DEFAULT_FREEZING_DELAY_MS)
+            withContext(Dispatchers.EDT) {
+              resultListModel.freezer.enable()
+            }
+          }
+
+          throttledResultEventFlow.onCompletion {
+            withContext(Dispatchers.EDT) {
+              SeLog.log(SeLog.THROTTLING) { "Throttled flow completed" }
+              resultListModel.removeLoadingItem()
+              if (!resultListModel.isValid) resultListModel.reset()
+              if (resultListModel.isEmpty) {
+                textField.setSearchInProgress(false)
+                updateEmptyStatus()
+              }
+            }
+          }.collect { event ->
+            withContext(Dispatchers.EDT) {
+              textField.setSearchInProgress(false)
+              val wasFrozen = resultListModel.freezer.isEnabled
+
+              resultListModel.addFromThrottledEvent(event)
+
+              // Freeze back if it was frozen before
+              if (wasFrozen) resultListModel.freezer.enable()
+              resultListModel.freezer.freezeIfEnabled(indexToFreezeFromListOffset())
+
+              // Autoselect the first element if there were no selection preserved during the update
+              if (resultListModel.size > 0 && resultList.selectedIndices.isEmpty()) {
+                resultList.selectedIndex = 0
               }
             }
           }
@@ -125,23 +172,49 @@ class SePopupContentPane(private val vm: SePopupVm): JPanel(), Disposable {
 
     vm.coroutineScope.launch {
       vm.currentTabFlow.collectLatest {
+        val filterEditor = it.filterEditor.getValue()
         withContext(Dispatchers.EDT) {
-          headerPane.setFilterComponent(it.filterEditor?.component)
+          headerPane.setFilterPresentation(filterEditor?.getPresentation())
         }
       }
     }
 
+    val isScrolledAlmostToAnEnd = MutableStateFlow(false)
     val verticalScrollBar = resultsScrollPane.verticalScrollBar
     verticalScrollBar.addAdjustmentListener { adjustmentEvent ->
       val yetToScrollHeight = verticalScrollBar.maximum - verticalScrollBar.model.extent - adjustmentEvent.value
 
       if (verticalScrollBar.model.extent > 0 && yetToScrollHeight < 50) {
-        vm.shouldLoadMore = true
-      } else if (yetToScrollHeight > resultsScrollPane.height / 2) {
-        vm.shouldLoadMore = false
+        resultListModel.freezer.freezeAllIfEnabled()
+        isScrolledAlmostToAnEnd.value = true
+      }
+      else if (yetToScrollHeight > resultsScrollPane.height / 2) {
+        isScrolledAlmostToAnEnd.value = false
       }
     }
+
+    vm.coroutineScope.launch {
+      vm.currentTabFlow.collectLatest { tabVm ->
+        coroutineScope {
+          combine(isScrolledAlmostToAnEnd, resultListModel.isValidState) {
+            it[0] to it[1]
+          }.collect { (isScrolledAlmostToAnEnd, isValidList) ->
+            tabVm.shouldLoadMore = isScrolledAlmostToAnEnd || !isValidList
+          }
+        }
+      }
+    }
+
+    WindowMoveListener(this).installTo(headerPane)
+
+    DumbAwareAction.create { vm.getHistoryItem(true)?.let { textField.text = it; textField.selectAll() } }
+      .registerCustomShortcutSet(SearchTextField.SHOW_HISTORY_SHORTCUT, this)
+    DumbAwareAction.create { vm.getHistoryItem(false)?.let { textField.text = it; textField.selectAll() } }
+      .registerCustomShortcutSet(SearchTextField.ALT_SHOW_HISTORY_SHORTCUT, this)
   }
+
+  private fun indexToFreezeFromListOffset(): Int =
+    resultList.locationToIndex(Point(0, resultList.visibleRect.y)) + DEFAULT_FROZEN_COUNT
 
   private fun createListPane(resultList: JBList<*>): JScrollPane {
     val resultsScroll: JScrollPane = object : JBScrollPane(resultList) {
@@ -211,24 +284,13 @@ class SePopupContentPane(private val vm: SePopupVm): JPanel(), Disposable {
   }
 
   private suspend fun elementsSelected(indexes: IntArray, modifiers: Int) {
-    //stopSearching();
-
-    if (indexes.size == 1 && resultListModel[indexes[0]] is SeResultListMoreRow) {
-      return
-    }
-
     val itemDataList = indexes.map {
       resultListModel[it]
     }.mapNotNull {
       (it as? SeResultListItemRow)?.item
     }
 
-    var closePopup = false
-    for (itemData in itemDataList) {
-      closePopup = closePopup || vm.itemSelected(itemData, modifiers)
-    }
-
-    if (closePopup) {
+    if (vm.itemsSelected(itemDataList, modifiers)) {
       closePopup()
     }
     else {
@@ -239,6 +301,13 @@ class SePopupContentPane(private val vm: SePopupVm): JPanel(), Disposable {
   private fun installScrollingActions() {
     ScrollingUtil.installMoveUpAction(resultList, textField)
     ScrollingUtil.installMoveDownAction(resultList, textField)
+
+    resultList.addListSelectionListener { e: ListSelectionEvent ->
+      val index = resultList.selectedIndex
+      if (index != -1) {
+        extendedInfoComponent?.updateElement(resultList.selectedValue, this@SePopupContentPane)
+      }
+    }
   }
 
   private fun initSearchActions() {
@@ -274,9 +343,11 @@ class SePopupContentPane(private val vm: SePopupVm): JPanel(), Disposable {
 
     val nextTabAction: (AnActionEvent) -> Unit = { _ ->
       vm.selectNextTab()
+      updateExtendedInfoContainer()
     }
     val prevTabAction: (AnActionEvent) -> Unit = { _ ->
       vm.selectPreviousTab()
+      updateExtendedInfoContainer()
     }
 
     registerAction(SeActions.SWITCH_TO_NEXT_TAB, nextTabAction)
@@ -285,10 +356,10 @@ class SePopupContentPane(private val vm: SePopupVm): JPanel(), Disposable {
     registerAction(IdeActions.ACTION_PREVIOUS_TAB, prevTabAction)
     registerAction(IdeActions.ACTION_SWITCHER) { e ->
       if (e.inputEvent?.isShiftDown == true) {
-        vm.selectPreviousTab()
+        prevTabAction
       }
       else {
-        vm.selectNextTab()
+        nextTabAction
       }
     }
     registerAction(SeActions.NAVIGATE_TO_NEXT_GROUP) { _ ->
@@ -306,7 +377,7 @@ class SePopupContentPane(private val vm: SePopupVm): JPanel(), Disposable {
 
     textField.addFocusListener(object : FocusAdapter() {
       override fun focusLost(e: FocusEvent) {
-        onFocusLost()
+        onFocusLost(e)
       }
     })
   }
@@ -357,7 +428,7 @@ class SePopupContentPane(private val vm: SePopupVm): JPanel(), Disposable {
     // TODO: Implement description footer
   }
 
-  private fun onFocusLost() {
+  private fun onFocusLost(e: FocusEvent) {
     if (isWaylandToolkit()) {
       // In Wayland focus is always lost when the window is being moved.
       return
@@ -366,12 +437,117 @@ class SePopupContentPane(private val vm: SePopupVm): JPanel(), Disposable {
       return
     }
 
-    closePopup()
+    val oppositeComponent = e.oppositeComponent
+    if (!UIUtil.haveCommonOwner(this, oppositeComponent)) {
+      closePopup()
+    }
+  }
+
+  private fun addHistoryExtensionToTextField() {
+    textField.addExtension(
+      object : ExtendableTextComponent.Extension {
+        override fun getIcon(hovered: Boolean): Icon {
+          return if (isExtendedInfoEnabled()) AllIcons.Actions.SearchWithHistory else AllIcons.Actions.Search
+        }
+
+        override fun isIconBeforeText(): Boolean {
+          return true
+        }
+
+        override fun getIconGap(): Int {
+          return scale(if (isNewUI()) 6 else 10)
+        }
+
+        override fun getActionOnClick(): Runnable? {
+          if (!isExtendedInfoEnabled()) return null
+
+          val bounds = (textField.getUI() as TextFieldWithPopupHandlerUI).getExtensionIconBounds(this)
+          val point = bounds.location
+          point.y += bounds.width + scale(2)
+          val relativePoint = RelativePoint(textField, point)
+          return Runnable { showHistoryPopup(relativePoint) }
+        }
+      })
+  }
+
+  private fun showHistoryPopup(relativePoint: RelativePoint) {
+    val items = vm.getHistoryItems()
+
+    if (items.isEmpty()) return
+
+    JBPopupFactory.getInstance().createPopupChooserBuilder(items)
+      .setMovable(false)
+      .setRequestFocus(true)
+      .setItemChosenCallback { text: String ->
+        textField.setText(text)
+        textField.selectAll()
+      }
+      .setRenderer(GroupedItemsListRenderer(
+        object : ListItemDescriptorAdapter<String>() {
+          override fun getTextFor(value: @NlsContexts.ListItem String?): String? {
+            return value
+          }
+        }
+      ))
+      .createPopup()
+      .show(relativePoint)
+  }
+
+  private fun createExtendedInfoComponent(): ExtendedInfoComponent? {
+    if (isExtendedInfoEnabled()) {
+      val leftText = fun(element: Any): String? {
+        val leftText = (element as? SeResultListItemRow)?.item?.presentation?.extendedDescription
+        extendedInfoContainer.isVisible = !leftText.isNullOrEmpty()
+        return leftText
+      }
+      return ExtendedInfoComponent(project, ExtendedInfo(leftText) { null })
+    }
+    return null
+  }
+
+  private fun updateExtendedInfoContainer() {
+    extendedInfoContainer.removeAll()
+    extendedInfoComponent = createExtendedInfoComponent()
+    extendedInfoComponent?.let { extendedInfoContainer.add(it.component) }
   }
 
   private fun closePopup() {
     vm.closePopup()
   }
 
-  override fun dispose() { }
+  private suspend fun updateEmptyStatus() {
+    resultList.emptyText.clear()
+
+    if (textField.text.isEmpty()) {
+      return
+    }
+
+    val emptyResultInfo = vm.currentTab.getEmptyResultInfo(DataManager.getInstance().getDataContext(this@SePopupContentPane))
+    emptyResultInfo?.chunks?.forEach { (text, newLine, attrs, listener) ->
+      if (newLine) {
+        resultList.emptyText.appendLine(text, attrs, listener)
+      }
+      else {
+        resultList.emptyText.appendText(text, attrs, listener)
+      }
+    }
+  }
+
+  override fun uiDataSnapshot(sink: DataSink) {
+    sink[PlatformDataKeys.PREDEFINED_TEXT] = textField.text
+  }
+
+  override fun dispose() {}
+
+  companion object {
+    const val DEFAULT_FROZEN_COUNT: Int = 10
+    const val DEFAULT_FREEZING_DELAY_MS: Long = 800
+    const val DEFAULT_RESULT_THROTTLING_MS: Long = 900
+    const val DEFAULT_RESULT_COUNT_TO_STOP_THROTTLING: Int = 15
+
+    @JvmStatic
+    fun isExtendedInfoEnabled(): Boolean {
+      return Registry.`is`("search.everywhere.footer.extended.info") || ApplicationManager.getApplication().isInternal()
+    }
+  }
 }

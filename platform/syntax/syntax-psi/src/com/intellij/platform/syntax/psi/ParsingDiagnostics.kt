@@ -8,6 +8,7 @@ import com.intellij.lang.Language
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.platform.syntax.parser.SyntaxTreeBuilder
 import com.intellij.psi.ParsingDiagnostics.ParserDiagnosticsHandler
+import kotlin.jvm.JvmName
 import org.jetbrains.annotations.ApiStatus
 
 @ApiStatus.Experimental
@@ -24,6 +25,16 @@ fun registerParse(builder: SyntaxTreeBuilder, language: Language, parsingTimeNs:
 }
 
 @ApiStatus.Experimental
+fun registerLexing(language: Language, textLength: Long, lexingTimeNs: Long) {
+  val handler = ApplicationManager.getApplication().getService(ParserDiagnosticsHandler::class.java)
+  if (handler is ParsingDiagnosticsHandler) {
+    handler.registerLexing(language, textLength, lexingTimeNs)
+  }
+}
+
+@ApiStatus.Experimental
 interface ParsingDiagnosticsHandler {
   fun registerParse(builder: SyntaxTreeBuilder, language: Language, parsingTimeNs: Long)
+
+  fun registerLexing(language: Language, textLength: Long, lexingTimeNs: Long)
 }

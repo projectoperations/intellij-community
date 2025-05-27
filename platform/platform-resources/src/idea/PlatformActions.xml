@@ -713,6 +713,11 @@
         <separator/>
         <reference ref="SearchEverywhere"/>
         <separator/>
+        <group id="GoToTargetEx">
+          <action id="GotoFile" class="com.intellij.ide.actions.GotoFileAction">
+            <override-text place="MainMenu"/>
+          </action>
+        </group>
         <action id="GotoLine" class="com.intellij.ide.actions.GotoLineAction">
           <override-text place="MainMenu"/>
           <override-text place="EditorPopup" use-text-of-place="MainMenu"/>
@@ -902,6 +907,7 @@
           <action id="Performance.MemTester" class="com.intellij.ide.actions.MemTestAction"/>
           <separator/>
           <action id="LogDebugConfigure" class="com.intellij.ide.actions.DebugLogConfigureAction"/>
+          <action id="BrowseSpecialPaths" class="com.intellij.diagnostic.specialPaths.BrowseSpecialPathsAction" />
           <action id="CollectTroubleshootingInformation" class="com.intellij.troubleshooting.ui.CollectTroubleshootingInformationAction"
                   internal="true"/>
         </group>
@@ -942,6 +948,7 @@
     <group id="EditorTabsEntryPoint" popup="true" icon="AllIcons.Actions.More">
       <reference ref="RecentFilesFallback"/>
       <reference ref="RecentLocations"/>
+      <reference ref="GotoFile"/>
       <separator/>
       <reference ref="CloseAllEditors"/>
       <reference ref="ReopenClosedTab"/>
@@ -1135,6 +1142,7 @@
       <separator/>
       <reference ref="EditCustomProperties"/>
       <reference ref="EditCustomVmOptions"/>
+      <reference ref="BrowseSpecialPaths"/>
       <reference ref="CollectZippedLogs"/>
       <separator/>
       <reference ref="CreateDesktopEntry"/>
@@ -1257,6 +1265,8 @@
       <action id="Console.History.Browse" class="com.intellij.openapi.actionSystem.EmptyAction" icon="AllIcons.Vcs.History"/>
     </group>
 
+    <action id="MoveFileToAnotherModule" internal="true" class="com.intellij.ide.actions.MoveFileToAnotherModuleAction"/>
+
     <action id="LogFocusRequests" class="com.intellij.internal.focus.LogFocusRequestsAction"/>
     <action id="CreateAllServicesAndExtensions" internal="true"
             class="com.intellij.ide.plugins.CreateAllServicesAndExtensionsAction"
@@ -1375,6 +1385,8 @@
           <mouse-shortcut keymap="$default" keystroke="control alt button3"/>
           <mouse-shortcut keymap="$default" keystroke="control alt shift button3"/>
         </action>
+        <action id="UiThemeColorPickerAction" internal="true"
+                class="com.intellij.internal.inspector.themePicker.ToggleUiThemeColorPickerAction"/>
         <action id="GrayFilterConfig" internal="true" class="com.intellij.internal.GrayFilterConfig"/>
         <action id="TextGrayFilterConfig" internal="true" class="com.intellij.internal.TextGrayFilterConfig"/>
         <action id="ShowSplash" internal="true" class="com.intellij.ui.ShowSplashAction"/>
@@ -1397,6 +1409,7 @@
                 class="com.intellij.openapi.wm.impl.status.AddRandomNamesTestProcessAction"/>
         <action id="AddManyTestProcesses" internal="true" class="com.intellij.openapi.wm.impl.status.AddManyTestProcesses"/>
         <action id="WriteActionUnderProgress" internal="true" class="com.intellij.internal.TestWriteActionUnderProgress"/>
+        <action id="LongBackgroundWriteAction" internal="true" class="com.intellij.internal.LongBackgroundWriteAction"/>
         <action id="TestProgressWindow" internal="true" class="com.intellij.internal.TestProgressWindow"/>
         <action id="TestCoroutineProgress" internal="true" class="com.intellij.internal.TestCoroutineProgressAction"/>
         <separator/>
@@ -1767,14 +1780,39 @@
     </group>
     <action internal="true" id="ShowUsageFeatures" class="com.intellij.usages.similarity.internal.ShowUsageFeaturesInternalAction"/>
 
+    <action text="Show Workspace File State" id="ShowWorkspaceFileState" class="com.intellij.workspaceModel.ide.ShowWorkspaceFileStateAction" internal="true"/>
+
     <!-- copy of CheckVfsSanityInMenu: !internal so could be invoked via 'search everywhere' -->
     <action id="CheckVfsSanity" class="com.intellij.openapi.vfs.newvfs.persistent.CheckVFSHealthAction"/>
     <action id="PaintEditorLineStripeComponentAction" class="com.intellij.codeInsight.editorLineStripeHint.PaintEditorLineStripeHintComponentAction" internal="true"/>
+    <action id="ShowInlineCompletionStatistics" internal="true"
+            class="com.intellij.codeInsight.inline.completion.statistics.ShowCompletionLocalStatisticsAction"/>
     
     <group id="CustomizeMainToolbarGroup" popup="true" searchable="false">
       <action id="CustomizeMainToolbarAction" class="com.intellij.ide.actions.CustomizeMainToolbarAction"/>
       <separator key="group.MainToolbarQuickActions.text"/>
       <reference ref="MainToolbarQuickActionsRaw"/>
+    </group>
+
+    <action id="UndoDumpAction" internal="true" class="com.intellij.ide.actions.UndoDumpAction" />
+
+    <action id="DisableMinimap" class="com.intellij.ide.minimap.actions.DisableMinimapAction"/>
+    <action id="ToggleMinimap" class="com.intellij.ide.minimap.actions.ToggleMinimapAction"/>
+    <action id="OpenMinimapSettings" class="com.intellij.ide.minimap.actions.OpenMinimapSettingsAction"/>
+    <action id="MoveMinimap" class="com.intellij.ide.minimap.actions.MoveMinimapAction"/>
+
+    <!-- id should be "OpenInDefaultBrowser", but existing name preserved to keep compatibility - if user configured shortcut for action, it should not be lost -->
+    <action id="OpenInBrowser" class="com.intellij.ide.browsers.actions.OpenFileInDefaultBrowserAction"
+            icon="AllIcons.Nodes.PpWeb">
+    </action>
+    <group id="OpenInBrowserGroup" class="com.intellij.ide.browsers.actions.OpenInBrowserBaseGroupAction$OpenInBrowserGroupAction">
+      <add-to-group group-id="ViewMenu" anchor="after" relative-to-action="ViewSource"/>
+      <add-to-group group-id="RevealGroup" anchor="last"/>
+      <override-text place="RevealInPopup"/>
+    </group>
+    <group id="OpenInBrowserEditorContextBarGroupAction"
+           class="com.intellij.ide.browsers.actions.OpenInBrowserBaseGroupAction$OpenInBrowserEditorContextBarGroupAction">
+      <add-to-group group-id="EditorContextBarMenu" anchor="last"/>
     </group>
   </actions>
 </idea-plugin>

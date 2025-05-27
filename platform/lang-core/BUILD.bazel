@@ -17,6 +17,7 @@ jvm_library(
     "//platform/ide-core",
     "//platform/execution",
     "//platform/platform-util-io:ide-util-io",
+    "//jps/model-api:model",
     "//platform/util/jdom",
     "//platform/util-class-loader:util-classLoader",
     "//platform/util",
@@ -29,6 +30,7 @@ jvm_library(
     "//platform/editor-ui-api:editor-ui",
     "//platform/analysis-api:analysis",
     "//platform/usageView",
+    "//platform/eel-provider",
   ],
   runtime_deps = [":lang-core_resources"]
 )

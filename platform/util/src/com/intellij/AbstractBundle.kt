@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("KDocUnresolvedReference")
 
 package com.intellij
@@ -76,6 +76,7 @@ open class AbstractBundle {
       loader: ClassLoader,
       pathToBundle: String,
       firstTry: () -> ResourceBundle,
+      errorReporter: (MissingResourceException) -> Unit,
     ): ResourceBundle {
       try {
         return firstTry()
@@ -87,10 +88,17 @@ open class AbstractBundle {
           return ResourceBundle.getBundle(pathToBundle, Locale.getDefault(), loader)
         }
         catch (e: MissingResourceException) {
-          logger<AbstractBundle>().error(e)
+          errorReporter(e)
           return MissingResourceBundle(pathToBundle)
         }
       }
+    }
+
+    @ApiStatus.Internal
+    @JvmStatic
+    @Deprecated("do not use, for compatibility only")
+    fun resolveBundle(loader: ClassLoader, locale: Locale, pathToBundle: String): ResourceBundle {
+      return _doResolveBundle(loader = loader, locale = locale, pathToBundle = pathToBundle)
     }
   }
 
@@ -146,9 +154,11 @@ open class AbstractBundle {
     val isDefault = DefaultBundleService.isDefaultBundle()
     var bundle = getBundle(isDefault, classLoader)
     if (bundle == null) {
-      bundle = resolveResourceBundleWithFallback(loader = classLoader, pathToBundle = pathToBundle) {
+      bundle = resolveResourceBundleWithFallback(loader = classLoader, pathToBundle = pathToBundle, firstTry = {
         findBundle(pathToBundle = pathToBundle, loader = classLoader, control = IntelliJResourceControl)
-      }
+      }, errorReporter = { e ->
+        logger<AbstractBundle>().error(e)
+      })
       val ref = SoftReference(bundle)
       if (isDefault) {
         defaultBundle = ref

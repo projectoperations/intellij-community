@@ -198,6 +198,7 @@ public abstract class DialogWrapper {
   private boolean myValidationStarted;
   private boolean myKeepPopupsOpen;
   @Nls private @NonNls @Nullable String invocationPlace = null;
+  private boolean disposeInWriteIntentReadAction = true;
 
   protected Action myOKAction;
   protected Action myCancelAction;
@@ -523,7 +524,7 @@ public abstract class DialogWrapper {
     }
 
     // Can be called very early when there is no application yet
-    if (LoadingState.COMPONENTS_LOADED.isOccurred()) {
+    if (LoadingState.COMPONENTS_LOADED.isOccurred() && disposeInWriteIntentReadAction) {
       //maybe readaction
       WriteIntentReadAction.run((Runnable)() -> Disposer.dispose(myDisposable));
     }
@@ -1188,6 +1189,11 @@ public abstract class DialogWrapper {
     return myHelpAction;
   }
 
+  @ApiStatus.Internal // maybe experimental?
+  public void setShouldDisposeInWriteIntentReadAction(boolean useWriteIntentReadActionForDisposal) {
+    disposeInWriteIntentReadAction = useWriteIntentReadActionForDisposal;
+  }
+
   protected boolean isProgressDialog() {
     return false;
   }
@@ -1379,6 +1385,7 @@ public abstract class DialogWrapper {
     }
 
     JComponent centerSection = new JPanel(new BorderLayout());
+    centerSection.setName("centerSection");
     myRoot.add(centerSection, BorderLayout.CENTER);
 
     JComponent n = createNorthPanel();
@@ -1812,7 +1819,13 @@ public abstract class DialogWrapper {
       ClientProperty.put(window, KEEP_POPUPS_OPEN, myKeepPopupsOpen);
     }
 
-    myPeer.show();
+    if (!isProgressDialog()) {
+      WriteIntentReadAction.run((Runnable) () -> {
+        myPeer.show();
+      });
+    } else {
+      myPeer.show();
+    }
   }
 
   /**

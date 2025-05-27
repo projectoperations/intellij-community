@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.sdk.uv.ui
 
 import com.intellij.application.options.ModuleListCellRenderer
@@ -25,11 +25,14 @@ import com.intellij.util.ui.FormBuilder
 import com.jetbrains.python.PyBundle
 import com.jetbrains.python.PySdkBundle
 import com.jetbrains.python.PythonModuleTypeBase
+import com.jetbrains.python.getOrNull
 import com.jetbrains.python.newProject.collector.InterpreterStatisticsInfo
+import com.jetbrains.python.onSuccess
 import com.jetbrains.python.sdk.PySdkSettings
 import com.jetbrains.python.sdk.PythonSdkCoroutineService
 import com.jetbrains.python.sdk.add.*
 import com.jetbrains.python.sdk.basePath
+import com.jetbrains.python.sdk.persistSync
 import com.jetbrains.python.sdk.uv.UV_ICON
 import com.jetbrains.python.sdk.uv.getPyProjectTomlForUv
 import com.jetbrains.python.sdk.uv.impl.detectUvExecutable
@@ -39,6 +42,7 @@ import com.jetbrains.python.sdk.uv.setupNewUvSdkAndEnvUnderProgress
 import com.jetbrains.python.sdk.uv.validateSdks
 import com.jetbrains.python.statistics.InterpreterTarget
 import com.jetbrains.python.statistics.InterpreterType
+import com.jetbrains.python.util.runWithModalBlockingOrInBackground
 import com.jetbrains.python.venvReader.tryResolvePath
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -175,11 +179,12 @@ class PyAddNewUvPanel(
       setUvExecutable(it)
     }
 
-    val sdk = runBlockingCancellable {
+    val sdk = runWithModalBlockingOrInBackground(project, PyBundle.message("python.sdk.uv.setting.up.uv.environment")) {
       setupNewUvSdkAndEnvUnderProgress(project, path, existingSdks, python)
     }
 
-    sdk.onSuccess {
+    sdk.onSuccess { sdk ->
+      sdk.persistSync();
       PySdkSettings.instance.preferredVirtualEnvBaseSdk = baseSdkField.selectedSdk.homePath
     }
 
@@ -238,7 +243,7 @@ class PyAddNewUvPanel(
 
 class PyAddUvSdkProvider : PyAddSdkProvider {
   override fun createView(
-    project: Project?,
+    project: Project,
     module: Module?,
     newProjectPath: String?,
     existingSdks: List<Sdk>,
@@ -250,7 +255,4 @@ class PyAddUvSdkProvider : PyAddSdkProvider {
     return PyAddSdkGroupPanel(Supplier { "uv environment" }, UV_ICON, listOf(panel), panel)
   }
 
-  private fun allowCreatingNewEnvironments(project: Project?): Boolean {
-    return project != null || !PlatformUtils.isPyCharm() || PlatformUtils.isPyCharmEducational()
-  }
 }

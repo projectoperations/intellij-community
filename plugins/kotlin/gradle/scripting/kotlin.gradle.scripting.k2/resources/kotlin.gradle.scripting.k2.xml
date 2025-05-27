@@ -16,6 +16,10 @@
   </extensions>
 
   <extensions defaultExtensionNs="com.intellij">
+    <projectService serviceInterface="org.jetbrains.kotlin.gradle.scripting.shared.roots.GradleBuildRootsLocator"
+                    serviceImplementation="org.jetbrains.kotlin.gradle.scripting.k2.roots.GradleBuildRootsLocatorImpl"/>
+    <externalSystemTaskNotificationListener implementation="org.jetbrains.kotlin.gradle.scripting.k2.importing.KotlinDslSyncListener"/>
+
     <editorNotificationProvider
             implementation="org.jetbrains.kotlin.gradle.scripting.k2.IndexScriptDependenciesSourcesNotificationProvider"/>
     <editorNotificationProvider implementation="org.jetbrains.kotlin.gradle.scripting.k2.GradleScriptNotificationProvider"/>
@@ -30,12 +34,8 @@
                      key="inspection.kotlin.options.to.compiler.options.display.name" bundle="messages.KotlinBundle"/>
   </extensions>
 
-
   <extensions defaultExtensionNs="org.jetbrains.kotlin">
-    <scriptConfigurationsSource implementation="org.jetbrains.kotlin.gradle.scripting.k2.GradleScriptConfigurationsSource"/>
-
-    <kotlinScriptLazyResolveProhibitionCondition
-            implementation="org.jetbrains.kotlin.gradle.scripting.k2.GradleScriptLazyResolveProhibitionCondition"/>
+    <kotlinScripDeferredResolutionPolicy implementation="org.jetbrains.kotlin.gradle.scripting.k2.GradleScripDeferredResolvePolicy"/>
     <scriptDefinitionsSource implementation="org.jetbrains.kotlin.gradle.scripting.k2.GradleScriptDefinitionsSource"/>
   </extensions>
 </idea-plugin>

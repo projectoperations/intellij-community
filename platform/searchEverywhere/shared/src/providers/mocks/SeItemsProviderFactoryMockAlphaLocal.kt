@@ -11,8 +11,8 @@ import org.jetbrains.annotations.ApiStatus.Internal
 class SeItemsProviderFactoryMockAlphaLocal: SeItemsProviderFactory {
   override val id: String get() = ID
 
-  override suspend fun getItemsProvider(project: Project, dataContext: DataContext): SeItemsProvider =
-    SeItemsProviderMock(resultPrefix = PREFIX, id = ID, delayMillis = 200, delayStep = 3)
+  override suspend fun getItemsProvider(project: Project?, dataContext: DataContext): SeItemsProvider? =
+    SeItemsProviderMock(resultPrefix = PREFIX, id = ID, displayName = PREFIX, delayMillis = 200, delayStep = 3)
 
   companion object {
     const val PREFIX: String = "AlphaLocal"

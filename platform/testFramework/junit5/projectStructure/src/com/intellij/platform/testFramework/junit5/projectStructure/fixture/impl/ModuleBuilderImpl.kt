@@ -2,6 +2,7 @@
 package com.intellij.platform.testFramework.junit5.projectStructure.fixture.impl
 
 import com.intellij.platform.testFramework.junit5.projectStructure.fixture.ContentRootBuilder
+import com.intellij.platform.testFramework.junit5.projectStructure.fixture.ModuleDependenciesBuilder
 import com.intellij.platform.testFramework.junit5.projectStructure.fixture.ModuleBuilder
 
 internal class ModuleBuilderImpl(
@@ -11,8 +12,11 @@ internal class ModuleBuilderImpl(
 ) : DirectoryBuilderBase(path, projectStructure), ModuleBuilder {
 
   private val _contentRoots: MutableList<ContentRootBuilderImpl> = mutableListOf()
+  private var _dependenciesBuilder: ModuleDependenciesBuilderImpl? = null
 
   val contentRoots: List<ContentRootBuilderImpl> get() = _contentRoots
+  val usedSdk: String? get() = _dependenciesBuilder?.usedSdk
+  val dependencies: List<ModuleBuilderImpl> get() = _dependenciesBuilder?.dependencies ?: listOf()
 
   override fun contentRoot(name: String, init: ContentRootBuilder.() -> Unit) {
     val contentRootPath = "$path/$name"
@@ -36,5 +40,11 @@ internal class ModuleBuilderImpl(
                                               projectStructure = projectStructure,
                                               isExisting = true)
     contentRoot.addSourceRoot(newSourceRoot)
+  }
+
+  override fun dependencies(init: ModuleDependenciesBuilder.() -> Unit) {
+    val dependenciesBuilder = ModuleDependenciesBuilderImpl(moduleName, projectStructure)
+    dependenciesBuilder.init()
+    _dependenciesBuilder = dependenciesBuilder
   }
 }

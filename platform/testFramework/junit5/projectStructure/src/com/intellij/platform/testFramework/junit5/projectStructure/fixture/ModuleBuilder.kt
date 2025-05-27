@@ -8,4 +8,6 @@ interface ModuleBuilder : ProjectBuilder {
   )
 
   fun sharedSourceRoot(sourceRootId: String)
+
+  fun dependencies(init: ModuleDependenciesBuilder.() -> Unit)
 }

@@ -1,10 +1,14 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.application.impl
 
+import com.intellij.openapi.actionSystem.ex.ActionButtonLook
 import com.intellij.openapi.components.serviceOrNull
 import com.intellij.openapi.fileEditor.impl.EditorTabPainterAdapter
+import com.intellij.openapi.fileEditor.impl.EditorsSplitters
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Divider
 import com.intellij.openapi.ui.Splittable
+import com.intellij.openapi.wm.IdeFrame
 import com.intellij.openapi.wm.IdeGlassPane
 import com.intellij.toolWindow.StripesUxCustomizer
 import com.intellij.toolWindow.xNext.XNextStripesUxCustomizer
@@ -17,6 +21,8 @@ import java.awt.Graphics
 import java.awt.Paint
 import java.awt.Rectangle
 import javax.swing.JComponent
+import javax.swing.JFrame
+import javax.swing.JLayeredPane
 import javax.swing.JPanel
 
 @ApiStatus.Experimental
@@ -39,14 +45,24 @@ open class InternalUICustomization {
       return result
     }
   }
+  open fun progressWidget(project: Project): JComponent? = null
 
   open val aiComponentMarker: AiInternalUiComponentMarker = AiInternalUiComponentMarker()
 
   open val editorTabPainterAdapter: TabPainterAdapter = EditorTabPainterAdapter()
 
+  open val shouldPaintEditorFadeout: Boolean = true
+
   open val toolWindowUIDecorator: ToolWindowUIDecorator = ToolWindowUIDecorator()
 
   open val isProjectCustomDecorationActive: Boolean = true
+
+  open val isProjectCustomDecorationGradientPaint: Boolean
+    get() {
+      return isProjectCustomDecorationActive
+    }
+
+  open fun createToolWindowPaneLayered(splitter: JComponent, frame: JFrame): JLayeredPane? = null
 
   /**
    * TODO
@@ -59,6 +75,18 @@ open class InternalUICustomization {
     XNextStripesUxCustomizer()
   else
     StripesUxCustomizer ()
+
+  open fun configureButtonLook(look: ActionButtonLook, g: Graphics): Graphics? = null
+
+  open fun getEditorToolbarButtonLook(): ActionButtonLook? = null
+
+  open fun configureEditorsSplitters(component: EditorsSplitters) {}
+
+  open fun installBackgroundUpdater(component: JComponent) {}
+
+  open fun installEditorBackground(component: JComponent) {}
+
+  open fun paintBeforeEditorEmptyText(component: JComponent, graphics: Graphics) {}
 
   open fun frameHeaderBackgroundConverter(color: Color?): Color? = color
 
@@ -73,6 +101,8 @@ open class InternalUICustomization {
   open fun createCustomToolWindowPaneHolder(): JPanel = JPanel()
 
   open val isCustomPaintersAllowed: Boolean = false
+
+  open fun attachIdeFrameBackgroundPainter(frame: IdeFrame, glassPane: IdeGlassPane): Unit = Unit
 
   open fun attachIdeFallbackBackgroundPainter(glassPane: IdeGlassPane): Unit = Unit
 

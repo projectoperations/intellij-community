@@ -8,7 +8,9 @@ jvm_library(
   srcs = glob(["src/**/*.kt", "src/**/*.java"], allow_empty = True),
   deps = [
     "@lib//:kotlin-stdlib",
+    "//platform/credential-store",
     "//platform/credential-store-impl:credentialStore-impl",
+    "//platform/editor-ui-api:editor-ui",
     "//platform/platform-api:ide",
     "//platform/util:util-ui",
     "//platform/platform-impl:ide-impl",

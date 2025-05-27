@@ -20,6 +20,8 @@ c:com.intellij.openapi.progress.ProcessCanceledException
 com.intellij.openapi.util.Segment
 - sf:BY_START_OFFSET_THEN_END_OFFSET:java.util.Comparator
 - sf:EMPTY_ARRAY:com.intellij.openapi.util.Segment[]
+- contains(I):Z
+- containsInclusive(I):Z
 - a:getEndOffset():I
 - a:getStartOffset():I
 c:com.intellij.openapi.util.TextRange
@@ -395,6 +397,7 @@ f:com.intellij.util.containers.CollectionFactory
 - s:createConcurrentSoftKeySoftValueMap(I,F,I):java.util.concurrent.ConcurrentMap
 - s:createConcurrentSoftMap():java.util.concurrent.ConcurrentMap
 - s:createConcurrentSoftMap(I,F,I,com.intellij.util.containers.HashingStrategy):java.util.concurrent.ConcurrentMap
+- s:createConcurrentSoftMap(com.intellij.util.containers.HashingStrategy,java.util.function.BiConsumer):java.util.concurrent.ConcurrentMap
 - s:createConcurrentSoftMap(java.util.function.BiConsumer):java.util.concurrent.ConcurrentMap
 - s:createConcurrentSoftValueMap():java.util.concurrent.ConcurrentMap
 - s:createConcurrentSoftValueMap(java.util.function.BiConsumer):java.util.concurrent.ConcurrentMap

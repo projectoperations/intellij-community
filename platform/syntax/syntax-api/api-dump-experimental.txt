@@ -1,19 +1,42 @@
 *:com.intellij.platform.syntax.CancellationProvider
 - a:checkCancelled():V
+*:com.intellij.platform.syntax.LazyParser
+- a:parse(com.intellij.platform.syntax.LazyParsingContext):com.intellij.platform.syntax.parser.ProductionResult
+- tryReparse(com.intellij.platform.syntax.LazyParsingContext):com.intellij.platform.syntax.parser.ProductionResult
+*f:com.intellij.platform.syntax.LazyParserKt
+- *sf:parseLazyNode(com.intellij.platform.syntax.LazyParsingContext):com.intellij.platform.syntax.parser.ProductionResult
+- *sf:tryReparseLazyNode(com.intellij.platform.syntax.LazyParsingContext):com.intellij.platform.syntax.parser.ProductionResult
+*f:com.intellij.platform.syntax.LazyParsingContext
+- <init>(com.intellij.platform.syntax.tree.SyntaxTree,com.intellij.platform.syntax.tree.SyntaxNode,java.lang.CharSequence,com.intellij.platform.syntax.lexer.TokenList):V
+- f:getNode():com.intellij.platform.syntax.tree.SyntaxNode
+- f:getText():java.lang.CharSequence
+- f:getTokenList():com.intellij.platform.syntax.lexer.TokenList
+- f:getTree():com.intellij.platform.syntax.tree.SyntaxTree
 *:com.intellij.platform.syntax.Logger
+- a:debug(java.lang.String,java.lang.Throwable):V
+- bs:debug$default(com.intellij.platform.syntax.Logger,java.lang.String,java.lang.Throwable,I,java.lang.Object):V
 - a:error(java.lang.String):V
 - a:error(java.lang.String,com.intellij.platform.syntax.Logger$Attachment[]):V
-- a:warn(java.lang.String,java.lang.RuntimeException):V
-- bs:warn$default(com.intellij.platform.syntax.Logger,java.lang.String,java.lang.RuntimeException,I,java.lang.Object):V
+- a:info(java.lang.String,java.lang.Throwable):V
+- bs:info$default(com.intellij.platform.syntax.Logger,java.lang.String,java.lang.Throwable,I,java.lang.Object):V
+- a:isDebugEnabled():Z
+- a:trace(java.lang.String):V
+- a:trace(java.lang.Throwable):V
+- a:warn(java.lang.String,java.lang.Throwable):V
+- bs:warn$default(com.intellij.platform.syntax.Logger,java.lang.String,java.lang.Throwable,I,java.lang.Object):V
 *f:com.intellij.platform.syntax.Logger$Attachment
 - <init>(java.lang.String,java.lang.String):V
 - f:getContent():java.lang.String
 - f:getName():java.lang.String
 *f:com.intellij.platform.syntax.SyntaxElementType
-- <init>(java.lang.String):V
 - equals(java.lang.Object):Z
 - f:getIndex():I
 - hashCode():I
+- f:isLazyParseable():Z
+*f:com.intellij.platform.syntax.SyntaxElementTypeKt
+- *sf:SyntaxElementType(java.lang.String):com.intellij.platform.syntax.SyntaxElementType
+- *sf:SyntaxElementType(java.lang.String,com.intellij.platform.syntax.LazyParser):com.intellij.platform.syntax.SyntaxElementType
+- *bs:SyntaxElementType$default(java.lang.String,com.intellij.platform.syntax.LazyParser,I,java.lang.Object):com.intellij.platform.syntax.SyntaxElementType
 *f:com.intellij.platform.syntax.SyntaxElementTypeSet
 - java.util.Set
 - kotlin.jvm.internal.markers.KMappedMarker
@@ -25,8 +48,11 @@
 - containsAll(java.util.Collection):Z
 - f:containsNullable(com.intellij.platform.syntax.SyntaxElementType):Z
 - getSize():I
+- f:intersect(com.intellij.platform.syntax.SyntaxElementTypeSet):com.intellij.platform.syntax.SyntaxElementTypeSet
 - isEmpty():Z
 - iterator():java.util.Iterator
+- f:minus(com.intellij.platform.syntax.SyntaxElementType):com.intellij.platform.syntax.SyntaxElementTypeSet
+- f:minus(java.lang.Iterable):com.intellij.platform.syntax.SyntaxElementTypeSet
 - f:plus(com.intellij.platform.syntax.SyntaxElementType):com.intellij.platform.syntax.SyntaxElementTypeSet
 - f:plus(java.lang.Iterable):com.intellij.platform.syntax.SyntaxElementTypeSet
 - remove(java.lang.Object):Z
@@ -38,6 +64,7 @@
 *f:com.intellij.platform.syntax.SyntaxElementTypeSetKt
 - *sf:asSyntaxElementTypeSet(java.util.Collection):com.intellij.platform.syntax.SyntaxElementTypeSet
 - *sf:emptySyntaxElementTypeSet():com.intellij.platform.syntax.SyntaxElementTypeSet
+- sf:flattenSyntaxElementTypeSets(com.intellij.platform.syntax.SyntaxElementTypeSet[]):com.intellij.platform.syntax.SyntaxElementTypeSet
 - *sf:syntaxElementTypeSetOf(com.intellij.platform.syntax.SyntaxElementType[]):com.intellij.platform.syntax.SyntaxElementTypeSet
 *f:com.intellij.platform.syntax.element.SyntaxTokenTypes
 - sf:INSTANCE:com.intellij.platform.syntax.element.SyntaxTokenTypes
@@ -76,7 +103,9 @@
 - getTokenText(I):java.lang.CharSequence
 - a:getTokenType(I):com.intellij.platform.syntax.SyntaxElementType
 - a:getTokenizedText():java.lang.CharSequence
-*f:com.intellij.platform.syntax.lexer.TokenListKt
+- a:remap(I,com.intellij.platform.syntax.SyntaxElementType):V
+- a:slice(I,I):com.intellij.platform.syntax.lexer.TokenList
+*f:com.intellij.platform.syntax.lexer.TokenListUtil
 - sf:TokenList(I[],com.intellij.platform.syntax.SyntaxElementType[],I,java.lang.CharSequence):com.intellij.platform.syntax.lexer.TokenList
 - sf:backWhile(com.intellij.platform.syntax.lexer.TokenList,I,com.intellij.platform.syntax.SyntaxElementTypeSet):I
 - sf:backWithBraceMatching(com.intellij.platform.syntax.lexer.TokenList,I,com.intellij.platform.syntax.SyntaxElementType,com.intellij.platform.syntax.SyntaxElementType):I
@@ -84,9 +113,11 @@
 - sf:hasType(com.intellij.platform.syntax.lexer.TokenList,I,com.intellij.platform.syntax.SyntaxElementType):Z
 - sf:hasType(com.intellij.platform.syntax.lexer.TokenList,I,com.intellij.platform.syntax.SyntaxElementTypeSet):Z
 - sf:hasType(com.intellij.platform.syntax.lexer.TokenList,I,com.intellij.platform.syntax.SyntaxElementType[]):Z
-- sf:performLexing(java.lang.CharSequence,com.intellij.platform.syntax.lexer.Lexer,com.intellij.platform.syntax.CancellationProvider):com.intellij.platform.syntax.lexer.TokenList
-- bs:performLexing$default(java.lang.CharSequence,com.intellij.platform.syntax.lexer.Lexer,com.intellij.platform.syntax.CancellationProvider,I,java.lang.Object):com.intellij.platform.syntax.lexer.TokenList
-- sf:tokenListLexer(com.intellij.platform.syntax.lexer.TokenList):com.intellij.platform.syntax.lexer.Lexer
+- sf:performLexing(java.lang.CharSequence,com.intellij.platform.syntax.lexer.Lexer,com.intellij.platform.syntax.CancellationProvider,com.intellij.platform.syntax.Logger):com.intellij.platform.syntax.lexer.TokenList
+- sf:tokenListLexer(com.intellij.platform.syntax.lexer.TokenList,com.intellij.platform.syntax.Logger):com.intellij.platform.syntax.lexer.Lexer
+- bs:tokenListLexer$default(com.intellij.platform.syntax.lexer.TokenList,com.intellij.platform.syntax.Logger,I,java.lang.Object):com.intellij.platform.syntax.lexer.Lexer
+*f:com.intellij.platform.syntax.logger.NoopLogger
+- *sf:noopLogger():com.intellij.platform.syntax.Logger
 *:com.intellij.platform.syntax.parser.OpaqueElementPolicy
 - a:getTextOfOpaqueElement(com.intellij.platform.syntax.SyntaxElementType):java.lang.String
 *:com.intellij.platform.syntax.parser.ProductionMarkerList
@@ -149,10 +180,9 @@
 - a:isErrorMarker():Z
 *f:com.intellij.platform.syntax.parser.SyntaxTreeBuilderFactory
 - sf:INSTANCE:com.intellij.platform.syntax.parser.SyntaxTreeBuilderFactory
-- sf:builder(java.lang.CharSequence,java.util.Set,java.util.Set,com.intellij.platform.syntax.lexer.Lexer):com.intellij.platform.syntax.parser.SyntaxTreeBuilderFactory$Builder
+- sf:builder(java.lang.CharSequence,com.intellij.platform.syntax.lexer.TokenList,java.util.Set,java.util.Set):com.intellij.platform.syntax.parser.SyntaxTreeBuilderFactory$Builder
 *:com.intellij.platform.syntax.parser.SyntaxTreeBuilderFactory$Builder
 - a:build():com.intellij.platform.syntax.parser.SyntaxTreeBuilder
-- a:withCachedLexemes(com.intellij.platform.syntax.lexer.TokenList):com.intellij.platform.syntax.parser.SyntaxTreeBuilderFactory$Builder
 - a:withCancellationProvider(com.intellij.platform.syntax.CancellationProvider):com.intellij.platform.syntax.parser.SyntaxTreeBuilderFactory$Builder
 - a:withDebugMode(Z):com.intellij.platform.syntax.parser.SyntaxTreeBuilderFactory$Builder
 - a:withLanguage(java.lang.String):com.intellij.platform.syntax.parser.SyntaxTreeBuilderFactory$Builder
@@ -176,3 +206,17 @@
 - f:defaultRightBinder():com.intellij.platform.syntax.parser.WhitespacesAndCommentsBinder
 - f:greedyLeftBinder():com.intellij.platform.syntax.parser.WhitespacesAndCommentsBinder
 - f:greedyRightBinder():com.intellij.platform.syntax.parser.WhitespacesAndCommentsBinder
+*:com.intellij.platform.syntax.tree.SyntaxNode
+- a:getEndOffset():I
+- a:getErrorMessage():java.lang.String
+- a:getFirstChild():com.intellij.platform.syntax.tree.SyntaxNode
+- a:getLastChild():com.intellij.platform.syntax.tree.SyntaxNode
+- a:getNextSibling():com.intellij.platform.syntax.tree.SyntaxNode
+- a:getParent():com.intellij.platform.syntax.tree.SyntaxNode
+- a:getPrevSibling():com.intellij.platform.syntax.tree.SyntaxNode
+- a:getStartOffset():I
+- a:getText():java.lang.CharSequence
+- a:getType():com.intellij.platform.syntax.SyntaxElementType
+*:com.intellij.platform.syntax.tree.SyntaxTree
+- a:getRoot():com.intellij.platform.syntax.tree.SyntaxNode
+- a:getText():java.lang.CharSequence

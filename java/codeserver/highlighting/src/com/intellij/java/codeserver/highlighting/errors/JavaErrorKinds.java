@@ -11,6 +11,7 @@ import com.intellij.java.codeserver.core.JpmsModuleAccessInfo;
 import com.intellij.java.codeserver.highlighting.JavaCompilationErrorBundle;
 import com.intellij.java.codeserver.highlighting.errors.JavaErrorKind.Parameterized;
 import com.intellij.java.codeserver.highlighting.errors.JavaErrorKind.Simple;
+import com.intellij.java.syntax.parser.JavaKeywords;
 import com.intellij.openapi.projectRoots.JavaSdkVersion;
 import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.TextRange;
@@ -82,6 +83,17 @@ public final class JavaErrorKinds {
       });
   public static final Simple<PsiErrorElement> SYNTAX_ERROR =
     error(PsiErrorElement.class, "syntax.error")
+      .withRange(e -> {
+        TextRange range = e.getTextRange();
+        if (range.getLength() == 0) {
+          PsiFile file = e.getContainingFile();
+          int endOffset = range.getEndOffset();
+          if (endOffset < file.getTextLength() && file.getFileDocument().getCharsSequence().charAt(endOffset) != '\n') {
+            return TextRange.from(0, 1);
+          }
+        }
+        return null;
+      })
       .withDescription(e -> message("syntax.error", e.getErrorDescription()));
   public static final Parameterized<PsiElement, JavaPreviewFeatureUtil.PreviewFeatureUsage> PREVIEW_API_USAGE =
     parameterized(PsiElement.class, JavaPreviewFeatureUtil.PreviewFeatureUsage.class, "preview.api.usage")
@@ -134,7 +146,7 @@ public final class JavaErrorKinds {
       }
       else {
         PsiType type = ((PsiExpression)value).getType();
-        text = type == null ? PsiKeyword.NULL : PsiTypesUtil.removeExternalAnnotations(type).getInternalCanonicalText();
+        text = type == null ? JavaKeywords.NULL : PsiTypesUtil.removeExternalAnnotations(type).getInternalCanonicalText();
       }
       return message("annotation.attribute.incompatible.type", context.typeText(), text);
     });
@@ -433,7 +445,7 @@ public final class JavaErrorKinds {
     parameterized(PsiElement.class, ClassStaticReferenceErrorContext.class, "class.cannot.be.referenced.from.static.context")
       .withDescription((psi, ctx) -> message(
         "class.cannot.be.referenced.from.static.context",
-        formatClass(ctx.outerClass()) + "." + (psi instanceof PsiSuperExpression ? PsiKeyword.SUPER : PsiKeyword.THIS)));
+        formatClass(ctx.outerClass()) + "." + (psi instanceof PsiSuperExpression ? JavaKeywords.SUPER : JavaKeywords.THIS)));
   public static final Parameterized<PsiClass, InheritTypeClashContext> CLASS_INHERITANCE_DIFFERENT_TYPE_ARGUMENTS =
     parameterized(PsiClass.class, InheritTypeClashContext.class, "class.inheritance.different.type.arguments")
       .withRange((cls, ctx) -> getClassDeclarationTextRange(cls))
@@ -991,7 +1003,7 @@ public final class JavaErrorKinds {
           return switch (specialValue) {
             case UNCONDITIONAL_PATTERN -> message("switch.label.duplicate.unconditional.pattern");
             case DEFAULT_VALUE -> message("switch.label.duplicate.default");
-            case NULL_VALUE -> message("switch.label.duplicate", PsiKeyword.NULL);
+            case NULL_VALUE -> message("switch.label.duplicate", JavaKeywords.NULL);
           };
         }
         else if (value instanceof PsiEnumConstant constant) {
@@ -1110,10 +1122,12 @@ public final class JavaErrorKinds {
         (list, inferenceResult) -> message("new.expression.diamond.inference.failure", inferenceResult.getErrorMessage()));
   public static final Simple<PsiConstructorCall> NEW_EXPRESSION_ARGUMENTS_TO_DEFAULT_CONSTRUCTOR_CALL =
     error(PsiConstructorCall.class, "new.expression.arguments.to.default.constructor.call")
-      .withAnchor(call -> call.getArgumentList());
+      .withAnchor(call -> call.getArgumentList())
+      .withNavigationShift(1);
   public static final Parameterized<PsiConstructorCall, UnresolvedConstructorContext> NEW_EXPRESSION_UNRESOLVED_CONSTRUCTOR =
     parameterized(PsiConstructorCall.class, UnresolvedConstructorContext.class, "new.expression.unresolved.constructor")
       .withAnchor(PsiCall::getArgumentList)
+      .withNavigationShift(1)
       .withDescription((call, ctx) -> message("new.expression.unresolved.constructor", 
                                           ctx.psiClass().getName() + formatArgumentTypes(call.getArgumentList(), true)));
   public static final Parameterized<PsiJavaCodeReferenceElement, PsiTypeParameter> NEW_EXPRESSION_TYPE_PARAMETER =
@@ -1291,10 +1305,12 @@ public final class JavaErrorKinds {
   public static final Parameterized<PsiElement, JavaMismatchedCallContext> CALL_WRONG_ARGUMENTS =
     parameterized(PsiElement.class, JavaMismatchedCallContext.class, "call.wrong.arguments")
       .withTooltip((psi, ctx) -> ctx.createTooltip())
+      .withNavigationShift((psi, ctx) -> psi instanceof PsiExpressionList ? 1 : 0)
       .withDescription((psi, ctx) -> ctx.createDescription());
   public static final Parameterized<PsiMethodCallExpression, JavaResolveResult[]> CALL_UNRESOLVED =
     parameterized(PsiMethodCallExpression.class, JavaResolveResult[].class, "call.unresolved")
       .withAnchor(PsiMethodCallExpression::getArgumentList)
+      .withNavigationShift(1)
       .withDescription((call, results) -> message(
         "call.unresolved", call.getMethodExpression().getReferenceName() + formatArgumentTypes(call.getArgumentList(), true)));
   public static final Parameterized<PsiMethodCallExpression, JavaResolveResult[]> CALL_UNRESOLVED_NAME =
@@ -1306,6 +1322,7 @@ public final class JavaErrorKinds {
   public static final Parameterized<PsiMethodCallExpression, JavaAmbiguousCallContext> CALL_AMBIGUOUS =
     parameterized(PsiMethodCallExpression.class, JavaAmbiguousCallContext.class, "call.ambiguous")
       .withAnchor(PsiMethodCallExpression::getArgumentList)
+      .withNavigationShift((psi, ctx) -> 1)
       .withDescription((call, ctx) -> ctx.description())
       .withTooltip((call, ctx) -> ctx.tooltip());
   public static final Parameterized<PsiMethodCallExpression, JavaResolveResult[]> CALL_AMBIGUOUS_NO_MATCH =
@@ -1647,7 +1664,7 @@ public final class JavaErrorKinds {
   }
 
   /**
-   * Context for errors related to annotation value
+   * Context for errors related to the annotation value
    * @param method corresponding annotation method
    * @param expectedType expected value type
    * @param fromDefaultValue if true, the error is reported for the method default value, rather than for use site
@@ -1678,7 +1695,7 @@ public final class JavaErrorKinds {
 
   /**
    * A context for {@link #CONSTRUCTOR_AMBIGUOUS_IMPLICIT_CALL} error kind
-   * @param psiClass a class where ambiguous call is performed
+   * @param psiClass a class where an ambiguous call is performed
    * @param candidate1 first constructor candidate in super class
    * @param candidate2 second constructor candidate in super class
    */

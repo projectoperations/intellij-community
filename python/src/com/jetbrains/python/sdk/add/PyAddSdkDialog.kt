@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.sdk.add
 
 import com.intellij.CommonBundle
@@ -25,21 +25,11 @@ import com.intellij.util.ui.JBUI
 import com.jetbrains.python.PyBundle
 import com.jetbrains.python.icons.PythonIcons
 import com.jetbrains.python.packaging.PyExecutionException
-import com.jetbrains.python.sdk.PreferredSdkComparator
-import com.jetbrains.python.sdk.PythonSdkType
-import com.jetbrains.python.sdk.add.v1.CreateSdkInterrupted
-import com.jetbrains.python.sdk.add.v1.PyAddExistingCondaEnvPanel
-import com.jetbrains.python.sdk.add.v1.PyAddExistingVirtualEnvPanel
-import com.jetbrains.python.sdk.add.v1.PyAddNewCondaEnvPanel
-import com.jetbrains.python.sdk.add.v1.PyAddNewVirtualEnvPanel
-import com.jetbrains.python.sdk.add.v1.PyAddSystemWideInterpreterPanel
-import com.jetbrains.python.sdk.add.v1.doCreateSouthPanel
-import com.jetbrains.python.showProcessExecutionErrorDialog
-import com.jetbrains.python.sdk.add.v1.swipe
+import com.jetbrains.python.sdk.*
+import com.jetbrains.python.sdk.add.PyAddSdkDialog.Companion.show
+import com.jetbrains.python.sdk.add.v1.*
 import com.jetbrains.python.sdk.conda.PyCondaSdkCustomizer
-import com.jetbrains.python.sdk.detectVirtualEnvs
-import com.jetbrains.python.sdk.isAssociatedWithModule
-import com.jetbrains.python.sdk.sdkSeemsValid
+import com.jetbrains.python.showErrorDialog
 import java.awt.CardLayout
 import java.awt.event.ActionEvent
 import java.io.IOException
@@ -56,7 +46,7 @@ import javax.swing.JPanel
  *
  */
 class PyAddSdkDialog private constructor(
-  private val project: Project?,
+  private val project: Project,
   private val module: Module?,
   private val existingSdks: List<Sdk>,
 ) : DialogWrapper(project) {
@@ -169,7 +159,7 @@ class PyAddSdkDialog private constructor(
 
           panel.addStateListener(object : PyAddSdkStateListener {
             override fun onComponentChanged() {
-              com.jetbrains.python.sdk.add.v1.show(mainPanel, panel.component)
+              show(mainPanel, panel.component)
 
               selectedPanel?.let { updateWizardActionButtons(it) }
             }
@@ -311,7 +301,7 @@ class PyAddSdkDialog private constructor(
     catch (e: Exception) {
       val cause = ExceptionUtil.findCause(e, PyExecutionException::class.java)
       if (cause != null) {
-        showProcessExecutionErrorDialog(project, cause)
+        showErrorDialog(project, cause.pyError)
         return
       }
       throw e
@@ -350,7 +340,7 @@ class PyAddSdkDialog private constructor(
     private const val WIZARD_CARD_PANE = "Wizard"
 
     @JvmStatic
-    fun show(project: Project?, module: Module?, existingSdks: List<Sdk>, sdkAddedCallback: Consumer<Sdk?>) {
+    fun show(project: Project, module: Module?, existingSdks: List<Sdk>, sdkAddedCallback: Consumer<Sdk?>) {
       val dialog = PyAddSdkDialog(project = project, module = module, existingSdks = existingSdks)
       dialog.init()
 
@@ -364,7 +354,7 @@ class PyAddSdkDialog private constructor(
      * `org.jetbrains.plugins.remote-run` plugin is disabled.
      */
     private fun PyAddSdkProvider.safeCreateView(
-      project: Project?,
+      project: Project,
       module: Module?,
       existingSdks: List<Sdk>,
       context: UserDataHolder,

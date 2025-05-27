@@ -13,6 +13,7 @@
     <postStartupActivity implementation="com.intellij.workspaceModel.ide.impl.WorkspaceEntitiesLifecycleActivity"/>
 
     <backgroundPostStartupActivity implementation="com.intellij.workspaceModel.ide.impl.VirtualFileUrlsLazyInitializer"/>
+    <workspaceModel.fileIndexContributor implementation="com.intellij.workspaceModel.ide.ProjectRootEntityWorkspaceFileIndexContributor"/>
   </extensions>
   <applicationListeners>
     <listener class="com.intellij.workspaceModel.ide.impl.GlobalWorkspaceModelSeparationListener"
@@ -23,8 +24,7 @@
   <extensionPoints>
     <extensionPoint name="directoryIndexExcludePolicy" area="IDEA_PROJECT" dynamic="true"
                     interface="com.intellij.openapi.roots.impl.DirectoryIndexExcludePolicy"/>
-    <!--suppress PluginXmlDynamicPlugin -->
-    <extensionPoint name="workspaceModel.fileIndexContributor"
+    <extensionPoint name="workspaceModel.fileIndexContributor" dynamic="true"
                     interface="com.intellij.workspaceModel.core.fileIndex.WorkspaceFileIndexContributor"/>
   </extensionPoints>
 

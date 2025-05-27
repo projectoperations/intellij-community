@@ -4,31 +4,30 @@ package com.intellij.pycharm.community.ide.impl.configuration
 import com.intellij.codeInspection.util.IntentionName
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.module.Module
-import com.intellij.openapi.progress.runBlockingCancellable
 import com.intellij.openapi.projectRoots.Sdk
-import com.intellij.openapi.projectRoots.impl.SdkConfigurationUtil
-import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.pycharm.community.ide.impl.PyCharmCommunityCustomizationBundle
+import com.intellij.python.hatch.HatchVirtualEnvironment
+import com.intellij.python.hatch.cli.HatchEnvironment
 import com.intellij.python.hatch.getHatchService
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
-import com.jetbrains.python.getOrNull
+import com.jetbrains.python.getOrLogException
+import com.jetbrains.python.hatch.sdk.createSdk
 import com.jetbrains.python.orLogException
 import com.jetbrains.python.sdk.configuration.PyProjectSdkConfigurationExtension
-import com.jetbrains.python.sdk.hatch.createSdk
+import com.jetbrains.python.util.runWithModalBlockingOrInBackground
 
 internal class PyHatchSdkConfiguration : PyProjectSdkConfigurationExtension {
   companion object {
     private val LOGGER = Logger.getInstance(PyHatchSdkConfiguration::class.java)
   }
 
-  @RequiresBackgroundThread
   override fun getIntention(module: Module): @IntentionName String? {
-    val isReadyAndHaveOwnership = runWithModalProgressBlocking(
-      module.project,
-      PyCharmCommunityCustomizationBundle.message("sdk.set.up.hatch.project.analysis")
+    val isReadyAndHaveOwnership = runWithModalBlockingOrInBackground(
+      project = module.project,
+      msg = PyCharmCommunityCustomizationBundle.message("sdk.set.up.hatch.project.analysis")
     ) {
-      val hatchService = module.getHatchService().getOr { return@runWithModalProgressBlocking false }
-      hatchService.isHatchManagedProject().getOrNull() == true
+      val hatchService = module.getHatchService().getOr { return@runWithModalBlockingOrInBackground false }
+      hatchService.isHatchManagedProject().getOrLogException(LOGGER) == true
     }
 
     val intention = when {
@@ -38,21 +37,21 @@ internal class PyHatchSdkConfiguration : PyProjectSdkConfigurationExtension {
     return intention
   }
 
-  private fun createSdk(module: Module): Sdk? {
-    val sdk = runBlockingCancellable {
-      val hatchService = module.getHatchService().orLogException(LOGGER)
-      val environment = hatchService?.createVirtualEnvironment()?.orLogException(LOGGER)
-      environment?.createSdk(module)?.orLogException(LOGGER)
-    }?.also {
-      SdkConfigurationUtil.addSdk(it)
-    }
-    return sdk
-  }
+  private fun createSdk(module: Module): Sdk? = runWithModalBlockingOrInBackground(
+    project = module.project,
+    msg = PyCharmCommunityCustomizationBundle.message("sdk.set.up.hatch.environment")
+  ) {
+    val hatchService = module.getHatchService().orLogException(LOGGER)
+    val createdEnvironment = hatchService?.createVirtualEnvironment()?.orLogException(LOGGER)
+                             ?: return@runWithModalBlockingOrInBackground null
 
+    val hatchVenv = HatchVirtualEnvironment(HatchEnvironment.DEFAULT, createdEnvironment)
+    val sdk = hatchVenv.createSdk(hatchService.getWorkingDirectoryPath(), module).orLogException(LOGGER)
+    sdk
+  }
   @RequiresBackgroundThread
   override fun createAndAddSdkForConfigurator(module: Module): Sdk? = createSdk(module)
 
-  @RequiresBackgroundThread
   override fun createAndAddSdkForInspection(module: Module): Sdk? = createSdk(module)
 
   override fun supportsHeadlessModel(): Boolean = true

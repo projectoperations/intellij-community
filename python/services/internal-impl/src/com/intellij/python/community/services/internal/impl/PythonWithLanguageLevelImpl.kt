@@ -1,8 +1,7 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.python.community.services.internal.impl
 
-import com.intellij.platform.eel.fs.pathOs
-import com.intellij.platform.eel.path.EelPath
+import com.intellij.platform.eel.EelPlatform
 import com.intellij.platform.eel.provider.asNioPath
 import com.intellij.platform.eel.provider.getEelDescriptor
 import com.intellij.python.community.services.internal.impl.PythonWithLanguageLevelImpl.Companion.concurrentLimit
@@ -10,6 +9,7 @@ import com.intellij.python.community.services.internal.impl.PythonWithLanguageLe
 import com.intellij.python.community.services.shared.PythonWithLanguageLevel
 import com.jetbrains.python.PythonBinary
 import com.jetbrains.python.Result
+import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.psi.LanguageLevel
 import com.jetbrains.python.validatePythonAndGetVersion
 import kotlinx.coroutines.async
@@ -35,7 +35,7 @@ class PythonWithLanguageLevelImpl internal constructor(
      * Like [createByPythonBinary] but runs in parallel up to [concurrentLimit]
      * @return python path -> python with language level sorted from highest to lowest.
      */
-    suspend fun createByPythonBinaries(pythonBinaries: Collection<PythonBinary>): Collection<Pair<PythonBinary, Result<PythonWithLanguageLevel, @Nls String>>> =
+    suspend fun createByPythonBinaries(pythonBinaries: Collection<PythonBinary>): Collection<Pair<PythonBinary, PyResult<PythonWithLanguageLevel>>> =
       coroutineScope {
         pythonBinaries.map {
           async {
@@ -46,7 +46,7 @@ class PythonWithLanguageLevelImpl internal constructor(
         }.awaitAll()
       }.sortedBy { it.first }
 
-    suspend fun createByPythonBinary(pythonBinary: PythonBinary): Result<PythonWithLanguageLevelImpl, @Nls String> {
+    suspend fun createByPythonBinary(pythonBinary: PythonBinary): PyResult<PythonWithLanguageLevelImpl> {
       val languageLevel = pythonBinary.validatePythonAndGetVersion().getOr { return it }
       return Result.success(PythonWithLanguageLevelImpl(pythonBinary, languageLevel))
     }
@@ -70,11 +70,11 @@ class PythonWithLanguageLevelImpl internal constructor(
   }
 
   override suspend fun getReadableName(): @Nls String {
-    val eelApi = pythonBinary.getEelDescriptor().upgrade()
+    val eelApi = pythonBinary.getEelDescriptor().toEelApi()
     val home = eelApi.userInfo.home.asNioPath()
-    val separator = when (eelApi.fs.pathOs) {
-      EelPath.OS.WINDOWS -> "\\"
-      EelPath.OS.UNIX -> "/"
+    val separator = when (eelApi.platform) {
+      is EelPlatform.Windows -> "\\"
+      is EelPlatform.Posix -> "/"
     }
     val pythonString = (if (pythonBinary.startsWith(home)) "~$separator" + pythonBinary.relativeTo(home).pathString
     else pythonBinary.pathString)

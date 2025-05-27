@@ -80,7 +80,7 @@ public final class PluginManager {
    */
   @ApiStatus.Internal
   public static @Nullable PluginId getPluginByClassNameAsNoAccessToClass(@NotNull String className) {
-    PluginDescriptor result = PluginManagerCore.getPluginDescriptorOrPlatformByClassName(className);
+    PluginDescriptor result = PluginUtils.getPluginDescriptorOrPlatformByClassName(className);
     PluginId id = result == null ? null : result.getPluginId();
     return (id == null || CORE_ID.equals(id)) ? null : id;
   }
@@ -168,7 +168,7 @@ public final class PluginManager {
   }
 
   @ApiStatus.Internal
-  public static @NotNull Stream<IdeaPluginDescriptorImpl> getVisiblePlugins(boolean showImplementationDetails) {
+  public static @NotNull Stream<PluginMainDescriptor> getVisiblePlugins(boolean showImplementationDetails) {
     return filterVisiblePlugins(PluginManagerCore.INSTANCE.getPluginSet().allPlugins, showImplementationDetails);
   }
 

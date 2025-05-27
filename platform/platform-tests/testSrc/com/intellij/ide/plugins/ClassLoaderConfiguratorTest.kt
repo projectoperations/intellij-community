@@ -4,10 +4,11 @@ package com.intellij.ide.plugins
 
 import com.intellij.ide.plugins.cl.PluginAwareClassLoader
 import com.intellij.ide.plugins.cl.PluginClassLoader
-import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.util.BuildNumber
 import com.intellij.platform.ide.bootstrap.ZipFilePoolImpl
 import com.intellij.platform.plugins.parser.impl.PluginDescriptorBuilder
+import com.intellij.platform.runtime.product.ProductMode
+import com.intellij.platform.testFramework.PluginBuilder
 import com.intellij.testFramework.assertions.Assertions.assertThat
 import com.intellij.testFramework.rules.InMemoryFsExtension
 import com.intellij.util.io.directoryStreamIfExists
@@ -25,32 +26,45 @@ internal class ClassLoaderConfiguratorTest {
 
   @Test
   fun `plugin must be after child`() {
-    val pluginId = PluginId.getId("org.jetbrains.kotlin")
     val emptyPath = Path.of("")
-    val plugins = arrayOf(
-      IdeaPluginDescriptorImpl(PluginDescriptorBuilder.builder().build(), emptyPath, isBundled = false, id = pluginId, moduleName = null),
-      IdeaPluginDescriptorImpl(PluginDescriptorBuilder.builder().build(), emptyPath, isBundled = false, id = PluginId.getId("org.jetbrains.plugins.gradle"), moduleName = null),
-      IdeaPluginDescriptorImpl(PluginDescriptorBuilder.builder().build(), emptyPath, isBundled = false, id = pluginId, moduleName = "kotlin.gradle.gradle-java", moduleLoadingRule = ModuleLoadingRule.OPTIONAL),
-      IdeaPluginDescriptorImpl(PluginDescriptorBuilder.builder().build(), emptyPath, isBundled = false, id = pluginId, moduleName = "kotlin.compiler-plugins.annotation-based-compiler-support.gradle", moduleLoadingRule = ModuleLoadingRule.OPTIONAL),
-    )
+    val kotlin = PluginMainDescriptor(PluginDescriptorBuilder.builder().apply { id = "org.jetbrains.kotlin" }.build(), emptyPath, isBundled = false)
+    val gradle = PluginMainDescriptor(PluginDescriptorBuilder.builder().apply { id = "org.jetbrains.plugins.gradle" }.build(), emptyPath, isBundled = false)
+    val emptyBuilder = PluginDescriptorBuilder.builder()
+    val kotlinGradleJava = kotlin.createContentModuleInTest(
+      subBuilder = emptyBuilder,
+      descriptorPath = "",
+      module = PluginContentDescriptor.ModuleItem(name = "kotlin.gradle.gradle-java",
+                                                  loadingRule = ModuleLoadingRule.OPTIONAL,
+                                                  configFile = null,
+                                                  descriptorContent = null))
+    val kotlinCompilerGradle = kotlin.createContentModuleInTest(
+      subBuilder = emptyBuilder,
+      descriptorPath = "",
+      module = PluginContentDescriptor.ModuleItem(name = "kotlin.compiler-plugins.annotation-based-compiler-support.gradle",
+                                                  loadingRule = ModuleLoadingRule.OPTIONAL,
+                                                  configFile = null,
+                                                  descriptorContent = null))
+    val plugins = arrayOf(kotlin, gradle, kotlinGradleJava, kotlinCompilerGradle)
     sortDependenciesInPlace(plugins)
-    assertThat(plugins.last().moduleName).isNull()
+    assertThat(plugins.last().contentModuleName).isNull()
   }
 
   @Test
   fun `child with common package prefix must be after included sibling`() {
-    val pluginId = PluginId.getId("com.example")
-    val emptyPath = Path.of("")
-
-    fun createModuleDescriptor(name: String): IdeaPluginDescriptorImpl {
-      return IdeaPluginDescriptorImpl(raw = PluginDescriptorBuilder.builder().apply { `package` = name }.build(),
-                                      path = emptyPath,
-                                      isBundled = false,
-                                      id = pluginId,
-                                      moduleName = name,
-                                      moduleLoadingRule = ModuleLoadingRule.OPTIONAL)
+    val plugin = PluginMainDescriptor(
+      PluginDescriptorBuilder.builder().apply {
+        id = "com.example"
+      }.build(),
+      Path.of(""),
+      false,
+    )
+    fun createModuleDescriptor(name: String): ContentModuleDescriptor {
+      return plugin.createContentModuleInTest(
+        subBuilder = PluginDescriptorBuilder.builder().apply { `package` = name },
+        descriptorPath = "",
+        module = PluginContentDescriptor.ModuleItem(name = name, configFile = null, descriptorContent = null, loadingRule = ModuleLoadingRule.OPTIONAL),
+      )
     }
-
     val modules = arrayOf(
       createModuleDescriptor("com.foo"),
       createModuleDescriptor("com.foo.bar"),
@@ -65,10 +79,12 @@ internal class ClassLoaderConfiguratorTest {
     val plugin = loadingResult
       .enabledPlugins
       .get(1)
-    assertThat(plugin.content.modules.get(0).requireDescriptor().pluginClassLoader).isInstanceOf(PluginAwareClassLoader::class.java)
+    assertThat(plugin.contentModules[0].pluginClassLoader).isInstanceOf(PluginAwareClassLoader::class.java)
 
-    val scope = createPluginDependencyAndContentBasedScope(plugin, PluginSetBuilder(
-      loadingResult.enabledPlugins).createPluginSetWithEnabledModulesMap())!!
+    val scope = createPluginDependencyAndContentBasedScope(
+      plugin,
+      PluginSetBuilder(loadingResult.enabledPlugins.toSet()).createPluginSetWithEnabledModulesMap()
+    )!!
     assertThat(scope.isDefinitelyAlienClass(name = "dd", packagePrefix = "dd", force = false)).isNull()
     assertThat(scope.isDefinitelyAlienClass(name = "com.example.extraSupportedFeature.Foo", packagePrefix = "com.example.extraSupportedFeature.", force = false))
       .isEqualToIgnoringWhitespace("Class com.example.extraSupportedFeature.Foo must not be requested from main classloader of p_dependent plugin. " +
@@ -104,7 +120,7 @@ internal class ClassLoaderConfiguratorTest {
     val barPlugin = plugins.get(1)
     assertThat(barPlugin.pluginId.idString).isEqualTo("2-bar")
 
-    val classLoaderConfigurator = ClassLoaderConfigurator(PluginSetBuilder(plugins).createPluginSetWithEnabledModulesMap())
+    val classLoaderConfigurator = ClassLoaderConfigurator(PluginSetBuilder(plugins.toSet()).createPluginSetWithEnabledModulesMap())
     classLoaderConfigurator.configure()
 
     assertThat((barPlugin.pluginClassLoader as PluginClassLoader)._getParents().map { it.descriptorPath })
@@ -113,18 +129,18 @@ internal class ClassLoaderConfiguratorTest {
 
   private fun loadPlugins(modulePackage: String?): PluginLoadingResult {
     val dependencyId = "p_dependency"
-    PluginBuilder.empty()
+    PluginBuilder()
       .id(dependencyId)
       .packagePrefix("com.bar")
       .extensionPoints("""<extensionPoint qualifiedName="bar.barExtension" beanClass="com.intellij.util.KeyedLazyInstanceEP" dynamic="true"/>""")
       .build(rootDir.resolve(dependencyId))
 
     val dependentPluginId = "p_dependent"
-    PluginBuilder.empty()
+    PluginBuilder()
       .id(dependentPluginId)
       .packagePrefix("com.example")
       .module("com.example.sub",
-              PluginBuilder.empty().packagePrefix(modulePackage)
+              PluginBuilder().packagePrefix(modulePackage)
                 .extensionPoints("""<extensionPoint qualifiedName="bar.barExtension" beanClass="com.intellij.util.KeyedLazyInstanceEP" dynamic="true"/>"""))
       .build(rootDir.resolve(dependentPluginId))
 
@@ -132,7 +148,7 @@ internal class ClassLoaderConfiguratorTest {
     val plugins = loadResult.enabledPlugins
     assertThat(plugins).hasSize(2)
 
-    val classLoaderConfigurator = ClassLoaderConfigurator(PluginSetBuilder(plugins).createPluginSetWithEnabledModulesMap())
+    val classLoaderConfigurator = ClassLoaderConfigurator(PluginSetBuilder(plugins.toSet()).createPluginSetWithEnabledModulesMap())
     classLoaderConfigurator.configure()
     return loadResult
   }
@@ -141,16 +157,27 @@ internal class ClassLoaderConfiguratorTest {
 internal fun loadDescriptors(dir: Path): PluginLoadingResult {
   val buildNumber = BuildNumber.fromString("2042.0")!!
   val result = PluginLoadingResult()
-  val context = DescriptorListLoadingContext(customDisabledPlugins = emptySet(),
-                                             customBrokenPluginVersions = emptyMap(),
-                                             productBuildNumber = { buildNumber })
-
+  val initContext = PluginInitializationContext.buildForTest(
+    essentialPlugins = emptySet(),
+    disabledPlugins = emptySet(),
+    expiredPlugins = emptySet(),
+    brokenPluginVersions = emptyMap(),
+    getProductBuildNumber = { buildNumber },
+    requirePlatformAliasDependencyForLegacyPlugins = false,
+    checkEssentialPlugins = false,
+    explicitPluginSubsetToLoad = null,
+    disablePluginLoadingCompletely = false,
+    currentProductModeId = ProductMode.MONOLITH.id,
+  )
+  val loadingContext = PluginDescriptorLoadingContext(getBuildNumberForDefaultDescriptorVersion = { buildNumber })
   // constant order in tests
   val paths = dir.directoryStreamIfExists { it.sorted() }!!
-  context.use {
-    result.addAll(descriptors = paths.asSequence().mapNotNull { loadDescriptor(file = it, parentContext = context, pool = ZipFilePoolImpl()) },
-                  overrideUseIfCompatible = false,
-                  productBuildNumber = buildNumber)
+  val descriptors = paths.mapNotNull { loadDescriptorFromFileOrDir(file = it, loadingContext = loadingContext, pool = ZipFilePoolImpl()) }
+  loadingContext.use {
+    result.initAndAddAll(
+      descriptorLoadingResult = PluginDescriptorLoadingResult.build(listOf(DiscoveredPluginsList(descriptors, PluginsSourceContext.Custom))),
+      initContext = initContext
+    )
   }
   return result
 }

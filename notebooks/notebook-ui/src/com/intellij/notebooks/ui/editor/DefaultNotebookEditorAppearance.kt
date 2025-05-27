@@ -10,6 +10,7 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.service
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.colors.*
+import com.intellij.openapi.editor.colors.impl.DelegateColorScheme
 import com.intellij.openapi.editor.impl.EditorImpl
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
 import com.intellij.openapi.observable.properties.AtomicProperty
@@ -22,9 +23,11 @@ import com.intellij.openapi.util.registry.RegistryValue
 import com.intellij.openapi.util.registry.RegistryValueListener
 import com.intellij.ui.JBColor
 import java.awt.Color
+import kotlin.sequences.generateSequence
 
-open class DefaultNotebookEditorAppearance(private val editor: Editor) : NotebookEditorAppearance,
-                                                                         NotebookEditorAppearanceSizes by DefaultNotebookEditorAppearanceSizes {
+open class DefaultNotebookEditorAppearance(
+  private val editor: Editor
+) : NotebookEditorAppearance, NotebookEditorAppearanceSizes by DefaultNotebookEditorAppearanceSizes {
 
   private val swapCellAndEditorBackgroundColor = AtomicBooleanProperty(
     Registry.`is`("jupyter.editor.swap.cell.and.editor.background", false)
@@ -40,7 +43,7 @@ open class DefaultNotebookEditorAppearance(private val editor: Editor) : Noteboo
     else {
       colorsScheme.getColor(NotebookEditorAppearance.EDITOR_BACKGROUND)
     }
-    color ?: colorsScheme.defaultBackground
+    color ?: colorsScheme.firstNonDelegate().defaultBackground
   }.distinct()
 
   override val caretRowBackgroundColor: ObservableProperty<Color?> = operation(colorsScheme, swapCellAndEditorBackgroundColor) { colorsScheme, swapCellAndEditorBackgroundColor ->
@@ -60,7 +63,7 @@ open class DefaultNotebookEditorAppearance(private val editor: Editor) : Noteboo
     else {
       colorsScheme.getColor(NotebookEditorAppearance.CODE_CELL_BACKGROUND)
     }
-    color ?: colorsScheme.defaultBackground
+    color ?: colorsScheme.firstNonDelegate().defaultBackground
   }.distinct()
 
   override val cellStripeSelectedColor: ObservableProperty<Color> = colorsScheme
@@ -128,12 +131,11 @@ open class DefaultNotebookEditorAppearance(private val editor: Editor) : Noteboo
 
   override fun getCellLeftLineWidth(editor: Editor): Int =
     when (editor.currentMode) {
-      NotebookEditorMode.EDIT -> EDIT_MODE_CELL_LEFT_LINE_WIDTH
-      NotebookEditorMode.COMMAND -> COMMAND_MODE_CELL_LEFT_LINE_WIDTH
+      NotebookEditorMode.EDIT -> editModeCellLeftLineWidth
+      NotebookEditorMode.COMMAND -> commandModeCellLeftLineWidth
     }
 
-  override fun getCellLeftLineHoverWidth(): Int =
-    COMMAND_MODE_CELL_LEFT_LINE_WIDTH
+  override fun getCellLeftLineHoverWidth(): Int = commandModeCellLeftLineWidth
 
   override fun shouldShowCellLineNumbers(): Boolean = true
 
@@ -156,4 +158,10 @@ open class DefaultNotebookEditorAppearance(private val editor: Editor) : Noteboo
       is EditorImpl -> disposable
       else -> error("Unsupported editor type: ${this::class}")
     }
+
+  private fun EditorColorsScheme.firstNonDelegate(): EditorColorsScheme {
+    return generateSequence(this) {
+      (it as? DelegateColorScheme)?.delegate
+    }.last()
+  }
 }

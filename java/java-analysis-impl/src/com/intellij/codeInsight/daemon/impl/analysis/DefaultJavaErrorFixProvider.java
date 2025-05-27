@@ -20,6 +20,8 @@ import com.intellij.java.codeserver.core.JpmsModuleAccessInfo;
 import com.intellij.java.codeserver.highlighting.JavaErrorCollector;
 import com.intellij.java.codeserver.highlighting.errors.JavaErrorKind;
 import com.intellij.java.codeserver.highlighting.errors.JavaMismatchedCallContext;
+import com.intellij.java.syntax.parser.JavaKeywords;
+import com.intellij.lang.java.JavaLanguage;
 import com.intellij.lang.jvm.JvmModifier;
 import com.intellij.lang.jvm.JvmModifiersOwner;
 import com.intellij.lang.jvm.actions.JvmElementActionFactories;
@@ -713,7 +715,7 @@ public final class DefaultJavaErrorFixProvider extends AbstractJavaErrorFixProvi
     fixes(SWITCH_DOMINANCE_VIOLATION, (error, sink) -> {
       PsiElement who = error.context();
       PsiCaseLabelElement overWhom = error.psi();
-      if (who instanceof PsiKeyword && PsiKeyword.DEFAULT.equals(who.getText()) ||
+      if (who instanceof PsiKeyword && JavaKeywords.DEFAULT.equals(who.getText()) ||
           JavaPsiSwitchUtil.isInCaseNullDefaultLabel(who)) {
         PsiSwitchLabelStatementBase labelStatementBase = PsiTreeUtil.getParentOfType(who, PsiSwitchLabelStatementBase.class);
         if (labelStatementBase != null) {
@@ -846,12 +848,6 @@ public final class DefaultJavaErrorFixProvider extends AbstractJavaErrorFixProvi
   private void createClassFixes() {
     fix(CLASS_INHERITS_UNRELATED_DEFAULTS, error -> myFactory.createImplementMethodsFix(error.psi()));
     fix(CLASS_INHERITS_ABSTRACT_AND_DEFAULT, error -> myFactory.createImplementMethodsFix(error.psi()));
-    fix(CLASS_NO_ABSTRACT_METHOD, error -> {
-      if (error.psi() instanceof PsiClass aClass && !(aClass instanceof PsiAnonymousClass) && !aClass.isEnum()) {
-        return maybeAddModifierFix(aClass, PsiModifier.ABSTRACT);
-      }
-      return null;
-    });
     fixes(CLASS_NO_ABSTRACT_METHOD, (error, sink) -> {
       PsiMember member = error.psi();
       PsiClass aClass = member instanceof PsiEnumConstant enumConstant ?
@@ -868,6 +864,12 @@ public final class DefaultJavaErrorFixProvider extends AbstractJavaErrorFixProvi
         sink.accept(addModifierFix(anyMethodToImplement, PsiModifier.PROTECTED));
         sink.accept(addModifierFix(anyMethodToImplement, PsiModifier.PUBLIC));
       }
+    });
+    fix(CLASS_NO_ABSTRACT_METHOD, error -> {
+      if (error.psi() instanceof PsiClass aClass && !(aClass instanceof PsiAnonymousClass) && !aClass.isEnum()) {
+        return maybeAddModifierFix(aClass, PsiModifier.ABSTRACT);
+      }
+      return null;
     });
     fix(CLASS_REFERENCE_LIST_DUPLICATE,
         error -> myFactory.createRemoveDuplicateExtendsAction(HighlightNamesUtil.formatClass(error.context())));
@@ -1029,7 +1031,10 @@ public final class DefaultJavaErrorFixProvider extends AbstractJavaErrorFixProvi
       return type != null && type.isInferredType() ? new ReplaceVarWithExplicitTypeFix(type) : null;
     });
     fixes(ANNOTATION_NOT_APPLICABLE, (error, sink) -> {
-      if (!BaseIntentionAction.canModify(requireNonNull(error.psi().resolveAnnotationType()))) return;
+      PsiClass annotationType = error.psi().resolveAnnotationType();
+      if (annotationType == null || !BaseIntentionAction.canModify(annotationType) || annotationType.getLanguage() != JavaLanguage.INSTANCE) {
+        return;
+      }
       error.context().forEach(targetType -> sink.accept(myFactory.createAddAnnotationTargetFix(error.psi(), targetType)));
     });
     fix(ANNOTATION_NOT_ALLOWED_STATIC, error -> new MoveAnnotationOnStaticMemberQualifyingTypeFix(error.psi()));

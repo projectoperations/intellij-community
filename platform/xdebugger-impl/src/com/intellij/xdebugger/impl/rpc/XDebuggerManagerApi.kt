@@ -4,10 +4,13 @@ package com.intellij.xdebugger.impl.rpc
 import com.intellij.openapi.editor.impl.EditorId
 import com.intellij.platform.project.ProjectId
 import com.intellij.platform.rpc.RemoteApiProviderService
+import com.intellij.platform.debugger.impl.rpc.XStackFrameDto
 import fleet.rpc.RemoteApi
 import fleet.rpc.Rpc
+import fleet.rpc.core.DeferredSerializer
 import fleet.rpc.core.RpcFlow
 import fleet.rpc.remoteApiDescriptor
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.Serializable
 import org.jetbrains.annotations.ApiStatus
@@ -21,6 +24,14 @@ interface XDebuggerManagerApi : RemoteApi<Unit> {
 
   suspend fun reshowInlays(projectId: ProjectId, editorId: EditorId?)
 
+  suspend fun getBreakpoints(projectId: ProjectId): XBreakpointsSetDto
+
+  suspend fun sessionTabSelected(projectId: ProjectId, sessionId: XDebugSessionId?)
+
+  suspend fun sessionTabClosed(sessionId: XDebugSessionId)
+
+  suspend fun showLibraryFrames(show: Boolean)
+
   companion object {
     @JvmStatic
     suspend fun getInstance(): XDebuggerManagerApi {
@@ -31,9 +42,26 @@ interface XDebuggerManagerApi : RemoteApi<Unit> {
 
 @ApiStatus.Internal
 @Serializable
+data class XBreakpointsSetDto(
+  val initialBreakpoints: Set<XBreakpointDto>,
+  val breakpointEvents: RpcFlow<XBreakpointEvent>,
+)
+
+@ApiStatus.Internal
+@Serializable
+sealed interface XBreakpointEvent {
+  @Serializable
+  data class BreakpointAdded(val breakpointDto: XBreakpointDto) : XBreakpointEvent
+
+  @Serializable
+  data class BreakpointRemoved(val breakpointId: XBreakpointId) : XBreakpointEvent
+}
+
+@ApiStatus.Internal
+@Serializable
 sealed interface XDebuggerManagerSessionEvent {
   @Serializable
-  data class ProcessStarted(val sessionId: XDebugSessionId, val sessionDto: XDebugSessionDto) : XDebuggerManagerSessionEvent
+  data class ProcessStarted(val sessionDto: XDebugSessionDto) : XDebuggerManagerSessionEvent
 
   @Serializable
   data class ProcessStopped(val sessionId: XDebugSessionId) : XDebuggerManagerSessionEvent
@@ -46,26 +74,36 @@ sealed interface XDebuggerManagerSessionEvent {
 @Serializable
 sealed interface XDebuggerSessionEvent {
   @Serializable
-  class SessionPaused() : XDebuggerSessionEvent
+  class SessionPaused(
+    @Serializable(with = DeferredSerializer::class) val suspendData: Deferred<SuspendData?>,
+  ) : XDebuggerSessionEvent
 
   @Serializable
-  class SessionResumed() : XDebuggerSessionEvent
+  object SessionResumed : XDebuggerSessionEvent
 
   @Serializable
-  class SessionStopped() : XDebuggerSessionEvent
+  object SessionStopped : XDebuggerSessionEvent
 
   @Serializable
-  class StackFrameChanged() : XDebuggerSessionEvent
+  class StackFrameChanged(val stackFrame: XStackFrameDto?) : XDebuggerSessionEvent
 
   @Serializable
-  class BeforeSessionResume() : XDebuggerSessionEvent
+  object BeforeSessionResume : XDebuggerSessionEvent
 
   @Serializable
-  class SettingsChanged() : XDebuggerSessionEvent
+  object SettingsChanged : XDebuggerSessionEvent
 
   @Serializable
-  class BreakpointsMuted(val muted: Boolean) : XDebuggerSessionEvent
+  data class BreakpointsMuted(val muted: Boolean) : XDebuggerSessionEvent
 }
+
+@ApiStatus.Internal
+@Serializable
+data class SuspendData(
+  val suspendContextDto: XSuspendContextDto,
+  val executionStack: XExecutionStackDto?,
+  val stackFrame: XStackFrameDto?,
+)
 
 @ApiStatus.Internal
 @Serializable

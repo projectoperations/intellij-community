@@ -4,15 +4,9 @@ package com.intellij.platform.eel.fs
 import com.intellij.platform.eel.*
 import com.intellij.platform.eel.fs.EelFileSystemApi.StatError
 import com.intellij.platform.eel.path.EelPath
+import kotlinx.coroutines.flow.Flow
 import org.jetbrains.annotations.CheckReturnValue
 import java.nio.ByteBuffer
-
-val EelFileSystemApi.pathOs: EelPath.OS
-  get() = when (this) {
-    is EelFileSystemPosixApi -> EelPath.OS.UNIX
-    is EelFileSystemWindowsApi -> EelPath.OS.WINDOWS
-    else -> throw UnsupportedOperationException("Unsupported OS: ${this::class.java}")
-  }
 
 val EelFileSystemApi.pathSeparator: String
   get() = when (this) {
@@ -485,7 +479,109 @@ interface EelFileSystemApi {
     interface NameTooLong : DiskInfoError, EelFsError.NameTooLong
     interface Other : DiskInfoError, EelFsError.Other
   }
+
+  /**
+   * Adds the watched paths from the specified set of file paths and provides a flow of change events.
+   * A path is watched till [unwatch] method is explicitly called for it.
+   *
+   * Use [WatchOptionsBuilder] to construct the watch configuration. Example:
+   * ```
+   * val flow = eel.fs.watchChanges(
+   *     WatchOptionsBuilder()
+   *         .changeTypes(setOf(EelFileSystemApi.FileChangeType.CHANGED))
+   *         .paths(setOf(eelPath))
+   *         .build())
+   * ```
+   *
+   * @param watchOptions The options to use for file watching. See [WatchOptions]
+   * @return A flow emitting [PathChange] instances that indicate the path and type of change.
+   *         Each path is an absolute path on the target system (container), for example, `/home/myproject/myfile.txt`
+   * @throws UnsupportedOperationException if the method isn't implemented for the file system.
+   */
+  @Throws(UnsupportedOperationException::class)
+  suspend fun watchChanges(@GeneratedBuilder watchOptions: WatchOptions): Flow<PathChange> {
+    throw UnsupportedOperationException()
+  }
+
+  /**
+   * Unregisters a previously watched path.
+   *
+   * @param unwatchOptions The options specifying the path to be unwatched. See [UnwatchOptions].
+   * @return True if the operation was successful. False if the path hadn't been previously watched or unwatch failed.
+   *
+   * @throws UnsupportedOperationException if the method isn't implemented for the file system.
+   */
+  @Throws(UnsupportedOperationException::class)
+  suspend fun unwatch(@GeneratedBuilder unwatchOptions: UnwatchOptions): Boolean {
+    throw UnsupportedOperationException()
+  }
+
+  /**
+   * Represents a change detected in a specific path within the file system. It can be a change in the child directory if a recursive
+   * watch is enabled.
+   *
+   * @property path The absolute path in the file system associated with the change.
+   *                For example, "/home/user/documents/file.txt".
+   * @property type The type of change that occurred. See [FileChangeType],
+   */
+  interface PathChange {
+    val path: String
+    val type: FileChangeType
+  }
+
+  /**
+   * Provides configurations for specifying which file paths should be monitored and what types of file system changes should be watched.
+   *
+   * @property paths The set of file paths to monitor for changes with additional watch properties. See [WatchedPath]
+   * @property changeTypes The types of file system changes to monitor. This is a set of [FileChangeType] values.
+   */
+  interface WatchOptions {
+    val paths: Set<WatchedPath> get() = emptySet()
+    val changeTypes: Set<FileChangeType> get() = emptySet()
+  }
+
+
+  /**
+   * Represents a file system path being monitored for changes.
+   *
+   * @property path The file system path being watched.
+   * @property recursive Whether the file system changes should be monitored recursively within the specified path.
+   * @see [watchChanges]
+   */
+  interface WatchedPath {
+    val path: EelPath
+    val recursive: Boolean
+
+    interface Builder {
+      fun build(): WatchedPath
+      fun recursive(boolean: Boolean): Builder
+    }
+
+    companion object {
+      fun Builder(path: EelPath): Builder = WatchedPathBuilder(path)
+    }
+  }
+
+  /**
+   * Represents the options required to unregister a previously watched path in the file system.
+   *
+   * @property path The file system path to unwatch. Must be specified as an instance of [EelPath].
+   * @see [unwatch]
+   */
+  interface UnwatchOptions {
+    val path: EelPath
+  }
+
+  /**
+   * Represents the type of change that can occur to a file in the file system.
+   *
+   * - `CREATED`: A file has been created.
+   * - `DELETED`: A file has been deleted.
+   * - `CHANGED`: A file has been modified (either its content or attributes have changed).
+   */
+  enum class FileChangeType { CREATED, DELETED, CHANGED }
 }
+
 
 sealed interface EelOpenedFile {
   val path: EelPath
@@ -649,6 +745,7 @@ interface EelFileSystemPosixApi : EelFileSystemApi {
     Collection<Pair<String, EelPosixFileInfo>>,
     EelFileSystemApi.ListDirectoryError>
 
+  @CheckReturnValue
   override suspend fun listDirectoryWithAttrs(@GeneratedBuilder args: EelFileSystemApi.ListDirectoryWithAttrsArgs): EelResult<
     Collection<Pair<String, EelPosixFileInfo>>,
     EelFileSystemApi.ListDirectoryError> =
@@ -660,6 +757,7 @@ interface EelFileSystemPosixApi : EelFileSystemApi {
     EelPosixFileInfo,
     StatError>
 
+  @CheckReturnValue
   override suspend fun stat(@GeneratedBuilder args: EelFileSystemApi.StatArgs): EelResult<EelPosixFileInfo, StatError> =
     stat(path = args.path, symlinkPolicy = args.symlinkPolicy)
 
@@ -771,6 +869,7 @@ interface EelFileSystemWindowsApi : EelFileSystemApi {
     Collection<Pair<String, EelWindowsFileInfo>>,
     EelFileSystemApi.ListDirectoryError>
 
+  @CheckReturnValue
   override suspend fun listDirectoryWithAttrs(@GeneratedBuilder args: EelFileSystemApi.ListDirectoryWithAttrsArgs): EelResult<
     Collection<Pair<String, EelWindowsFileInfo>>,
     EelFileSystemApi.ListDirectoryError> =
@@ -782,6 +881,7 @@ interface EelFileSystemWindowsApi : EelFileSystemApi {
     EelWindowsFileInfo,
     StatError>
 
+  @CheckReturnValue
   override suspend fun stat(@GeneratedBuilder args: EelFileSystemApi.StatArgs): EelResult<EelWindowsFileInfo, StatError> =
     stat(path = args.path, symlinkPolicy = args.symlinkPolicy)
 }

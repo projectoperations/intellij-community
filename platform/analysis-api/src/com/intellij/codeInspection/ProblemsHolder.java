@@ -103,8 +103,8 @@ public class ProblemsHolder {
                               @InspectionMessage String descriptionTemplate,
                               ProblemHighlightType highlightType) {
     LocalQuickFix[] fixes = null;
-    if (reference instanceof LocalQuickFixProvider) {
-      fixes = ((LocalQuickFixProvider)reference).getQuickFixes();
+    if (reference instanceof LocalQuickFixProvider local) {
+      fixes = local.getQuickFixes();
     }
     registerProblemForReference(reference, highlightType, descriptionTemplate, fixes);
   }
@@ -148,8 +148,8 @@ public class ProblemsHolder {
    */
   public static @NotNull @InspectionMessage String unresolvedReferenceMessage(@NotNull PsiReference reference) {
     String message;
-    if (reference instanceof EmptyResolveMessageProvider) {
-      String pattern = ((EmptyResolveMessageProvider)reference).getUnresolvedMessagePattern();
+    if (reference instanceof EmptyResolveMessageProvider empty) {
+      String pattern = empty.getUnresolvedMessagePattern();
       try {
         message = BundleBase.format(pattern, reference.getCanonicalText()); // avoid double formatting
       }
@@ -190,7 +190,7 @@ public class ProblemsHolder {
     registerProblem(myManager.createProblemDescriptor(psiElement, rangeInElement, descriptionTemplate, highlightType, myOnTheFly, fixes));
   }
 
-  public @NotNull List<ProblemDescriptor> getResults() {
+  public @NotNull @Unmodifiable List<ProblemDescriptor> getResults() {
     return myProblems;
   }
 
@@ -251,11 +251,10 @@ public class ProblemsHolder {
     }
 
     /**
-     * @param problemHighlightType desired highlighting type
+     * @param problemHighlightType desired highlighting type (default is GENERIC_ERROR_OR_WARNING)
      * @return this builder
      */
     @Contract(value = "_ -> this", mutates = "this")
-    @CheckReturnValue
     public ProblemBuilder highlight(ProblemHighlightType problemHighlightType) {
       myHighlightType = problemHighlightType;
       return this;
@@ -266,7 +265,6 @@ public class ProblemsHolder {
      * @return this builder
      */
     @Contract(value = "_ -> this", mutates = "this")
-    @CheckReturnValue
     public ProblemBuilder range(@NotNull TextRange rangeInElement) {
       myRange = rangeInElement;
       return this;
@@ -277,7 +275,6 @@ public class ProblemsHolder {
      * @return this builder
      */
     @Contract(value = "_ -> this", mutates = "this")
-    @CheckReturnValue
     public ProblemBuilder fix(@NotNull LocalQuickFix fix) {
       myFixes.add(fix);
       return this;
@@ -288,7 +285,6 @@ public class ProblemsHolder {
      * @return this builder
      */
     @Contract(value = "_ -> this", mutates = "this")
-    @CheckReturnValue
     public ProblemBuilder fix(@NotNull ModCommandAction action) {
       myFixes.add(LocalQuickFix.from(action));
       return this;
@@ -299,7 +295,6 @@ public class ProblemsHolder {
      * @return this builder
      */
     @Contract(value = "_ -> this", mutates = "this")
-    @CheckReturnValue
     public ProblemBuilder maybeFix(@Nullable LocalQuickFix fix) {
       if (fix != null) {
         myFixes.add(fix);
@@ -312,7 +307,6 @@ public class ProblemsHolder {
      * @return this builder
      */
     @Contract(value = "_ -> this", mutates = "this")
-    @CheckReturnValue
     public ProblemBuilder maybeFix(@Nullable ModCommandAction action) {
       if (action != null) {
         myFixes.add(LocalQuickFix.from(action));

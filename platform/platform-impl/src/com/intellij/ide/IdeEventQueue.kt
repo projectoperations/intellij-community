@@ -30,6 +30,7 @@ import com.intellij.openapi.keymap.impl.IdeKeyEventDispatcher
 import com.intellij.openapi.keymap.impl.IdeMouseEventDispatcher
 import com.intellij.openapi.keymap.impl.KeyState
 import com.intellij.openapi.progress.ProgressManager
+import com.intellij.openapi.progress.util.SuvorovProgress
 import com.intellij.openapi.ui.JBPopupMenu
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.EmptyRunnable
@@ -54,6 +55,7 @@ import com.jetbrains.JBR
 import com.jetbrains.TextInput
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.job
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.TestOnly
 import org.jetbrains.annotations.VisibleForTesting
@@ -254,6 +256,9 @@ class IdeEventQueue private constructor() : EventQueue() {
       if (event.id == WindowEvent.WINDOW_ACTIVATED || event.id == WindowEvent.WINDOW_DEICONIFIED || event.id == WindowEvent.WINDOW_OPENED) {
         ActiveWindowsWatcher.addActiveWindow(event.source as Window)
       }
+      else if (event.id == WindowEvent.WINDOW_CLOSED) {
+        ActiveWindowsWatcher.updateActivatedWindowSet()
+      }
 
       if (isMetaKeyPressedOnLinux(event)) {
         return
@@ -450,7 +455,7 @@ class IdeEventQueue private constructor() : EventQueue() {
     if (isUserActivityEvent(e)) {
       ActivityTracker.getInstance().inc()
     }
-    if (popupManager.isPopupActive && threadingSupport.runPreventiveWriteIntentReadAction { popupManager.dispatch(e) }) {
+    if (popupManager.isPopupActive && !shouldSkipListeners(e) && threadingSupport.runPreventiveWriteIntentReadAction { popupManager.dispatch(e) }) {
       if (keyEventDispatcher.isWaitingForSecondKeyStroke) {
         keyEventDispatcher.state = KeyState.STATE_INIT
       }
@@ -463,7 +468,7 @@ class IdeEventQueue private constructor() : EventQueue() {
     }
 
     // IJPL-177735 Remove Write-Intent lock from IdeEventQueue.EventDispatcher
-    if (threadingSupport.runPreventiveWriteIntentReadAction { dispatchByCustomDispatchers(e) }) {
+    if (!shouldSkipListeners(e) && threadingSupport.runPreventiveWriteIntentReadAction { dispatchByCustomDispatchers(e) }) {
       return
     }
     if (e is InputMethodEvent && SystemInfoRt.isMac && keyEventDispatcher.isWaitingForSecondKeyStroke) {
@@ -484,6 +489,10 @@ class IdeEventQueue private constructor() : EventQueue() {
       }
       else -> defaultDispatchEvent(e)
     }
+  }
+
+  private fun shouldSkipListeners(e: AWTEvent): Boolean {
+    return e is InvocationEvent && SuvorovProgress.ForcedWriteActionRunnable.isMarkedRunnable(e)
   }
 
   private fun isUserActivityEvent(e: AWTEvent): Boolean =
@@ -715,11 +724,12 @@ class IdeEventQueue private constructor() : EventQueue() {
   }
 
   override fun postEvent(event: AWTEvent) {
-    doPostEvent(event)
+    doPostEvent(event, false)
   }
 
   // return true if posted, false if consumed immediately
-  fun doPostEvent(event: AWTEvent): Boolean {
+  @ApiStatus.Internal
+  fun doPostEvent(event: AWTEvent, postDirectly: Boolean): Boolean {
     for (listener in postEventListeners) {
       if (listener(event)) {
         return false
@@ -727,13 +737,18 @@ class IdeEventQueue private constructor() : EventQueue() {
     }
     eventsPosted.incrementAndGet()
 
-    attachClientIdIfNeeded(event)?.let {
-      super.postEvent(it)
+    if (event is KeyEvent) {
+      keyboardEventPosted.incrementAndGet()
+    }
+
+    if (postDirectly) {
+      super.postEvent(event)
       return true
     }
 
-    if (event is KeyEvent) {
-      keyboardEventPosted.incrementAndGet()
+    attachClientIdIfNeeded(event)?.let {
+      super.postEvent(it)
+      return true
     }
 
     super.postEvent(event)
@@ -1213,6 +1228,29 @@ private fun setImplicitThreadLocalRhizomeIfEnabled() {
     }
     catch (e: Exception) {
       Logs.LOG.error(e)
+    }
+  }
+}
+
+/**
+ * [IdeEventQueue.flushQueue] flushes until the queue is empty,
+ * and it may "hang" if some event results in more events (e.g., animations).
+ * This function flushes only events which already exist in the queue at the moment of invocation.
+ */
+@Internal
+fun IdeEventQueue.flushExistingEvents() {
+  EDT.assertIsEdt()
+  var stop = false
+  EventQueue.invokeLater(ContextAwareRunnable { stop = true })
+  resetThreadContext().use {
+    while (!stop) {
+      peekEvent() ?: return
+      try {
+        dispatchEvent(nextEvent)
+      }
+      catch (e: Exception) {
+        Logs.LOG.error(e)
+      }
     }
   }
 }

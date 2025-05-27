@@ -151,34 +151,37 @@ private class EelTargetEnvironment(override val request: EelTargetEnvironmentReq
     }
 
     request.localPortBindings.forEach { localPortBinding ->
+      val acceptor = runBlockingMaybeCancellable {
+        eel.tunnels.getAcceptorForRemotePort().port((localPortBinding.target ?: 0).toUShort()).eelIt()
+      }
+
+      val socket = Socket()
+
+      socket.connect(InetSocketAddress(localPortBinding.local))
+
       forwardingScope.launch {
-        val acceptor = eel.tunnels.getAcceptorForRemotePort().port((localPortBinding.target ?: 0).toUShort()).getOrThrow()
-
-        val socket = Socket()
-
-        socket.connect(InetSocketAddress(localPortBinding.local))
-
         launch {
           val connection = acceptor.incomingConnections.receive()
 
           launch {
-            copy(socket.consumeAsEelChannel(), connection.sendChannel).getOrThrow()  // TODO: Process error
+            copy(socket.consumeAsEelChannel(), connection.sendChannel)  // TODO: Process error
           }
           launch {
-            copy(connection.receiveChannel, socket.asEelChannel()).getOrThrow() // TODO: PRocess error
+            copy(connection.receiveChannel, socket.asEelChannel()) // TODO: PRocess error
           }
         }
 
+        @Suppress("OPT_IN_USAGE")
         awaitCancellationAndInvoke {
           acceptor.close()
           socket.close()
         }
-
-        myLocalPortBindings[localPortBinding] = ResolvedPortBinding(
-          localEndpoint = LocalHostPort(localPortBinding.local),
-          targetEndpoint = LocalHostPort(acceptor.boundAddress.port.toInt())
-        )
       }
+
+      myLocalPortBindings[localPortBinding] = ResolvedPortBinding(
+        localEndpoint = LocalHostPort(localPortBinding.local),
+        targetEndpoint = LocalHostPort(acceptor.boundAddress.port.toInt())
+      )
     }
   }
 
@@ -187,10 +190,6 @@ private class EelTargetEnvironment(override val request: EelTargetEnvironmentReq
     override val localRoot: Path,
     override val targetRoot: String,
   ) : UploadableVolume, DownloadableVolume {
-    init {
-      val x = 1
-    }
-
     private fun targetRootPath(): Path {
       return eel.fs.getPath(targetRoot).asNioPath()
     }
@@ -258,31 +257,24 @@ private class EelTargetEnvironment(override val request: EelTargetEnvironmentReq
       }
 
       fun createFor(eel: EelApi, downloadRoot: DownloadRoot): EelVolume {
-        val target = downloadRoot.targetRootPath as TargetPath.Persistent // how could it be temp?
+        val localRootPath =
+          downloadRoot.localRootPath
+          ?: FileUtil.createTempDirectory("intellij-eel-target.", "").toPath()
 
-        if (downloadRoot.localRootPath == null) {
-          return EelVolume(
-            eel = eel,
-            localRoot = FileUtil.createTempDirectory("intellij-eel-target.", "").toPath(),
-            targetRoot = target.absolutePath,
-          )
-        }
-        else {
-          return createFor(eel, { downloadRoot.localRootPath!! }, { downloadRoot.targetRootPath })
-        }
+        return createFor(eel, { localRootPath }, { downloadRoot.targetRootPath })
       }
     }
   }
 
   override fun createProcess(commandLine: TargetedCommandLine, indicator: ProgressIndicator): Process {
     val command = commandLine.collectCommandsSynchronously()
-    val builder = EelExecApi.ExecuteProcessOptions.Builder(command.first())
+    val builder = eel.exec.spawnProcess(command.first())
 
     builder.args(command.drop(1))
     builder.env(commandLine.environmentVariables)
     builder.workingDirectory(commandLine.workingDirectory?.let { EelPath.parse(it, eel.descriptor) })
 
-    return runBlockingCancellable { eel.exec.execute(builder.build()).getOrThrow().convertToJavaProcess() }
+    return runBlockingCancellable { builder.eelIt().convertToJavaProcess() }
   }
 
   override val targetPlatform: TargetPlatform = request.targetPlatform

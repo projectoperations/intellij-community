@@ -6,7 +6,6 @@ import com.intellij.codeInsight.completion.impl.CompletionSorterImpl;
 import com.intellij.codeInsight.completion.impl.TopPriorityLookupElement;
 import com.intellij.codeInsight.lookup.*;
 import com.intellij.codeInsight.lookup.impl.EmptyLookupItem;
-import com.intellij.injected.editor.EditorWindow;
 import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
@@ -20,6 +19,7 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.patterns.StandardPatterns;
 import com.intellij.platform.diagnostic.telemetry.TelemetryManager;
 import com.intellij.platform.diagnostic.telemetry.helpers.TraceKt;
+import com.intellij.psi.impl.source.tree.injected.InjectedLanguageEditorUtil;
 import com.intellij.util.ProcessingContext;
 import com.intellij.util.SlowOperations;
 import com.intellij.util.SmartList;
@@ -36,6 +36,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.*;
 import java.util.function.Predicate;
 
+import static com.intellij.codeInsight.completion.impl.TopPriorityLookupElement.FORCE_FIRST_SELECT;
 import static com.intellij.codeInsight.util.CodeCompletionKt.CodeCompletion;
 
 public class BaseCompletionLookupArranger extends LookupArranger implements CompletionLookupArranger {
@@ -504,7 +505,11 @@ public class BaseCompletionLookupArranger extends LookupArranger implements Comp
   }
 
   private int getItemToSelect(LookupElementListPresenter lookup, List<? extends LookupElement> items, boolean onExplicitAction, @Nullable LookupElement mostRelevant) {
-    if (items.isEmpty() || lookup.getLookupFocusDegree() == LookupFocusDegree.UNFOCUSED) {
+    if (items.isEmpty() ||
+        lookup.getLookupFocusDegree() == LookupFocusDegree.UNFOCUSED ||
+        (lookup.getLookupFocusDegree() == LookupFocusDegree.SEMI_FOCUSED &&
+         items.get(0) != null &&
+         items.get(0).getUserData(FORCE_FIRST_SELECT) == Boolean.TRUE)) {
       return 0;
     }
 
@@ -516,7 +521,7 @@ public class BaseCompletionLookupArranger extends LookupArranger implements Comp
       }
 
       LookupElement selectedValue = lookup.getCurrentItemOrEmpty();
-      if (selectedValue instanceof EmptyLookupItem && ((EmptyLookupItem)selectedValue).isLoading()) {
+      if (selectedValue instanceof EmptyLookupItem emptyLookupItem && emptyLookupItem.isLoading()) {
         int index = lookup.getSelectedIndex();
         if (index >= 0 && index < items.size()) {
           return index;
@@ -545,10 +550,7 @@ public class BaseCompletionLookupArranger extends LookupArranger implements Comp
   }
 
   protected List<LookupElement> getExactMatches(List<? extends LookupElement> items) {
-    Editor editor = myProcess.getParameters().getEditor();
-    if (editor instanceof EditorWindow) {
-      editor = ((EditorWindow)editor).getDelegate();
-    }
+    Editor editor = InjectedLanguageEditorUtil.getTopLevelEditor(myProcess.getParameters().getEditor());
     String selectedText = editor.getSelectionModel().getSelectedText();
     List<LookupElement> exactMatches = new SmartList<>();
     for (LookupElement item : items) {

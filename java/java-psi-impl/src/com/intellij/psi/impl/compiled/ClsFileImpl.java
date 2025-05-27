@@ -32,6 +32,7 @@ import com.intellij.psi.*;
 import com.intellij.psi.compiled.ClassFileDecompilers;
 import com.intellij.psi.impl.JavaPsiImplementationHelper;
 import com.intellij.psi.impl.PsiFileEx;
+import com.intellij.psi.impl.PsiManagerEx;
 import com.intellij.psi.impl.PsiManagerImpl;
 import com.intellij.psi.impl.compiled.ClsElementImpl.InvalidMirrorException;
 import com.intellij.psi.impl.file.PsiBinaryFileImpl;
@@ -101,7 +102,7 @@ public class ClsFileImpl extends PsiBinaryFileImpl
   }
 
   private ClsFileImpl(@NotNull FileViewProvider viewProvider, boolean forDecompiling) {
-    super((PsiManagerImpl)viewProvider.getManager(), viewProvider);
+    super((PsiManagerEx)viewProvider.getManager(), viewProvider);
     myIsForDecompiling = forDecompiling;
     //noinspection ResultOfMethodCallIgnored
     JavaElementType.CLASS.getIndex();  // initialize Java stubs
@@ -144,7 +145,7 @@ public class ClsFileImpl extends PsiBinaryFileImpl
     if (statement == null) {
       statement = ClsPackageStatementImpl.NULL_PACKAGE;
       PsiClassHolderFileStub<?> stub = getStub();
-      if (!(stub instanceof PsiJavaFileStub) || stub.findChildStubByType(JavaStubElementTypes.MODULE) == null) {
+      if (!(stub instanceof PsiJavaFileStub) || stub.findChildStubByElementType(JavaStubElementTypes.MODULE) == null) {
         String packageName = findPackageName(stub);
         if (packageName != null) {
           statement = new ClsPackageStatementImpl(this, packageName);

@@ -4,13 +4,6 @@
     <group id="ToolsXmlGroup" popup="true" class="com.intellij.xml.actions.XmlActionsGroup">
       <add-to-group group-id="ToolsMenu" anchor="before" relative-to-action="ExternalToolsGroup"/>
     </group>
-    <group id="DomCollectionControl">
-      <action id="DomCollectionControl.Add" class="com.intellij.util.xml.ui.DomCollectionControl$AddAction">
-        <keyboard-shortcut first-keystroke="INSERT" keymap="$default"/>
-      </action>
-      <action id="DomCollectionControl.Edit" class="com.intellij.util.xml.ui.DomCollectionControl$EditAction" use-shortcut-of="EditSource"/>
-      <action id="DomCollectionControl.Remove" class="com.intellij.util.xml.ui.DomCollectionControl$RemoveAction" use-shortcut-of="$Delete"/>
-    </group>
 
     <group id="NewXml">
       <action id="NewHtmlFile" class="com.intellij.ide.actions.CreateHtmlFileAction" icon="AllIcons.FileTypes.Html"/>
@@ -28,21 +21,6 @@
     <action id="EscapeEntities" class="com.intellij.xml.actions.EscapeEntitiesAction">
       <add-to-group group-id="EditMenu" anchor="last"/>
     </action>
-
-    <!-- id should be "OpenInDefaultBrowser", but existing name preserved to keep compatibility - if user configured shortcut for action, it should not be lost -->
-    <action id="OpenInBrowser" class="com.intellij.ide.browsers.actions.OpenFileInDefaultBrowserAction"
-            icon="AllIcons.Nodes.PpWeb">
-    </action>
-
-    <group id="OpenInBrowserGroup" class="com.intellij.ide.browsers.actions.OpenInBrowserBaseGroupAction$OpenInBrowserGroupAction">
-      <add-to-group group-id="ViewMenu" anchor="after" relative-to-action="ViewSource"/>
-      <add-to-group group-id="RevealGroup" anchor="last"/>
-      <override-text place="RevealInPopup"/>
-    </group>
-    <group id="OpenInBrowserEditorContextBarGroupAction"
-           class="com.intellij.ide.browsers.actions.OpenInBrowserBaseGroupAction$OpenInBrowserEditorContextBarGroupAction">
-      <add-to-group group-id="EditorContextBarMenu" anchor="last"/>
-    </group>
 
     <group id="Emmet">
       <action id="SurroundWithEmmet" class="com.intellij.codeInsight.template.emmet.SurroundWithEmmetAction"/>
@@ -68,11 +46,6 @@
         </action>
       </group>
     </group>
-
-    <action id="DisableMinimap" class="com.intellij.ide.minimap.actions.DisableMinimapAction"/>
-    <action id="ToggleMinimap" class="com.intellij.ide.minimap.actions.ToggleMinimapAction"/>
-    <action id="OpenMinimapSettings" class="com.intellij.ide.minimap.actions.OpenMinimapSettingsAction"/>
-    <action id="MoveMinimap" class="com.intellij.ide.minimap.actions.MoveMinimapAction"/>
 
     <action id="SurroundWithTagTemplate" class="com.intellij.xml.actions.XmlSurroundWithTagTemplateAction" icon="AllIcons.Nodes.Tag"/>
   </actions>

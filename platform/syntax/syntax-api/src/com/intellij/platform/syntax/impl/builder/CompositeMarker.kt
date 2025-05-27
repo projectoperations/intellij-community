@@ -9,7 +9,7 @@ import org.jetbrains.annotations.Nls
 
 internal class CompositeMarker(
   markerId: Int,
-  builder: ParsingTreeBuilder,
+  builder: SyntaxTreeBuilderImpl,
 ) : ProductionMarker(markerId, builder), SyntaxTreeBuilder.Marker {
 
   lateinit var type: SyntaxElementType
@@ -24,7 +24,7 @@ internal class CompositeMarker(
       val startOffset = getStartOffset() - builder.startOffset
       val endOffset = getEndOffset() - builder.startOffset
       val text = originalText.subSequence(startOffset, endOffset)
-      assert(text.length == endOffset - startOffset)
+      check(text.length == endOffset - startOffset)
       return text
     }
 
@@ -37,7 +37,7 @@ internal class CompositeMarker(
   }
 
   override fun getEndOffset(): Int =
-    builder.myLexStarts[endIndex] + builder.startOffset
+    builder.lexStart(endIndex) + builder.startOffset
 
   override fun getEndTokenIndex(): Int = endIndex
 
@@ -61,7 +61,7 @@ internal class CompositeMarker(
   }
 
   override fun done(type: SyntaxElementType) {
-    if (type == SyntaxTokenTypes.ERROR_ELEMENT) {
+    if (type === SyntaxTokenTypes.ERROR_ELEMENT) {
       builder.logger.warn("Error elements with empty message are discouraged. Please use builder.error() instead", RuntimeException())
     }
     this@CompositeMarker.type = type
@@ -74,7 +74,7 @@ internal class CompositeMarker(
   }
 
   override fun doneBefore(type: SyntaxElementType, before: SyntaxTreeBuilder.Marker) {
-    if (type == SyntaxTokenTypes.ERROR_ELEMENT) {
+    if (type === SyntaxTokenTypes.ERROR_ELEMENT) {
       builder.logger.warn("Error elements with empty message are discouraged. Please use builder.errorBefore() instead", RuntimeException())
     }
     this@CompositeMarker.type = type

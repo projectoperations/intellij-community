@@ -23,6 +23,14 @@ public class AnonymousToInnerTest extends LightJavaCodeInsightTestCase {
     doTest("MyIterator", true);
   }
 
+  public void testGenericTypeParametersNonStatic() {
+    doTest("MyIterator", false);
+  }
+
+  public void testGenericTypeParametersNonStaticNoGenericsNeeded() {
+    doTest("MyIterator", false);
+  }
+
   public void testInsideInterface() {  // IDEADEV-29446
     doTest("MyRunnable", true);
   }
@@ -125,7 +133,22 @@ public class AnonymousToInnerTest extends LightJavaCodeInsightTestCase {
   public void testTypeParameterNotMentioned() {
     doTest("MyClass", true);
   }
-  
+
+  public void testAddThisQualifier() {
+    doTest("MyClass", true);
+  }
+
+  public void testAddThisQualifierWithImplicitThis() {
+    doTest("MyClass", true);
+  }
+
+  public void testOuterThisQualifier() {
+    doTest("MyClass", true);
+  }
+
+  public void testChainedConstructor() {
+    doTest("Inner", true);
+  }
 
   private void doTest(final String newClassName, final boolean makeStatic) {
     configureByFile(TEST_ROOT + getTestName(true) + ".java");

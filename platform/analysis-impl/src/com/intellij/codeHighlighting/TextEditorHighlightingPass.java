@@ -2,6 +2,7 @@
 package com.intellij.codeHighlighting;
 
 import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerEx;
+import com.intellij.codeInsight.daemon.impl.DaemonProgressIndicator;
 import com.intellij.codeInsight.daemon.impl.HighlightInfo;
 import com.intellij.codeInsight.multiverse.CodeInsightContext;
 import com.intellij.codeInsight.multiverse.CodeInsightContexts;
@@ -122,10 +123,10 @@ public abstract class TextEditorHighlightingPass implements HighlightingPass {
   }
 
   @ApiStatus.Internal
-  public void markUpToDateIfStillValid() {
+  public void markUpToDateIfStillValid(@NotNull DaemonProgressIndicator updateProgress) {
     ThreadingAssertions.assertEventDispatchThread();
     if (isValid()) {
-      DaemonCodeAnalyzerEx.getInstanceEx(myProject).getFileStatusMap().markFileUpToDate(getDocument(), getContext(), getId());
+      DaemonCodeAnalyzerEx.getInstanceEx(myProject).getFileStatusMap().markFileUpToDate(getDocument(), getContext(), getId(), updateProgress);
     }
   }
 
@@ -165,7 +166,7 @@ public abstract class TextEditorHighlightingPass implements HighlightingPass {
   @ApiStatus.Internal
   protected @NotNull CodeInsightContext getContext() {
     if (myContext == null) {
-      // todo ijpl-339 report an error here once all the highlighting passes are ready
+      // todo IJPL-339 report an error here once all the highlighting passes are ready
       //      LOG.error("context was not set");
       return CodeInsightContexts.anyContext();
     }

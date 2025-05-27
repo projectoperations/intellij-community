@@ -18,7 +18,9 @@ import com.intellij.openapi.projectRoots.ProjectJdkTable
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.projectRoots.impl.SdkConfigurationUtil
 import com.intellij.platform.util.progress.RawProgressReporter
-import com.jetbrains.python.failure
+import com.jetbrains.python.errorProcessing.PyResult
+import com.jetbrains.python.errorProcessing.asPythonResult
+import com.jetbrains.python.getOrThrow
 import com.jetbrains.python.psi.LanguageLevel
 import com.jetbrains.python.sdk.PythonSdkAdditionalData
 import com.jetbrains.python.sdk.PythonSdkType
@@ -27,6 +29,7 @@ import com.jetbrains.python.sdk.add.v1.loadLocalPythonCondaPath
 import com.jetbrains.python.sdk.add.v1.saveLocalPythonCondaPath
 import com.jetbrains.python.sdk.flavors.PyFlavorAndData
 import com.jetbrains.python.sdk.flavors.conda.*
+import com.jetbrains.python.sdk.getOrCreateAdditionalData
 import com.jetbrains.python.target.PyTargetAwareAdditionalData
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.future.await
@@ -45,6 +48,9 @@ internal val condaSupportedLanguages: List<LanguageLevel>
   get() = LanguageLevel.SUPPORTED_LEVELS
     .asReversed()
     .filter { it < LanguageLevel.PYTHON313 }
+
+val condaLatestSupportedLanguage: LanguageLevel @ApiStatus.Internal get() =
+  condaSupportedLanguages.maxWith(LanguageLevel.VERSION_COMPARATOR)
 
 /**
  * See [com.jetbrains.env.conda.PyCondaSdkTest]
@@ -85,8 +91,8 @@ private suspend fun getCondaPythonBinaryPath(
   project: Project?,
   condaEnv: PyCondaEnv,
   targetConfig: TargetEnvironmentConfiguration?,
-): Result<FullPathOnTarget> =
-  getCondaInterpreterOutput(project, condaEnv, EmptyProgressIndicator(), PRINT_SYS_EXECUTABLE_SCRIPT, targetConfig).map { it.trim() }
+): PyResult<FullPathOnTarget> =
+  getCondaInterpreterOutput(project, condaEnv, EmptyProgressIndicator(), PRINT_SYS_EXECUTABLE_SCRIPT, targetConfig).mapSuccess { it.trim() }
 
 /**
  * Runs python [command] and returns stdout or error
@@ -97,7 +103,7 @@ private suspend fun getCondaInterpreterOutput(
   indicator: ProgressIndicator,
   command: String,
   targetConfig: TargetEnvironmentConfiguration?,
-): Result<String> {
+): PyResult<String> {
   val targetEnvRequest = targetConfig?.createEnvironmentRequest(project) ?: LocalTargetEnvironmentRequest()
 
   val cmdBuilder = TargetedCommandLineBuilder(targetEnvRequest)
@@ -108,7 +114,7 @@ private suspend fun getCondaInterpreterOutput(
 
   val environment = targetEnvRequest.prepareEnvironment(TargetProgressIndicatorAdapter(indicator))
   return withContext(Dispatchers.IO) {
-    environment.createProcessWithResult(cmd).mapFlat { it.getResultStdoutStr() }
+    environment.createProcessWithResult(cmd).mapFlat { it.getResultStdoutStr() }.asPythonResult()
   }
 }
 
@@ -121,17 +127,17 @@ suspend fun PyCondaCommand.createCondaSdkAlongWithNewEnv(
   existingSdks: List<Sdk>,
   project: Project,
   reporter: RawProgressReporter? = null,
-): Result<Sdk> {
-  val process = PyCondaEnv.createEnv(this, newCondaEnvInfo).getOrElse { return Result.failure(it) }
-  val error = ProcessHandlerReader(process).runProcessAndGetError(uiContext, reporter)
+): PyResult<Sdk> {
+  val process = PyCondaEnv.createEnv(this, newCondaEnvInfo).getOr { return it }
 
-  return error?.let { failure(it) }
-         ?: Result.success(
-           createCondaSdkFromExistingEnv(newCondaEnvInfo.toIdentity(), existingSdks, project)).apply {
-           onSuccess {
-             saveLocalPythonCondaPath(Path.of(this@createCondaSdkAlongWithNewEnv.fullCondaPathOnTarget))
-           }
-         }
+  ProcessHandlerReader(process).runProcessAndGetError(uiContext, reporter)?.let {
+    return PyResult.localizedError(it)
+  }
+
+  val sdk = createCondaSdkFromExistingEnv(newCondaEnvInfo.toIdentity(), existingSdks, project)
+  saveLocalPythonCondaPath(Path.of(this@createCondaSdkAlongWithNewEnv.fullCondaPathOnTarget))
+
+  return PyResult.success(sdk)
 }
 
 private fun NewCondaEnvRequest.toIdentity(): PyCondaEnvIdentity =
@@ -252,3 +258,5 @@ internal class IntrospectableCommandExecutor(private val introspectable: Languag
 
   override fun execute(command: List<String>): CompletableFuture<ProcessOutput> = introspectable.promiseExecuteScript(command)
 }
+
+internal fun Sdk.isConda(): Boolean = getOrCreateAdditionalData().flavorAndData.data is PyCondaFlavorData

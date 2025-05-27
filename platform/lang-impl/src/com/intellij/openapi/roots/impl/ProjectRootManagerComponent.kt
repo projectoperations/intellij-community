@@ -14,7 +14,6 @@ import com.intellij.openapi.fileTypes.FileTypeEvent
 import com.intellij.openapi.fileTypes.FileTypeListener
 import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.module.ModuleManager
-import com.intellij.openapi.module.impl.ModuleEx
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.project.ProjectManagerListener
@@ -43,7 +42,6 @@ import com.intellij.util.indexing.EntityIndexingService
 import com.intellij.util.indexing.ProjectEntityIndexingService
 import com.intellij.util.indexing.roots.WorkspaceIndexingRootsBuilder
 import com.intellij.workspaceModel.core.fileIndex.EntityStorageKind
-import com.intellij.workspaceModel.core.fileIndex.WorkspaceFileIndex
 import com.intellij.workspaceModel.core.fileIndex.WorkspaceFileIndexContributor
 import com.intellij.workspaceModel.core.fileIndex.impl.PlatformInternalWorkspaceFileIndexContributor
 import com.intellij.workspaceModel.core.fileIndex.impl.WorkspaceFileIndexEx
@@ -240,7 +238,7 @@ open class ProjectRootManagerComponent(
     try {
       @Suppress("UsagesOfObsoleteApi")
       (DirectoryIndex.getInstance(project) as? DirectoryIndexImpl)?.reset()
-      (WorkspaceFileIndex.getInstance(project) as WorkspaceFileIndexEx).indexData.resetCustomContributors()
+      WorkspaceFileIndexEx.getInstance(project).indexData.resetCustomContributors()
       project.messageBus.syncPublisher(ModuleRootListener.TOPIC).beforeRootsChange(ModuleRootEventImpl(project, fileTypes))
     }
     finally {
@@ -253,7 +251,7 @@ open class ProjectRootManagerComponent(
     try {
       @Suppress("UsagesOfObsoleteApi")
       (DirectoryIndex.getInstance(project) as? DirectoryIndexImpl)?.reset()
-      (WorkspaceFileIndex.getInstance(project) as WorkspaceFileIndexEx).indexData.resetCustomContributors()
+      WorkspaceFileIndexEx.getInstance(project).indexData.resetCustomContributors()
 
       val isFromWorkspaceOnly = EntityIndexingService.getInstance().isFromWorkspaceOnly(indexingInfos)
       project.messageBus.syncPublisher(ModuleRootListener.TOPIC)
@@ -397,7 +395,7 @@ open class ProjectRootManagerComponent(
     super.clearScopesCachesForModules()
 
     for (module in ModuleManager.getInstance(project).modules) {
-      (module as ModuleEx).clearScopesCache()
+      module.clearScopesCache()
     }
   }
 

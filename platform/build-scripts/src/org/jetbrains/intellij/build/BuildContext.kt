@@ -157,13 +157,17 @@ interface BuildContext : CompilationContext {
     prepareForBuild: Boolean = true,
   ): BuildContext
 
-  suspend fun buildJar(targetFile: Path, sources: List<Source>, compress: Boolean = false)
-
   fun reportDistributionBuildNumber()
 
   suspend fun cleanupJarCache()
 
-  suspend fun createProductRunner(additionalPluginModules: List<String> = emptyList()): IntellijProductRunner
+  /**
+   * Creates an instance of [IntellijProductRunner] which can be used to run the IDE being built with some command.
+   * @param additionalPluginModules main modules of non-bundled plugins, which should be loaded inside the IDE process
+   * @param forceUseDevBuild if `true`, the 'dev build' approach will be used to run the IDE even if it uses the module-based loader which supports running the IDE without running
+   *        the build scripts.
+   */
+  suspend fun createProductRunner(additionalPluginModules: List<String> = emptyList(), forceUseDevBuild: Boolean = false): IntellijProductRunner
 
   suspend fun runProcess(
     args: List<String>,

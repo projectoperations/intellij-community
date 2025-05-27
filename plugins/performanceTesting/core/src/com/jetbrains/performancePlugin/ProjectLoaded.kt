@@ -1,3 +1,4 @@
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("CompanionObjectInExtension")
 
 package com.jetbrains.performancePlugin
@@ -58,6 +59,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ConcurrentHashMap
 import java.util.function.Function
 import kotlin.time.Duration.Companion.minutes
 
@@ -79,14 +81,18 @@ private object ProjectLoadedService {
   var scriptStarted = false
 
   @JvmField
-  var screenshotJob: kotlinx.coroutines.Job? = null
+  val screenshotJobs: MutableSet<kotlinx.coroutines.Job> = ConcurrentHashMap.newKeySet()
 
   fun registerScreenshotTaking(folder: String, coroutineScope: CoroutineScope) {
-    screenshotJob = coroutineScope.launch {
+    val job = coroutineScope.launch {
       while (true) {
         delay(1.minutes)
         takeScreenshotOfAllWindows(folder)
       }
+    }
+    screenshotJobs += job
+    job.invokeOnCompletion {
+      screenshotJobs -= job
     }
   }
 }
@@ -213,9 +219,9 @@ private fun runScriptDuringIndexing(project: Project, alarm: Alarm) {
 @Internal
 class ProjectLoaded : ApplicationInitializedListener {
   override suspend fun execute() {
-    // Under flag since a proper solution should be implemented in the platform later
-    // https://youtrack.jetbrains.com/issue/IJPL-176231/ProductionWslIjentAvailabilityService-Registry-key-wsl.use.remote.agent.for.nio.filesystem-is-not-defined
-    if (System.getenv("STARTER_TESTS_SUPPORT_TARGETS").toBoolean()) {
+    // TODO: Under flag since a proper solution should be implemented in the platform later
+    if (SystemProperties.getBooleanProperty("STARTER_TESTS_SUPPORT_TARGETS", false)
+        || System.getenv("STARTER_TESTS_SUPPORT_TARGETS").toBoolean()) {
       IntegrationTestApplicationLoadListener.projectPathFromCommandLine?.run {
         EelInitialization.runEelInitialization(this)
       }
@@ -256,7 +262,7 @@ class ProjectLoaded : ApplicationInitializedListener {
     }
 
     override fun appClosing() {
-      ProjectLoadedService.screenshotJob?.cancel()
+      ProjectLoadedService.screenshotJobs.forEach { it.cancel() }
       PerformanceTestSpan.endSpan()
       reportErrorsFromMessagePool()
     }
@@ -330,9 +336,14 @@ private fun reportScriptError(errorMessage: AbstractMessage) {
   val throwable = errorMessage.throwable
   var cause: Throwable? = throwable
   var causeMessage: String? = ""
+  val maxTestNameLength = 250
+  var testName: String? = throwable.javaClass.name + ": " + throwable.message
   while (cause!!.cause != null) {
     cause = cause.cause
-    causeMessage = cause!!.message
+    causeMessage = cause?.message?.let { "${cause.javaClass.name}: $it" } ?: causeMessage
+  }
+  if (!causeMessage.isNullOrEmpty()) {
+    testName = causeMessage
   }
   if (causeMessage.isNullOrEmpty()) {
     causeMessage = errorMessage.message
@@ -370,6 +381,7 @@ private fun reportScriptError(errorMessage: AbstractMessage) {
 
     Files.createDirectories(errorDir)
     Files.writeString(errorDir.resolve("message.txt"), causeMessage)
+    Files.writeString(errorDir.resolve("testName.txt"), (testName ?: causeMessage).take(maxTestNameLength))
     Files.writeString(errorDir.resolve("stacktrace.txt"), errorMessage.throwableText)
     val attachments = errorMessage.allAttachments
     val nameConflicts = attachments.groupBy { it.name }.filter { it.value.size > 1 }.keys

@@ -10,10 +10,17 @@
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
+    <orderEntry type="module" module-name="intellij.platform.credentialStore" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.editor.ui" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.foldings" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.jps.model" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.lang.impl" />
     <orderEntry type="library" scope="TEST" name="JUnit4" level="project" />
     <orderEntry type="library" scope="TEST" name="jmock" level="project" />
     <orderEntry type="module" module-name="intellij.platform.ide.observable" />
+    <orderEntry type="module" module-name="intellij.platform.refactoring" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.structureView.impl" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.usageView.impl" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.vcs" />
     <orderEntry type="library" scope="TEST" name="jmock.junit4" level="project" />
     <orderEntry type="library" scope="TEST" name="jmock.legacy" level="project" />
@@ -108,6 +115,7 @@
     <orderEntry type="library" name="kotlinx-collections-immutable" level="project" />
     <orderEntry type="module" module-name="intellij.platform.buildData" scope="TEST" />
     <orderEntry type="library" scope="TEST" name="ktor-server-cio" level="project" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinx.io" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.ui.jcef" scope="TEST" />
     <orderEntry type="library" scope="TEST" name="rhino" level="project" />
     <orderEntry type="module" module-name="intellij.platform.eel.impl" />
@@ -118,9 +126,13 @@
     <orderEntry type="library" scope="TEST" name="io.mockk" level="project" />
     <orderEntry type="library" scope="TEST" name="io.mockk.jvm" level="project" />
     <orderEntry type="module" module-name="intellij.platform.bookmarks" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.plugins.testFramework" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.statistics.testFramework" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.ide.bootstrap.eel" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.testFramework.junit5.projectStructure" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.plugins.parser.impl" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.ide.impl.wsl" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.syntax.psi.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.runtime.product" scope="TEST" />
   </component>
 </module>

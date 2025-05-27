@@ -27,6 +27,7 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.application.WriteIntentReadAction;
+import com.intellij.openapi.application.impl.InternalUICustomization;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.command.UndoConfirmationPolicy;
 import com.intellij.openapi.diagnostic.Logger;
@@ -82,9 +83,9 @@ import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
 import java.lang.ref.Reference;
 import java.lang.ref.WeakReference;
+import java.util.*;
 import java.util.List;
 import java.util.Queue;
-import java.util.*;
 import java.util.function.Supplier;
 
 @ApiStatus.Internal
@@ -188,10 +189,19 @@ public final class EditorMarkupModelImpl extends MarkupModelImpl
       new TrafficLightAction(),
       new NavigationGroup(prevErrorAction, nextErrorAction));
 
-    ActionButtonLook editorButtonLook = new EditorToolbarButtonLook(myEditor);
+    InternalUICustomization service = InternalUICustomization.getInstance();
+    ActionButtonLook editorButtonLook = null;
+    if(service != null) {
+      editorButtonLook = service.getEditorToolbarButtonLook();
+    }
+    if(editorButtonLook == null) {
+      editorButtonLook = new EditorToolbarButtonLook(myEditor);
+    }
+
     statusToolbar = new EditorInspectionsActionToolbar(actions, editor, editorButtonLook, nextErrorAction, prevErrorAction);
 
     statusToolbar.setMiniMode(true);
+    statusToolbar.setOrientation(SwingConstants.HORIZONTAL);
     statusToolbar.setCustomButtonLook(editorButtonLook);
     toolbarComponentListener = new ComponentAdapter() {
       @Override
@@ -250,7 +260,7 @@ public final class EditorMarkupModelImpl extends MarkupModelImpl
     connection.subscribe(AnActionListener.TOPIC, new AnActionListener() {
       @Override
       public void beforeActionPerformed(@NotNull AnAction action, @NotNull AnActionEvent event) {
-        if (action instanceof HintManagerImpl.ActionToIgnore) {
+        if (HintManagerImpl.isActionToIgnore(action)) {
           return;
         }
         myTrafficLightPopup.hidePopup();
@@ -1537,10 +1547,9 @@ public final class EditorMarkupModelImpl extends MarkupModelImpl
         private void showInspectionHint(MouseEvent me) {
           DataContext context = ActionToolbar.getDataContextFor(TrafficLightButton.this);
           AnActionEvent event = AnActionEvent.createEvent(context, presentation, place, ActionUiKind.TOOLBAR, me);
-          if (ActionUtil.lastUpdateAndCheckDumb(action, event, false)) {
-            ActionUtil.performActionDumbAwareWithCallbacks(action, event);
+          AnActionResult result = ActionUtil.performAction(action, event);
+          if (result.isPerformed()) {
             ActionsCollector.getInstance().record(event.getProject(), action, event, null);
-
             ActionToolbar toolbar = ActionToolbar.findToolbarBy(TrafficLightButton.this);
             if (toolbar != null) {
               toolbar.updateActionsImmediately();
@@ -1958,6 +1967,7 @@ public final class EditorMarkupModelImpl extends MarkupModelImpl
                                           @Nullable AnAction nextErrorAction,
                                           @Nullable AnAction prevErrorAction) {
       super(ActionPlaces.EDITOR_INSPECTIONS_TOOLBAR, actions, true);
+      putClientProperty(SUPPRESS_FAST_TRACK, true);
       myEditor = editor;
       myEditorButtonLook = editorButtonLook;
       myNextErrorAction = nextErrorAction;

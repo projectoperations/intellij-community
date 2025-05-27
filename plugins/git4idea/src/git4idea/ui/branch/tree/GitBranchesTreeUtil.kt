@@ -1,11 +1,10 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package git4idea.ui.branch.tree
 
 import com.intellij.openapi.project.Project
 import com.intellij.ui.SeparatorWithText
 import com.intellij.ui.popup.PopupFactoryImpl
 import com.intellij.util.ui.tree.TreeUtil
-import git4idea.repo.GitRepository
 import git4idea.ui.branch.popup.GitBranchesTreePopupFilterByAction
 import git4idea.ui.branch.popup.GitBranchesTreePopupFilterByRepository
 import java.awt.event.ActionEvent
@@ -15,6 +14,7 @@ import javax.swing.tree.TreeModel
 import javax.swing.tree.TreePath
 
 object GitBranchesTreeUtil {
+  internal const val FILTER_DEBOUNCE_MS: Long = 100L
 
   fun JTree.overrideBuiltInAction(actionKey: String, override: (ActionEvent) -> Boolean) {
     val originalAction = actionMap[actionKey]
@@ -36,13 +36,11 @@ object GitBranchesTreeUtil {
 
   internal fun canSelect(project: Project, tree: JTree, node: Any?): Boolean {
     val model = tree.model
-    // if GitRepository and TopLevelRepository nodes present in the model at the same time, only TopLevelRepository can be selected
-    if (node is GitRepository && model is GitBranchesTreeMultiRepoFilteringModel) return model.isLeaf(node)
-
     return when (node) {
       is PopupFactoryImpl.ActionItem -> GitBranchesTreePopupFilterByAction.isSelected(project)
-      is GitRepository -> GitBranchesTreePopupFilterByRepository.isSelected(project)
-      is GitBranchesTreeModel.TopLevelRepository -> GitBranchesTreePopupFilterByRepository.isSelected(project)
+      is GitBranchesTreeModel.RepositoryNode -> {
+        if (!node.isLeaf) false else GitBranchesTreePopupFilterByRepository.isSelected(project)
+      }
       else -> model.isLeaf(node)
     }
   }

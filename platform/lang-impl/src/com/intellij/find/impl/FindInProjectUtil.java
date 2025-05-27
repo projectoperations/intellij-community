@@ -25,7 +25,7 @@ import com.intellij.openapi.progress.ProgressIndicatorProvider;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.util.ProgressWrapper;
 import com.intellij.openapi.progress.util.TooManyUsagesStatus;
-import com.intellij.openapi.project.DumbServiceImpl;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.LibraryOrderEntry;
@@ -49,6 +49,7 @@ import com.intellij.usages.ConfigurableUsageTarget;
 import com.intellij.usages.FindUsagesProcessPresentation;
 import com.intellij.usages.UsageView;
 import com.intellij.usages.UsageViewPresentation;
+import com.intellij.util.PathUtil;
 import com.intellij.util.PatternUtil;
 import com.intellij.util.Processor;
 import org.jetbrains.annotations.Nls;
@@ -57,6 +58,8 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.PropertyKey;
 
 import javax.swing.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
@@ -87,7 +90,7 @@ public final class FindInProjectUtil {
       if (session != null) editor = session.getEditor();
     }
     PsiElement psiElement = null;
-    if (project != null && editor == null && !DumbServiceImpl.getInstance(project).isDumb()) {
+    if (project != null && editor == null && !DumbService.getInstance(project).isDumb()) {
       try {
         psiElement = CommonDataKeys.PSI_ELEMENT.getData(dataContext);
       }
@@ -108,17 +111,19 @@ public final class FindInProjectUtil {
     if (directoryName == null) {
       VirtualFile virtualFile = CommonDataKeys.VIRTUAL_FILE.getData(dataContext);
       if (virtualFile != null) {
-        if (virtualFile.isDirectory()) {
+        Path filePath = Path.of(virtualFile.getPath());
+        if (Files.isDirectory(filePath)) {
           directoryName = virtualFile.getPresentableUrl();
         }
         else {
-          VirtualFile parent = virtualFile.getParent();
-          if (parent != null && parent.isDirectory()) {
+          Path parentPath = filePath.getParent();
+          if (parentPath != null && Files.isDirectory(parentPath)) {
+            String presentablePath = PathUtil.toPresentableUrl(parentPath.toString());
             if (editor == null) {
-              directoryName = parent.getPresentableUrl();
+              directoryName = presentablePath;
             }
             else if (project != null) {
-              FindInProjectSettings.getInstance(project).addDirectory(parent.getPresentableUrl());
+              FindInProjectSettings.getInstance(project).addDirectory(presentablePath);
             }
           }
         }
@@ -480,7 +485,7 @@ public final class FindInProjectUtil {
     }
   }
 
-  public static class StringUsageTarget implements ConfigurableUsageTarget, ItemPresentation, DataProvider {
+  public static class StringUsageTarget implements ConfigurableUsageTarget, ItemPresentation, UiDataProvider {
     protected final @NotNull Project myProject;
     protected final @NotNull FindModel myFindModel;
 
@@ -539,18 +544,10 @@ public final class FindInProjectUtil {
     }
 
     @Override
-    public @Nullable Object getData(@NotNull String dataId) {
-      if (PlatformCoreDataKeys.BGT_DATA_PROVIDER.is(dataId)) {
-        return (DataProvider)slowId -> getSlowData(slowId);
-      }
-      return null;
-    }
-
-    private @Nullable Object getSlowData(@NotNull String dataId) {
-      if (UsageView.USAGE_SCOPE.is(dataId)) {
+    public void uiDataSnapshot(@NotNull DataSink sink) {
+      sink.lazy(UsageView.USAGE_SCOPE, () -> {
         return getScopeFromModel(myProject, myFindModel);
-      }
-      return null;
+      });
     }
   }
 
@@ -594,6 +591,10 @@ public final class FindInProjectUtil {
       }
     }
     outSourceRoots.addAll(otherSourceRoots);
+  }
+
+  public static @NotNull GlobalSearchScope getGlobalSearchScope(@NotNull Project project, @NotNull FindModel findModel) {
+    return GlobalSearchScopeUtil.toGlobalSearchScope(getScopeFromModel(project, findModel), project);
   }
 
   static @NotNull SearchScope getScopeFromModel(@NotNull Project project, @NotNull FindModel findModel) {

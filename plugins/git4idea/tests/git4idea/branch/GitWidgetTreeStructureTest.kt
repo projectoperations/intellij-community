@@ -8,17 +8,21 @@ import com.intellij.openapi.vcs.Executor.cd
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.TestDataPath
 import com.intellij.testFramework.assertions.Assertions
+import com.intellij.testFramework.utils.io.deleteRecursively
 import com.intellij.ui.SeparatorWithText
 import com.intellij.ui.tree.TreeTestUtil
 import com.intellij.ui.treeStructure.Tree
+import com.intellij.vcs.git.shared.repo.GitRepositoriesFrontendHolder
+import git4idea.GitUtil
 import git4idea.config.GitVcsSettings
 import git4idea.repo.GitRepository
-import git4idea.repo.GitRepositoryManager
 import git4idea.test.*
 import git4idea.ui.branch.GitBranchManager
 import git4idea.ui.branch.popup.GitBranchesTreePopup
-import git4idea.ui.branch.tree.GitBranchesTreeModel
+import git4idea.ui.branch.popup.GitBranchesTreePopupRenderer
+import git4idea.ui.branch.popup.GitBranchesTreePopupStepBase
 import git4idea.ui.branch.tree.GitBranchesTreeRenderer
+import kotlinx.coroutines.runBlocking
 import java.nio.file.Path
 
 private const val TEST_DATA_SUBFOLDER = "widgetTree"
@@ -27,6 +31,8 @@ private const val TEST_DATA_SUBFOLDER = "widgetTree"
 class GitWidgetTreeStructureTest : GitPlatformTest() {
   private lateinit var repo: GitRepository
   private lateinit var broRepoPath: Path
+
+  private lateinit var popupStep: GitBranchesTreePopupStepBase
 
   override fun setUp() {
     super.setUp()
@@ -37,6 +43,11 @@ class GitWidgetTreeStructureTest : GitPlatformTest() {
     cd(projectPath)
     refresh()
     repositoryManager.updateAllRepositories()
+
+    runBlocking {
+      // Ensure that the state holder is initialized
+      GitRepositoriesFrontendHolder.getInstance(project).init()
+    }
   }
 
   fun testSingleRepo() {
@@ -88,11 +99,25 @@ class GitWidgetTreeStructureTest : GitPlatformTest() {
 
     registerBroRepo().also { broRepo ->
       createRefs(broRepo)
+      broRepo.branch("newBranch")
       broRepo.branch("bro-branch")
     }
 
     compareWithSnapshot(buildTestTree())
   }
+
+  fun testMultiRepoNotFavoriteCurrentBranch() {
+    createRefs(repo)
+    val currentBranch = "newBranch"
+    repo.checkoutNew(currentBranch)
+    registerBroRepo().also {
+      createRefs(it)
+      it.checkoutNew(currentBranch)
+    }
+
+    compareWithSnapshot(buildTestTree())
+  }
+
 
   fun testMultiRepoWithFavoriteRefs() {
     val broRepo = registerBroRepo()
@@ -107,7 +132,8 @@ class GitWidgetTreeStructureTest : GitPlatformTest() {
 
     val branchManager = project.service<GitBranchManager>()
     // if a common branch is favorite in all repos, it should be displayed first
-    branchManager.setFavorite(GitBranchType.LOCAL, null, "e", true)
+    branchManager.setFavorite(GitBranchType.LOCAL, repo, "e", true)
+    branchManager.setFavorite(GitBranchType.LOCAL, broRepo, "e", true)
     // but not if it's favorite in a single repo
     branchManager.setFavorite(GitBranchType.LOCAL, repo, "c", true)
 
@@ -117,6 +143,8 @@ class GitWidgetTreeStructureTest : GitPlatformTest() {
   fun testMultiRepoWithoutSync() {
     settings.syncSetting = DvcsSyncSettings.Value.DONT_SYNC
     createRefs(repo)
+    repo.checkoutNew("newBranch")
+
     registerBroRepo().also {
       createRefs(it)
     }
@@ -136,13 +164,10 @@ class GitWidgetTreeStructureTest : GitPlatformTest() {
 
 
   fun testMultiRepoWithFilterMatchingRepo() {
-    createRefs(repo)
-    registerBroRepo().also {
-      createRefs(it)
-    }
-    repo.branch("bro")
+    registerBroRepo()
+    repo.branch("project-branch")
 
-    compareWithSnapshot(buildTestTree("bro"))
+    compareWithSnapshot(buildTestTree("ro"))
   }
 
   fun testMultiRepoWithFilter() {
@@ -153,6 +178,30 @@ class GitWidgetTreeStructureTest : GitPlatformTest() {
     }
 
     compareWithSnapshot(buildTestTree("group"))
+  }
+
+  fun testSingleFreshRepo() {
+    resetToFreshState(repo)
+    compareWithSnapshot(buildTestTree())
+  }
+
+  fun testMultipleFreshRepos() {
+    resetToFreshState(repo)
+    registerBroRepo().also { resetToFreshState(it) }
+    compareWithSnapshot(buildTestTree())
+  }
+
+  fun testMultipleFreshReposNoSync() {
+    settings.syncSetting = DvcsSyncSettings.Value.DONT_SYNC
+
+    resetToFreshState(repo)
+    registerBroRepo().also { resetToFreshState(it) }
+    compareWithSnapshot(buildTestTree())
+  }
+
+  private fun resetToFreshState(repo: GitRepository) {
+    repo.root.toNioPath().resolve(GitUtil.DOT_GIT).deleteRecursively()
+    repo.git("init")
   }
 
   private fun createRefs(repo: GitRepository, ensureTags: Boolean = false) {
@@ -174,17 +223,18 @@ class GitWidgetTreeStructureTest : GitPlatformTest() {
     val testDataFileName = snapshotName ?: PlatformTestUtil.getTestName(name, false)
     val testData = TestDataUtil.basePath.resolve(TEST_DATA_SUBFOLDER).resolve(testDataFileName)
 
-    val repositories = GitRepositoryManager.getInstance(project).repositories
     val printedTree = invokeAndWaitIfNeeded {
       TreeTestUtil(tree)
         .setSelection(true)
         .setConverter { node: Any ->
-          val textByRenderer = GitBranchesTreeRenderer.getText(node, tree.model as GitBranchesTreeModel, repositories)
-          when {
+          val icon = (tree.cellRenderer as GitBranchesTreeRenderer).getIcon(node, false)
+          val textByRenderer = popupStep.getNodeText(node)
+          val text = when {
             textByRenderer != null -> textByRenderer
             node is SeparatorWithText -> "-----"
             else -> PlatformTestUtil.toString(node, null)
           }
+          "$text${if (icon == null) "" else " [$icon]"}"
         }
         // Skip root
         .setFilter { it.pathCount != 1 }
@@ -195,15 +245,14 @@ class GitWidgetTreeStructureTest : GitPlatformTest() {
     Assertions.assertThat(printedTree).toMatchSnapshot(testData)
   }
 
-  private fun repoAsString(repo: GitRepository): String = "${repo.root.presentableName} [repository]"
-
   private fun buildTestTree(filter: String? = null): Tree {
     repositoryManager.updateAllRepositories()
 
     return invokeAndWaitIfNeeded {
       //TODO replace with the actual tree from GitBranchesTreePopupBase
       val tree = Tree()
-      val popupStep = GitBranchesTreePopup.createBranchesTreePopupStep(project, repo)
+      popupStep = GitBranchesTreePopup.createBranchesTreePopupStep(project, repo)
+      tree.cellRenderer = GitBranchesTreePopupRenderer(popupStep)
       tree.model = popupStep.treeModel
       popupStep.updateTreeModelIfNeeded(tree, filter)
       popupStep.setSearchPattern(filter)

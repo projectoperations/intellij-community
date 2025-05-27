@@ -8,17 +8,16 @@ import com.intellij.internal.statistic.eventLog.events.EventFields
 import com.intellij.internal.statistic.eventLog.events.EventId
 import com.intellij.internal.statistic.eventLog.events.EventId1
 import com.intellij.internal.statistic.service.fus.collectors.ApplicationUsagesCollector
-import com.intellij.openapi.util.SystemInfo
+import com.intellij.openapi.editor.colors.FontPreferences
 import com.intellij.terminal.TerminalUiSettingsManager
+import org.jetbrains.plugins.terminal.*
 import org.jetbrains.plugins.terminal.TerminalCommandHandlerCustomizer.Constants
-import org.jetbrains.plugins.terminal.TerminalOptionsProvider
 import org.jetbrains.plugins.terminal.block.BlockTerminalOptions
 import org.jetbrains.plugins.terminal.block.prompt.TerminalPromptStyle
 import org.jetbrains.plugins.terminal.settings.TerminalLocalOptions
-import org.jetbrains.plugins.terminal.settings.TerminalOsSpecificOptions
 
 internal class TerminalSettingsStateCollector : ApplicationUsagesCollector() {
-  private val GROUP = EventLogGroup("terminalShell.settings", 2)
+  private val GROUP = EventLogGroup("terminalShell.settings", 3)
 
   private val NON_DEFAULT_OPTIONS = GROUP.registerEvent(
     "non.default.options",
@@ -34,6 +33,22 @@ internal class TerminalSettingsStateCollector : ApplicationUsagesCollector() {
   private val NON_DEFAULT_PROMPT_STYLE = GROUP.registerEvent(
     "non.default.prompt.style",
     EventFields.Enum<TerminalPromptStyle>("style")
+  )
+  private val NON_DEFAULT_FONT_NAME = GROUP.registerEvent(
+    "non.default.font.name",
+    "User modified the default terminal font name",
+  )
+  private val NON_DEFAULT_FONT_SIZE = GROUP.registerEvent(
+    "non.default.font.size", 
+    EventFields.Float("font_size"),
+  )
+  private val NON_DEFAULT_LINE_SPACING = GROUP.registerEvent(
+    "non.default.line.spacing", 
+    EventFields.Float("line_spacing"),
+  )
+  private val NON_DEFAULT_COLUMN_SPACING = GROUP.registerEvent(
+    "non.default.column.spacing", 
+    EventFields.Float("column_spacing"),
   )
 
   override fun getGroup(): EventLogGroup = GROUP
@@ -59,6 +74,34 @@ internal class TerminalSettingsStateCollector : ApplicationUsagesCollector() {
       defaultValue = BlockTerminalOptions.State().promptStyle
     )
 
+    addIfNotDefault(
+      metrics,
+      NON_DEFAULT_FONT_NAME,
+      TerminalFontSettingsService.getInstance().getSettings().fontFamily,
+      FontPreferences.DEFAULT_FONT_NAME,
+    )
+
+    addIfNotDefault(
+      metrics,
+      NON_DEFAULT_FONT_SIZE,
+      TerminalFontSettingsService.getInstance().getSettings().fontSize,
+      DEFAULT_TERMINAL_FONT_SIZE,
+    ) { it.floatValue }
+
+    addIfNotDefault(
+      metrics,
+      NON_DEFAULT_LINE_SPACING,
+      TerminalFontSettingsService.getInstance().getSettings().lineSpacing,
+      DEFAULT_TERMINAL_LINE_SPACING,
+    ) { it.floatValue }
+
+    addIfNotDefault(
+      metrics,
+      NON_DEFAULT_COLUMN_SPACING,
+      TerminalFontSettingsService.getInstance().getSettings().columnSpacing,
+      DEFAULT_TERMINAL_COLUMN_SPACING,
+    ) { it.floatValue }
+
     return metrics
   }
 
@@ -70,17 +113,11 @@ internal class TerminalSettingsStateCollector : ApplicationUsagesCollector() {
     addBooleanIfNotDefault(metrics, BooleanOptions.CLOSE_ON_SESSION_END, curOptions, defaultOptions) { it.myCloseSessionOnLogout }
     addBooleanIfNotDefault(metrics, BooleanOptions.REPORT_MOUSE, curOptions, defaultOptions) { it.myReportMouse }
     addBooleanIfNotDefault(metrics, BooleanOptions.PASTE_ON_MIDDLE_MOUSE_BUTTON, curOptions, defaultOptions) { it.myPasteOnMiddleMouseButton }
+    addBooleanIfNotDefault(metrics, BooleanOptions.COPY_ON_SELECTION, curOptions, defaultOptions) { it.myCopyOnSelection }
     addBooleanIfNotDefault(metrics, BooleanOptions.OVERRIDE_IDE_SHORTCUTS, curOptions, defaultOptions) { it.myOverrideIdeShortcuts }
     addBooleanIfNotDefault(metrics, BooleanOptions.ENABLE_SHELL_INTEGRATION, curOptions, defaultOptions) { it.myShellIntegration }
     addBooleanIfNotDefault(metrics, BooleanOptions.HIGHLIGHT_HYPERLINKS, curOptions, defaultOptions) { it.myHighlightHyperlinks }
     addBooleanIfNotDefault(metrics, BooleanOptions.USE_OPTION_AS_META, curOptions, defaultOptions) { it.useOptionAsMetaKey }
-
-    addIfNotDefault(
-      metrics,
-      BooleanOptions.COPY_ON_SELECTION,
-      curValue = TerminalOsSpecificOptions.getInstance().copyOnSelection,
-      defaultValue = SystemInfo.isLinux
-    )
 
     val curBlockOptions = BlockTerminalOptions.getInstance().state
     val defaultBlockOptions = BlockTerminalOptions.State()
@@ -121,6 +158,12 @@ internal class TerminalSettingsStateCollector : ApplicationUsagesCollector() {
   private fun <T> addIfNotDefault(metrics: MutableSet<MetricEvent>, event: EventId1<T>, curValue: T, defaultValue: T) {
     if (curValue != defaultValue) {
       metrics.add(event.metric(curValue))
+    }
+  }
+
+  private fun <T, V> addIfNotDefault(metrics: MutableSet<MetricEvent>, event: EventId1<T>, curValue: V, defaultValue: V, extractor: (V) -> T) {
+    if (curValue != defaultValue) {
+      metrics.add(event.metric(extractor(curValue)))
     }
   }
 

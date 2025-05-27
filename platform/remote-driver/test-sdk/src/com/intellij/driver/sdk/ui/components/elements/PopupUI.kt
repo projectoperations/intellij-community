@@ -17,6 +17,9 @@ import kotlin.time.Duration.Companion.seconds
 fun Finder.popup(@Language("xpath") xpath: String? = null) =
   x(xpath ?: "//div[@class='HeavyWeightWindow']", PopupUiComponent::class.java)
 
+fun Finder.popupLux(@Language("xpath") xpath: String? = null) =
+  x(xpath ?: "//div[@class='LuxFrontendWindow']", PopupUiComponent::class.java)
+
 fun Finder.popupMenu(locator: QueryBuilder.() -> String = { byClass("MyMenu") }) =
   x(xQuery(locator), PopupMenuUiComponent::class.java)
 
@@ -33,6 +36,15 @@ class PopupMenuUiComponent(data: ComponentData) : UiComponent(data) {
       waitForOne(message = "Find item: $item", timeout = 5.seconds,
               getter = { menuItems.list() },
               checker = { it.getText() == item })
+        .click()
+    }
+  }
+
+  fun selectContains(vararg items: String) {
+    items.forEach { item ->
+      waitForOne(message = "Find item: $item", timeout = 5.seconds,
+                 getter = { menuItems.list() },
+                 checker = { it.getText().contains(item) })
         .click()
     }
   }

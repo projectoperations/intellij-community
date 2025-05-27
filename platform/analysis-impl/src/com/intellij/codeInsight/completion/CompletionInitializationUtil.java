@@ -7,7 +7,6 @@ import com.intellij.codeInsight.multiverse.CodeInsightContextManagerImpl;
 import com.intellij.codeInsight.multiverse.CodeInsightContexts;
 import com.intellij.diagnostic.PluginException;
 import com.intellij.injected.editor.DocumentWindow;
-import com.intellij.injected.editor.EditorWindow;
 import com.intellij.injected.editor.VirtualFileWindow;
 import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.openapi.Disposable;
@@ -27,6 +26,7 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.PsiFileEx;
 import com.intellij.psi.impl.source.PsiFileImpl;
+import com.intellij.psi.impl.source.tree.injected.InjectedLanguageEditorUtil;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtilBase;
 import com.intellij.psi.util.PsiUtilCore;
@@ -129,7 +129,7 @@ public final class CompletionInitializationUtil {
     }
 
     Editor editor = initContext.getEditor();
-    Editor hostEditor = editor instanceof EditorWindow ? ((EditorWindow)editor).getDelegate() : editor;
+    Editor hostEditor = InjectedLanguageEditorUtil.getTopLevelEditor(editor);
     OffsetMap hostMap = topLevelOffsets.getOffsets();
 
     PsiFile hostCopy = obtainFileCopy(topLevelOffsets.getFile(), noWriteLock);
@@ -174,14 +174,14 @@ public final class CompletionInitializationUtil {
     if (translatedOffsets != hostCopyOffsets) {
       PsiFile injected = translatedOffsets.getFile();
       if (originalFile != injected &&
-          injected instanceof PsiFileImpl &&
+          injected instanceof PsiFileImpl psiFile &&
           InjectedLanguageManager.getInstance(originalFile.getProject()).isInjectedFragment(originalFile)) {
-        setOriginalFile((PsiFileImpl)injected, originalFile);
+        setOriginalFile(psiFile, originalFile);
       }
       VirtualFile virtualFile = injected.getVirtualFile();
       DocumentWindow documentWindow = null;
-      if (virtualFile instanceof VirtualFileWindow) {
-        documentWindow = ((VirtualFileWindow)virtualFile).getDocumentWindow();
+      if (virtualFile instanceof VirtualFileWindow window) {
+        documentWindow = window.getDocumentWindow();
       }
       CompletionAssertions.assertInjectedOffsets(hostStartOffset, injected, documentWindow);
 
@@ -219,11 +219,11 @@ public final class CompletionInitializationUtil {
 
   private static void checkInjectionConsistency(PsiFile injectedFile) {
     PsiElement host = injectedFile.getContext();
-    if (host instanceof PsiLanguageInjectionHost) {
+    if (host instanceof PsiLanguageInjectionHost injectionHost) {
       DocumentWindow document = (DocumentWindow)injectedFile.getViewProvider().getDocument();
       assert document != null;
       TextRange hostRange = host.getTextRange();
-      LiteralTextEscaper<? extends PsiLanguageInjectionHost> escaper = ((PsiLanguageInjectionHost)host).createLiteralTextEscaper();
+      LiteralTextEscaper<? extends PsiLanguageInjectionHost> escaper = injectionHost.createLiteralTextEscaper();
       TextRange relevantRange = escaper.getRelevantTextRange().shiftRight(hostRange.getStartOffset());
       for (Segment range : document.getHostRanges()) {
         if (hostRange.contains(range) && !relevantRange.contains(range)) {
@@ -306,10 +306,10 @@ public final class CompletionInitializationUtil {
   }
 
   private static void syncAcceptSlashR(Document originalDocument, Document documentCopy) {
-    if (!(originalDocument instanceof DocumentImpl) || !(documentCopy instanceof DocumentImpl)) {
+    if (!(originalDocument instanceof DocumentImpl origDocument) || !(documentCopy instanceof DocumentImpl copyDocument)) {
       return;
     }
 
-    ((DocumentImpl)documentCopy).setAcceptSlashR(((DocumentImpl)originalDocument).acceptsSlashR());
+    copyDocument.setAcceptSlashR(origDocument.acceptsSlashR());
   }
 }

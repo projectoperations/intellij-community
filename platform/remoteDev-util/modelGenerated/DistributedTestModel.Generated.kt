@@ -58,7 +58,7 @@ class DistributedTestModel private constructor(
         
         private val __RdTestSessionNullableSerializer = RdTestSession.nullable()
         
-        const val serializationHash = -521719455547022632L
+        const val serializationHash = -6488532346478782678L
         
     }
     override val serializersOwner: ISerializersOwner get() = DistributedTestModel
@@ -109,7 +109,10 @@ data class RdAgentInfo (
     val id: String,
     val launchNumber: Int,
     val agentType: RdAgentType,
-    val productType: RdProductType
+    val productType: RdProductType,
+    val testQualifiedClassName: String,
+    val testMethodNonParameterizedName: String,
+    val testMethodWithParameterName: String
 ) : IPrintable {
     //companion
     
@@ -123,7 +126,10 @@ data class RdAgentInfo (
             val launchNumber = buffer.readInt()
             val agentType = buffer.readEnum<RdAgentType>()
             val productType = buffer.readEnum<RdProductType>()
-            return RdAgentInfo(id, launchNumber, agentType, productType)
+            val testQualifiedClassName = buffer.readString()
+            val testMethodNonParameterizedName = buffer.readString()
+            val testMethodWithParameterName = buffer.readString()
+            return RdAgentInfo(id, launchNumber, agentType, productType, testQualifiedClassName, testMethodNonParameterizedName, testMethodWithParameterName)
         }
         
         override fun write(ctx: SerializationCtx, buffer: AbstractBuffer, value: RdAgentInfo)  {
@@ -131,6 +137,9 @@ data class RdAgentInfo (
             buffer.writeInt(value.launchNumber)
             buffer.writeEnum(value.agentType)
             buffer.writeEnum(value.productType)
+            buffer.writeString(value.testQualifiedClassName)
+            buffer.writeString(value.testMethodNonParameterizedName)
+            buffer.writeString(value.testMethodWithParameterName)
         }
         
         
@@ -150,6 +159,9 @@ data class RdAgentInfo (
         if (launchNumber != other.launchNumber) return false
         if (agentType != other.agentType) return false
         if (productType != other.productType) return false
+        if (testQualifiedClassName != other.testQualifiedClassName) return false
+        if (testMethodNonParameterizedName != other.testMethodNonParameterizedName) return false
+        if (testMethodWithParameterName != other.testMethodWithParameterName) return false
         
         return true
     }
@@ -160,6 +172,9 @@ data class RdAgentInfo (
         __r = __r*31 + launchNumber.hashCode()
         __r = __r*31 + agentType.hashCode()
         __r = __r*31 + productType.hashCode()
+        __r = __r*31 + testQualifiedClassName.hashCode()
+        __r = __r*31 + testMethodNonParameterizedName.hashCode()
+        __r = __r*31 + testMethodWithParameterName.hashCode()
         return __r
     }
     //pretty print
@@ -170,6 +185,9 @@ data class RdAgentInfo (
             print("launchNumber = "); launchNumber.print(printer); println()
             print("agentType = "); agentType.print(printer); println()
             print("productType = "); productType.print(printer); println()
+            print("testQualifiedClassName = "); testQualifiedClassName.print(printer); println()
+            print("testMethodNonParameterizedName = "); testMethodNonParameterizedName.print(printer); println()
+            print("testMethodWithParameterName = "); testMethodWithParameterName.print(printer); println()
         }
         printer.print(")")
     }
@@ -429,9 +447,8 @@ data class RdTestComponentData (
  * #### Generated from [DistributedTestModel.kt]
  */
 class RdTestSession private constructor(
-    val agentInfo: RdAgentInfo,
-    val testClassName: String?,
-    val testMethodName: String?,
+    val rdAgentInfo: RdAgentInfo,
+    val runTestMethod: Boolean,
     val traceCategories: List<String>,
     val debugCategories: List<String>,
     private val _ready: RdProperty<Boolean?>,
@@ -441,7 +458,6 @@ class RdTestSession private constructor(
     private val _forceLeaveAllModals: RdCall<Boolean, Unit>,
     private val _closeAllOpenedProjects: RdCall<Unit, Boolean>,
     private val _runNextAction: RdCall<RdTestActionParameters, String?>,
-    private val _runNextActionGetComponentData: RdCall<RdTestActionParameters, RdTestComponentData>,
     private val _requestFocus: RdCall<Boolean, Boolean>,
     private val _isFocused: RdCall<Unit, Boolean>,
     private val _visibleFrameNames: RdCall<Unit, List<String>>,
@@ -460,9 +476,8 @@ class RdTestSession private constructor(
         @Suppress("UNCHECKED_CAST")
         override fun read(ctx: SerializationCtx, buffer: AbstractBuffer): RdTestSession  {
             val _id = RdId.read(buffer)
-            val agentInfo = RdAgentInfo.read(ctx, buffer)
-            val testClassName = buffer.readNullable { buffer.readString() }
-            val testMethodName = buffer.readNullable { buffer.readString() }
+            val rdAgentInfo = RdAgentInfo.read(ctx, buffer)
+            val runTestMethod = buffer.readBool()
             val traceCategories = buffer.readList { buffer.readString() }
             val debugCategories = buffer.readList { buffer.readString() }
             val _ready = RdProperty.read(ctx, buffer, __BoolNullableSerializer)
@@ -472,7 +487,6 @@ class RdTestSession private constructor(
             val _forceLeaveAllModals = RdCall.read(ctx, buffer, FrameworkMarshallers.Bool, FrameworkMarshallers.Void)
             val _closeAllOpenedProjects = RdCall.read(ctx, buffer, FrameworkMarshallers.Void, FrameworkMarshallers.Bool)
             val _runNextAction = RdCall.read(ctx, buffer, RdTestActionParameters, __StringNullableSerializer)
-            val _runNextActionGetComponentData = RdCall.read(ctx, buffer, RdTestActionParameters, RdTestComponentData)
             val _requestFocus = RdCall.read(ctx, buffer, FrameworkMarshallers.Bool, FrameworkMarshallers.Bool)
             val _isFocused = RdCall.read(ctx, buffer, FrameworkMarshallers.Void, FrameworkMarshallers.Bool)
             val _visibleFrameNames = RdCall.read(ctx, buffer, FrameworkMarshallers.Void, __StringListSerializer)
@@ -481,14 +495,13 @@ class RdTestSession private constructor(
             val _isResponding = RdCall.read(ctx, buffer, FrameworkMarshallers.Void, FrameworkMarshallers.Bool)
             val _projectsAreInitialised = RdCall.read(ctx, buffer, FrameworkMarshallers.Void, FrameworkMarshallers.Bool)
             val _getProductCodeAndVersion = RdCall.read(ctx, buffer, FrameworkMarshallers.Void, RdProductInfo)
-            return RdTestSession(agentInfo, testClassName, testMethodName, traceCategories, debugCategories, _ready, _sendException, _exitApp, _showNotification, _forceLeaveAllModals, _closeAllOpenedProjects, _runNextAction, _runNextActionGetComponentData, _requestFocus, _isFocused, _visibleFrameNames, _projectsNames, _makeScreenshot, _isResponding, _projectsAreInitialised, _getProductCodeAndVersion).withId(_id)
+            return RdTestSession(rdAgentInfo, runTestMethod, traceCategories, debugCategories, _ready, _sendException, _exitApp, _showNotification, _forceLeaveAllModals, _closeAllOpenedProjects, _runNextAction, _requestFocus, _isFocused, _visibleFrameNames, _projectsNames, _makeScreenshot, _isResponding, _projectsAreInitialised, _getProductCodeAndVersion).withId(_id)
         }
         
         override fun write(ctx: SerializationCtx, buffer: AbstractBuffer, value: RdTestSession)  {
             value.rdid.write(buffer)
-            RdAgentInfo.write(ctx, buffer, value.agentInfo)
-            buffer.writeNullable(value.testClassName) { buffer.writeString(it) }
-            buffer.writeNullable(value.testMethodName) { buffer.writeString(it) }
+            RdAgentInfo.write(ctx, buffer, value.rdAgentInfo)
+            buffer.writeBool(value.runTestMethod)
             buffer.writeList(value.traceCategories) { v -> buffer.writeString(v) }
             buffer.writeList(value.debugCategories) { v -> buffer.writeString(v) }
             RdProperty.write(ctx, buffer, value._ready)
@@ -498,7 +511,6 @@ class RdTestSession private constructor(
             RdCall.write(ctx, buffer, value._forceLeaveAllModals)
             RdCall.write(ctx, buffer, value._closeAllOpenedProjects)
             RdCall.write(ctx, buffer, value._runNextAction)
-            RdCall.write(ctx, buffer, value._runNextActionGetComponentData)
             RdCall.write(ctx, buffer, value._requestFocus)
             RdCall.write(ctx, buffer, value._isFocused)
             RdCall.write(ctx, buffer, value._visibleFrameNames)
@@ -522,7 +534,6 @@ class RdTestSession private constructor(
     val forceLeaveAllModals: RdCall<Boolean, Unit> get() = _forceLeaveAllModals
     val closeAllOpenedProjects: RdCall<Unit, Boolean> get() = _closeAllOpenedProjects
     val runNextAction: RdCall<RdTestActionParameters, String?> get() = _runNextAction
-    val runNextActionGetComponentData: RdCall<RdTestActionParameters, RdTestComponentData> get() = _runNextActionGetComponentData
     val requestFocus: RdCall<Boolean, Boolean> get() = _requestFocus
     val isFocused: RdCall<Unit, Boolean> get() = _isFocused
     val visibleFrameNames: RdCall<Unit, List<String>> get() = _visibleFrameNames
@@ -543,7 +554,6 @@ class RdTestSession private constructor(
         _forceLeaveAllModals.async = true
         _closeAllOpenedProjects.async = true
         _runNextAction.async = true
-        _runNextActionGetComponentData.async = true
         _requestFocus.async = true
         _isFocused.async = true
         _visibleFrameNames.async = true
@@ -562,7 +572,6 @@ class RdTestSession private constructor(
         bindableChildren.add("forceLeaveAllModals" to _forceLeaveAllModals)
         bindableChildren.add("closeAllOpenedProjects" to _closeAllOpenedProjects)
         bindableChildren.add("runNextAction" to _runNextAction)
-        bindableChildren.add("runNextActionGetComponentData" to _runNextActionGetComponentData)
         bindableChildren.add("requestFocus" to _requestFocus)
         bindableChildren.add("isFocused" to _isFocused)
         bindableChildren.add("visibleFrameNames" to _visibleFrameNames)
@@ -575,15 +584,13 @@ class RdTestSession private constructor(
     
     //secondary constructor
     constructor(
-        agentInfo: RdAgentInfo,
-        testClassName: String?,
-        testMethodName: String?,
+        rdAgentInfo: RdAgentInfo,
+        runTestMethod: Boolean,
         traceCategories: List<String>,
         debugCategories: List<String>
     ) : this(
-        agentInfo,
-        testClassName,
-        testMethodName,
+        rdAgentInfo,
+        runTestMethod,
         traceCategories,
         debugCategories,
         RdProperty<Boolean?>(null, __BoolNullableSerializer),
@@ -593,7 +600,6 @@ class RdTestSession private constructor(
         RdCall<Boolean, Unit>(FrameworkMarshallers.Bool, FrameworkMarshallers.Void),
         RdCall<Unit, Boolean>(FrameworkMarshallers.Void, FrameworkMarshallers.Bool),
         RdCall<RdTestActionParameters, String?>(RdTestActionParameters, __StringNullableSerializer),
-        RdCall<RdTestActionParameters, RdTestComponentData>(RdTestActionParameters, RdTestComponentData),
         RdCall<Boolean, Boolean>(FrameworkMarshallers.Bool, FrameworkMarshallers.Bool),
         RdCall<Unit, Boolean>(FrameworkMarshallers.Void, FrameworkMarshallers.Bool),
         RdCall<Unit, List<String>>(FrameworkMarshallers.Void, __StringListSerializer),
@@ -610,9 +616,8 @@ class RdTestSession private constructor(
     override fun print(printer: PrettyPrinter)  {
         printer.println("RdTestSession (")
         printer.indent {
-            print("agentInfo = "); agentInfo.print(printer); println()
-            print("testClassName = "); testClassName.print(printer); println()
-            print("testMethodName = "); testMethodName.print(printer); println()
+            print("rdAgentInfo = "); rdAgentInfo.print(printer); println()
+            print("runTestMethod = "); runTestMethod.print(printer); println()
             print("traceCategories = "); traceCategories.print(printer); println()
             print("debugCategories = "); debugCategories.print(printer); println()
             print("ready = "); _ready.print(printer); println()
@@ -622,7 +627,6 @@ class RdTestSession private constructor(
             print("forceLeaveAllModals = "); _forceLeaveAllModals.print(printer); println()
             print("closeAllOpenedProjects = "); _closeAllOpenedProjects.print(printer); println()
             print("runNextAction = "); _runNextAction.print(printer); println()
-            print("runNextActionGetComponentData = "); _runNextActionGetComponentData.print(printer); println()
             print("requestFocus = "); _requestFocus.print(printer); println()
             print("isFocused = "); _isFocused.print(printer); println()
             print("visibleFrameNames = "); _visibleFrameNames.print(printer); println()
@@ -637,9 +641,8 @@ class RdTestSession private constructor(
     //deepClone
     override fun deepClone(): RdTestSession   {
         return RdTestSession(
-            agentInfo,
-            testClassName,
-            testMethodName,
+            rdAgentInfo,
+            runTestMethod,
             traceCategories,
             debugCategories,
             _ready.deepClonePolymorphic(),
@@ -649,7 +652,6 @@ class RdTestSession private constructor(
             _forceLeaveAllModals.deepClonePolymorphic(),
             _closeAllOpenedProjects.deepClonePolymorphic(),
             _runNextAction.deepClonePolymorphic(),
-            _runNextActionGetComponentData.deepClonePolymorphic(),
             _requestFocus.deepClonePolymorphic(),
             _isFocused.deepClonePolymorphic(),
             _visibleFrameNames.deepClonePolymorphic(),

@@ -8,9 +8,9 @@ import com.intellij.ide.ui.LafManagerListener
 import com.intellij.ide.ui.UISettings
 import com.intellij.ide.ui.UISettingsListener
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.impl.InternalUICustomization
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.application.impl.InternalUICustomization
 import com.intellij.openapi.ui.Divider
 import com.intellij.openapi.ui.Splitter
 import com.intellij.openapi.ui.ThreeComponentsSplitter
@@ -178,7 +178,9 @@ class ToolWindowPane private constructor(
     updateToolStripesVisibility(uiSettings)
 
     // layered pane
-    layeredPane = FrameLayeredPane(if (isWideScreen) horizontalSplitter else verticalSplitter, frame = frame)
+    val splitter = if (isWideScreen) horizontalSplitter else verticalSplitter
+    val customPane = InternalUICustomization.getInstance()?.createToolWindowPaneLayered(splitter, frame)
+    layeredPane = customPane as? FrameLayeredPane ?: FrameLayeredPane(splitter, frame = frame)
 
     // compose layout
     buttonManager.setupToolWindowPane(this)
@@ -617,7 +619,8 @@ class ToolWindowPane private constructor(
       }
 
       override fun createDivider(): Divider {
-        return InternalUICustomization.getInstance()?.createCustomDivider(isVisible, this) ?: super.createDivider()
+        return InternalUICustomization.getInstance()?.createCustomDivider(isVisible, this)
+               ?: super.createDivider().also { it.background = JBUI.CurrentTheme.ToolWindow.mainBorderColor() }
       }
 
       override fun toString() = "[$firstComponent|$secondComponent]"
@@ -839,7 +842,7 @@ private class ImageCache(imageProvider: (ScaleContext) -> ImageRef) : ScaleConte
   }
 }
 
-private class FrameLayeredPane(splitter: JComponent, frame: JFrame) : JLayeredPane() {
+internal open class FrameLayeredPane(splitter: JComponent, frame: JFrame) : JLayeredPane() {
   private val imageProvider: (ScaleContext) -> ImageRef = {
     val width = max(max(1, width), frame.width)
     val height = max(max(1, height), frame.height)

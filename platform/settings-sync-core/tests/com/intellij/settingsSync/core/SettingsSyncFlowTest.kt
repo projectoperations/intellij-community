@@ -12,11 +12,13 @@ import com.intellij.util.concurrency.AppExecutorUtil.createBoundedScheduledExecu
 import com.intellij.util.io.createParentDirectories
 import com.intellij.util.io.write
 import com.intellij.util.progress.sleepCancellable
+import kotlinx.coroutines.CoroutineScope
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.lib.Repository
 import org.eclipse.jgit.revwalk.RevCommit
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder
 import org.eclipse.jgit.treewalk.TreeWalk
+import org.junit.Assert
 import org.junit.jupiter.api.Assertions
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -37,12 +39,12 @@ internal class SettingsSyncFlowTest : SettingsSyncTestBase() {
     ideMediator = MockSettingsSyncIdeMediator()
   }
 
-  private fun initSettingsSync(
+  private fun CoroutineScope.initSettingsSync(
     initMode: SettingsSyncBridge.InitMode = SettingsSyncBridge.InitMode.JustInit,
     waitForInit: Boolean = true,
   ) {
     SettingsSyncSettings.getInstance().state = SettingsSyncSettings.getInstance().state.withSyncEnabled(true)
-    val controls = SettingsSyncMain.init(currentThreadCoroutineScope(), disposable, settingsSyncStorage, configDir, ideMediator)
+    val controls = SettingsSyncMain.init(this, disposable, settingsSyncStorage, configDir, ideMediator)
     updateChecker = controls.updateChecker
     bridge = controls.bridge
     bridge.initialize(initMode)
@@ -66,6 +68,37 @@ internal class SettingsSyncFlowTest : SettingsSyncTestBase() {
     assertServerSnapshot {
       fileState("options/laf.xml", "LaF Initial")
     }
+  }
+
+
+  @Test
+  fun `dispose communicator when disabling sync`() = timeoutRunBlockingAndStopBridge {
+    writeToConfig {
+      fileState("options/laf.xml", "LaF Initial")
+    }
+
+    initSettingsSync(SettingsSyncBridge.InitMode.PushToServer)
+
+    assertServerSnapshot {
+      fileState("options/laf.xml", "LaF Initial")
+    }
+
+    Assertions.assertFalse(remoteCommunicator.wasDisposed)
+    SettingsSyncSettings.getInstance().syncEnabled = false
+    Assertions.assertTrue(remoteCommunicator.wasDisposed)
+
+  }
+
+  @Test
+  fun `reset user data if cannot find`() = timeoutRunBlockingAndStopBridge {
+    Assertions.assertEquals(SettingsSyncLocalSettings.getInstance().providerCode, MOCK_CODE)
+    Assertions.assertEquals(SettingsSyncLocalSettings.getInstance().userId, DUMMY_USER_ID)
+    authService.userData = null
+    initSettingsSync()
+    Assertions.assertEquals(SettingsSyncLocalSettings.getInstance().providerCode, null)
+    Assertions.assertEquals(SettingsSyncLocalSettings.getInstance().userId, null)
+    Assertions.assertFalse(SettingsSyncSettings.getInstance().syncEnabled)
+
   }
 
   @Test
@@ -464,8 +497,6 @@ internal class SettingsSyncFlowTest : SettingsSyncTestBase() {
     Assertions.assertEquals(MockRemoteCommunicator.DISCONNECTED_ERROR,
                             (SettingsSyncStatusTracker.getInstance().currentStatus as? SettingsSyncStatusTracker.SyncStatus.Error)?.errorMessage
     )
-
-
   }
 
   private fun syncSettingsAndWait(event: SyncSettingsEvent = SyncSettingsEvent.SyncRequest) {

@@ -1,6 +1,6 @@
 package com.intellij.terminal.backend.rpc
 
-import com.intellij.platform.kernel.backend.findValueEntity
+import com.intellij.terminal.backend.TerminalSessionsManager
 import com.intellij.terminal.session.TerminalInputEvent
 import com.intellij.terminal.session.TerminalOutputEvent
 import com.intellij.terminal.session.TerminalSession
@@ -11,15 +11,18 @@ import org.jetbrains.plugins.terminal.block.reworked.session.rpc.TerminalSession
 
 internal class TerminalSessionApiImpl : TerminalSessionApi {
   override suspend fun getInputChannel(sessionId: TerminalSessionId): SendChannel<TerminalInputEvent> {
-    return getSession(sessionId).getInputChannel()
+    val channelsManager = TerminalInputChannelsManager.getInstanceOrNull()
+    // Get the channel from the manager if it is available, otherwise get it directly from the session.
+    return channelsManager?.getInputChannel(sessionId)
+           ?: getSession(sessionId).getInputChannel()
   }
 
   override suspend fun getOutputFlow(sessionId: TerminalSessionId): Flow<List<TerminalOutputEvent>> {
     return getSession(sessionId).getOutputFlow()
   }
 
-  private suspend fun getSession(sessionId: TerminalSessionId): TerminalSession {
-    return sessionId.eid.findValueEntity<TerminalSession>()?.value
-           ?: error("Failed to find TerminalSession with ID: ${sessionId.eid}")
+  private fun getSession(sessionId: TerminalSessionId): TerminalSession {
+    return TerminalSessionsManager.getInstance().getSession(sessionId)
+           ?: error("Failed to find TerminalSession with ID: $sessionId")
   }
 }

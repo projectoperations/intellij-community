@@ -8,9 +8,7 @@ import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.vfs.toNioPathOrNull
 import com.intellij.python.pyproject.PyProjectToml
 import com.jetbrains.python.Result
-import com.jetbrains.python.errorProcessing.PyError
-import com.jetbrains.python.errorProcessing.asPythonResult
-import com.jetbrains.python.errorProcessing.failure
+import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.sdk.ModuleOrProject
 import com.jetbrains.python.sdk.add.v2.CustomExistingEnvironmentSelector
 import com.jetbrains.python.sdk.add.v2.DetectedSelectableInterpreter
@@ -31,12 +29,12 @@ internal class UvExistingEnvironmentSelector(model: PythonMutableTargetAddInterp
   override val executable: ObservableMutableProperty<String> = model.state.uvExecutable
   override val interpreterType: InterpreterType = InterpreterType.UV
 
-  override suspend fun getOrCreateSdk(moduleOrProject: ModuleOrProject): Result<Sdk, PyError> {
-    val selectedInterpreterPath = tryResolvePath(selectedEnv.get()?.homePath) ?: return failure("No selected interpreter")
+  override suspend fun getOrCreateSdk(moduleOrProject: ModuleOrProject): PyResult<Sdk> {
+    val selectedInterpreterPath = tryResolvePath(selectedEnv.get()?.homePath) ?: return PyResult.localizedError("No selected interpreter")
     val allSdk = ProjectJdkTable.getInstance().allJdks
     val existingSdk = allSdk.find { it.homePath == selectedInterpreterPath.pathString }
     val associatedModule = extractModule(moduleOrProject)
-    val projectDir = tryResolvePath(associatedModule?.basePath ?: moduleOrProject.project.basePath) ?: return failure("No base path")
+    val projectDir = tryResolvePath(associatedModule?.basePath ?: moduleOrProject.project.basePath) ?: return PyResult.localizedError("No base path")
 
     // uv sdk in current module
     if (existingSdk != null && existingSdk.isUv && existingSdk.isAssociatedWithModule(associatedModule)) {
@@ -52,7 +50,7 @@ internal class UvExistingEnvironmentSelector(model: PythonMutableTargetAddInterp
       usePip,
       projectDir,
       allSdk.toList()
-    ).asPythonResult()
+    )
   }
 
   override suspend fun detectEnvironments(modulePath: Path) {

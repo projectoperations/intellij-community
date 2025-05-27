@@ -24,6 +24,7 @@ jvm_library(
     "//platform/eel-impl",
     "//platform/core-api:core",
     "//platform/eel",
+    "//platform/util/progress",
   ],
   runtime_deps = [":community-execService_resources"]
 )
@@ -52,6 +53,11 @@ jvm_library(
     "@lib//:junit5Params",
     "//platform/core-api:core",
     "//platform/eel",
+    "//platform/testFramework/junit5/eel",
+    "//platform/testFramework/junit5/eel:eel_test_lib",
+    "@lib//:junit5Pioneer",
+    "//platform/testFramework/common",
+    "//platform/util/progress",
   ],
   runtime_deps = [":community-execService_resources"]
 )

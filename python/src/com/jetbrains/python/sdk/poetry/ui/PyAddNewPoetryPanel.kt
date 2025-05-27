@@ -6,7 +6,6 @@ import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.components.service
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.module.Module
-import com.intellij.openapi.progress.runBlockingCancellable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.ui.ComboBox
@@ -23,7 +22,9 @@ import com.intellij.util.text.nullize
 import com.intellij.util.ui.FormBuilder
 import com.jetbrains.python.PyBundle
 import com.jetbrains.python.PySdkBundle
+import com.jetbrains.python.getOrNull
 import com.jetbrains.python.newProject.collector.InterpreterStatisticsInfo
+import com.jetbrains.python.onSuccess
 import com.jetbrains.python.sdk.PySdkSettings
 import com.jetbrains.python.sdk.PythonSdkCoroutineService
 import com.jetbrains.python.sdk.add.PyAddNewEnvPanel
@@ -33,6 +34,7 @@ import com.jetbrains.python.sdk.basePath
 import com.jetbrains.python.sdk.poetry.*
 import com.jetbrains.python.statistics.InterpreterTarget
 import com.jetbrains.python.statistics.InterpreterType
+import com.jetbrains.python.ui.pyModalBlocking
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -135,7 +137,7 @@ class PyAddNewPoetryPanel(
 
   override fun getOrCreateSdk(): Sdk? {
     PropertiesComponent.getInstance().poetryPath = poetryPathField.text.nullize()
-    return runBlockingCancellable {
+    return pyModalBlocking {
       setupPoetrySdkUnderProgress(project, selectedModule, existingSdks, newProjectPath,
                                   baseSdkField.selectedSdk.homePath, installPackagesCheckBox.isSelected).onSuccess {
         PySdkSettings.instance.preferredVirtualEnvBaseSdk = baseSdkField.selectedSdk.homePath
@@ -169,7 +171,7 @@ class PyAddNewPoetryPanel(
   private fun update() {
     service<PythonSdkCoroutineService>().cs.launch {
       selectedModule?.let {
-        installPackagesCheckBox.isEnabled = pyProjectToml(it) != null
+        installPackagesCheckBox.isEnabled = findPyProjectToml(it) != null
       }
     }
   }

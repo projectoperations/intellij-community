@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.vfs.newvfs.persistent;
 
 import com.intellij.core.CoreBundle;
@@ -112,7 +112,8 @@ public final class PersistentFSConnection {
     recoveryInfo = info;
   }
 
-  @NotNull DataEnumerator<String> attributesEnumerator() {
+  @VisibleForTesting
+  public @NotNull DataEnumerator<String> attributesEnumerator() {
     return enumeratedAttributes;
   }
 
@@ -128,11 +129,13 @@ public final class PersistentFSConnection {
     return enumeratedAttributeId;
   }
 
-  @NotNull VFSContentStorage contents() {
+  @VisibleForTesting
+  public @NotNull VFSContentStorage contents() {
     return contentStorage;
   }
 
-  @NotNull VFSAttributesStorage attributes() {
+  @VisibleForTesting
+  public @NotNull VFSAttributesStorage attributes() {
     return attributesStorage;
   }
 
@@ -182,7 +185,8 @@ public final class PersistentFSConnection {
            || contentStorage.isDirty();
   }
 
-  void force() throws IOException {
+  @VisibleForTesting
+  public void force() throws IOException {
     ((Forceable)namesEnumerator).force();//checked to be a Forceable in ctor
     attributesStorage.force();
     contentStorage.force();
@@ -217,7 +221,6 @@ public final class PersistentFSConnection {
       closed = true;
     }
   }
-
 
   public @NotNull PersistentFSPaths paths() {
     return persistentFSPaths;
@@ -277,10 +280,11 @@ public final class PersistentFSConnection {
     }
   }
 
-  static void scheduleVFSRebuild(@NotNull Path corruptionMarkerFile,
+  @VisibleForTesting
+  public static void scheduleVFSRebuild(@NotNull Path corruptionMarkerFile,
                                  @Nullable String message,
                                  @Nullable Throwable errorCause) {
-    final VFSCorruptedException corruptedException = new VFSCorruptedException(
+    VFSCorruptedException corruptedException = new VFSCorruptedException(
       message == null ? "(No specific reason of corruption was given)" : message,
       errorCause
     );
@@ -294,7 +298,7 @@ public final class PersistentFSConnection {
     }
 
     try {
-      final ByteArrayOutputStream out = new ByteArrayOutputStream();
+      ByteArrayOutputStream out = new ByteArrayOutputStream();
       try (PrintStream stream = new PrintStream(out, false, UTF_8)) {
         stream.println("VFS files are corrupted and must be rebuilt from the scratch on next startup");
         corruptedException.printStackTrace(stream);
@@ -310,7 +314,8 @@ public final class PersistentFSConnection {
     }
   }
 
-  void scheduleVFSRebuild(@Nullable String message,
+  @VisibleForTesting
+  public void scheduleVFSRebuild(@Nullable String message,
                           @Nullable Throwable errorCause) {
     scheduleVFSRebuild(persistentFSPaths.getCorruptionMarkerFile(), message, errorCause);
   }
@@ -414,7 +419,7 @@ public final class PersistentFSConnection {
    * <p>
    * More details in a {@link GentleFlusherBase} javadocs
    */
-  private static class GentleVFSFlusher extends GentleFlusherBase {
+  private static final class GentleVFSFlusher extends GentleFlusherBase {
     /** How often, on average, flush each index to the disk */
     private static final long FLUSHING_PERIOD_MS = SECONDS.toMillis(FlushingDaemon.FLUSHING_PERIOD_IN_SECONDS);
 
@@ -455,7 +460,7 @@ public final class PersistentFSConnection {
     }
 
     @Override
-    protected FlushResult flushAsMuchAsPossibleWithinQuota(final /*InOut*/ IntRef contentionQuota) throws IOException {
+    protected FlushResult flushAsMuchAsPossibleWithinQuota(/*InOut*/ IntRef contentionQuota) throws IOException {
       if (!connection.isDirty()) {
         return FlushResult.NOTHING_TO_FLUSH_NOW;
       }
@@ -533,7 +538,7 @@ public final class PersistentFSConnection {
 
   /** Created to make stacktraces easily recognizable in logs */
   private static final class VFSCorruptedException extends Exception {
-    VFSCorruptedException(final String message, final Throwable cause) {
+    VFSCorruptedException(String message, Throwable cause) {
       super(message, cause);
     }
   }

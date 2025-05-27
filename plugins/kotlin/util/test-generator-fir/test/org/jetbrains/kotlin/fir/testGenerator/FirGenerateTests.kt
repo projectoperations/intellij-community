@@ -9,6 +9,7 @@ import org.jetbrains.kotlin.idea.base.fir.analysisApiPlatform.AbstractIdeKotlinA
 import org.jetbrains.kotlin.idea.base.fir.analysisApiPlatform.dependents.AbstractModuleDependentsTest
 import org.jetbrains.kotlin.idea.base.fir.analysisApiPlatform.inheritors.AbstractDirectInheritorsProviderTest
 import org.jetbrains.kotlin.idea.base.fir.analysisApiPlatform.inheritors.AbstractSealedInheritorsProviderTest
+import org.jetbrains.kotlin.idea.base.fir.analysisApiPlatform.projectStructure.scopes.AbstractResolutionScopeStructureTest
 import org.jetbrains.kotlin.idea.base.fir.analysisApiPlatform.sessions.AbstractGlobalSessionInvalidationTest
 import org.jetbrains.kotlin.idea.base.fir.analysisApiPlatform.sessions.AbstractLocalSessionInvalidationTest
 import org.jetbrains.kotlin.idea.base.fir.analysisApiPlatform.trackers.AbstractProjectWideSourceKotlinModificationTrackerTest
@@ -117,6 +118,10 @@ private fun assembleWorkspace(): TWorkspace = workspace(KotlinPluginMode.K2) {
 
         testClass<AbstractSealedInheritorsProviderTest> {
             model("sealedInheritors", pattern = DIRECTORY, isRecursive = false)
+        }
+
+        testClass<AbstractResolutionScopeStructureTest> {
+            model("resolutionScopes", pattern = DIRECTORY, isRecursive = false)
         }
     }
 
@@ -272,6 +277,10 @@ private fun assembleWorkspace(): TWorkspace = workspace(KotlinPluginMode.K2) {
             model("basic/common", pattern = KT_WITHOUT_FIR_PREFIX)
             model("basic/java", pattern = KT_WITHOUT_FIR_PREFIX)
             model("../../idea-fir/testData/completion/basic/common", testClassName = "CommonFir")
+        }
+
+        testClass<AbstractK2TypeCodeFragmentCompletionTest> {
+            model("basic/typeFragments", pattern = KT_WITHOUT_FIR_PREFIX)
         }
 
         testClass<AbstractK2JvmBasicCompletionFullJdkTest> {

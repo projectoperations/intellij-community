@@ -1,6 +1,7 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide
 
+import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.util.NlsSafe
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.NonNls
@@ -48,6 +49,16 @@ interface RecentProject {
 
   val icon: Icon?
 
-  fun openProject()
+  val providerIcon: Icon?
+
+  val projectOpenState: OpenRecentProjectStatus
+
+  fun openProject(actionEvent: AnActionEvent)
   fun removeFromRecent()
+}
+
+@ApiStatus.Internal
+sealed interface OpenRecentProjectStatus {
+  object None : OpenRecentProjectStatus
+  object Progress : OpenRecentProjectStatus
 }

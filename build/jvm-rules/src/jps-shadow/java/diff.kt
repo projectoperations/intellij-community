@@ -1,3 +1,4 @@
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("SSBasedInspection", "ReplaceGetOrSet")
 
 package org.jetbrains.jps.dependency.java
@@ -8,8 +9,8 @@ import it.unimi.dsi.fastutil.objects.Object2ObjectOpenCustomHashMap
 import it.unimi.dsi.fastutil.objects.ObjectOpenCustomHashSet
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet
 import kotlinx.collections.immutable.PersistentSet
-import org.jetbrains.bazel.jvm.emptySet
-import org.jetbrains.bazel.jvm.filterToList
+import org.jetbrains.bazel.jvm.util.filterToList
+import org.jetbrains.bazel.jvm.util.emptySet
 import org.jetbrains.jps.dependency.diff.DiffCapable
 import org.jetbrains.jps.dependency.diff.Difference
 import org.jetbrains.jps.dependency.diff.Difference.Specifier
@@ -139,14 +140,15 @@ private fun <T : DiffCapable<T, D>, D : Difference> computeChanged(
   return changed
 }
 
-internal object DiffCapableHashStrategy : Strategy<DiffCapable<*, *>> {
+object DiffCapableHashStrategy : Strategy<DiffCapable<*, *>> {
   override fun hashCode(o: DiffCapable<*, *>?): Int = o?.diffHashCode() ?: 0
 
   override fun equals(a: DiffCapable<*, *>?, b: DiffCapable<*, *>?): Boolean {
     return when {
       a == null -> b == null
       b == null -> false
-      else -> a === b || a.isSame(b)
+      a === b -> true
+      else -> a.isSame(b)
     }
   }
 }

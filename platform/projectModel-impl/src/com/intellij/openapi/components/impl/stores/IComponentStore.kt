@@ -17,7 +17,8 @@ interface IComponentStore {
   val storageManager: StateStorageManager
   val isStoreInitialized: Boolean
 
-  fun setPath(path: Path)
+  fun setPath(path: Path) {
+  }
 
   fun initComponent(component: Any, serviceDescriptor: ServiceDescriptor?, pluginId: PluginId)
 
@@ -40,9 +41,11 @@ interface IComponentStore {
   fun removeComponent(name: String)
 
   @TestOnly
-  fun clearCaches()
+  fun clearCaches() {
+  }
 
-  fun release()
+  fun release() {
+  }
 }
 
 @Internal

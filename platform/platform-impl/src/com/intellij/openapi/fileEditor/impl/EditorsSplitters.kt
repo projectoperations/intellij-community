@@ -13,6 +13,7 @@ import com.intellij.ide.ui.UISettings
 import com.intellij.ide.ui.UISettingsListener
 import com.intellij.openapi.actionSystem.IdeActions
 import com.intellij.openapi.application.*
+import com.intellij.openapi.application.impl.InternalUICustomization
 import com.intellij.openapi.client.ClientProjectSession
 import com.intellij.openapi.client.ClientSessionsManager
 import com.intellij.openapi.components.serviceAsync
@@ -105,7 +106,7 @@ private const val IDE_FINGERPRINT: @NonNls String = "ideFingerprint"
 @DirtyUI
 open class EditorsSplitters internal constructor(
   @Internal val manager: FileEditorManagerImpl,
-  @JvmField internal val coroutineScope: CoroutineScope,
+  @Internal @JvmField val coroutineScope: CoroutineScope,
 ) : JPanel(BorderLayout()), UISettingsListener {
   companion object {
     const val SPLITTER_KEY: @NonNls String = "EditorsSplitters"
@@ -293,7 +294,10 @@ open class EditorsSplitters internal constructor(
       return
     }
 
-    UiBuilder(this, isLazyComposite = false).process(state = state, requestFocus = requestFocus) { add(it, BorderLayout.CENTER) }
+    UiBuilder(this, isLazyComposite = false).process(state = state, requestFocus = requestFocus) {
+      add(it, BorderLayout.CENTER)
+      InternalUICustomization.getInstance()?.installEditorBackground(it)
+    }
     withContext(Dispatchers.EDT) {
       validate()
 
@@ -321,7 +325,10 @@ open class EditorsSplitters internal constructor(
       .process(
         state = state,
         requestFocus = true,
-        addChild = { add(it, BorderLayout.CENTER) },
+        addChild = {
+          add(it, BorderLayout.CENTER)
+          InternalUICustomization.getInstance()?.installEditorBackground(it)
+        },
       )
   }
 
@@ -792,7 +799,9 @@ open class EditorsSplitters internal constructor(
 
   @JvmOverloads
   @RequiresEdt
-  fun openInRightSplit(file: VirtualFile, requestFocus: Boolean = true): EditorWindow? {
+  fun openInRightSplit(file: VirtualFile, requestFocus: Boolean = true): EditorWindow? = openInRightSplit(file, requestFocus, null)
+
+  internal fun openInRightSplit(file: VirtualFile, requestFocus: Boolean = true, explicitlySetCompositeProvider: (() -> EditorComposite?)?): EditorWindow? {
     val window = currentWindow ?: return null
     val parent = window.component.parent
     if (parent is Splitter) {
@@ -803,7 +812,7 @@ open class EditorsSplitters internal constructor(
           manager.openFile(
             file = file,
             window = rightSplitWindow,
-            options = FileEditorOpenOptions(requestFocus = requestFocus, waitForCompositeOpen = false),
+            options = FileEditorOpenOptions(requestFocus = requestFocus, waitForCompositeOpen = false, explicitlyOpenCompositeProvider = explicitlySetCompositeProvider),
           )
           return rightSplitWindow
         }
@@ -956,7 +965,7 @@ private class UiBuilder(private val splitters: EditorsSplitters, private val isL
       )
     }
     else {
-      val splitter = withContext(Dispatchers.EDT) {
+      val splitter = withContext(Dispatchers.ui(UiDispatcherKind.RELAX)) {
         val splitter = createSplitter(
           isVertical = splitState.isVertical,
           proportion = splitState.proportion,

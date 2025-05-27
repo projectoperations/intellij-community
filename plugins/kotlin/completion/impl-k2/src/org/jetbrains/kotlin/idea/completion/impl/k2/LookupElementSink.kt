@@ -9,7 +9,6 @@ import com.intellij.openapi.editor.Document
 import com.intellij.patterns.ElementPattern
 import com.intellij.psi.util.elementType
 import org.jetbrains.kotlin.idea.base.codeInsight.contributorClass
-import org.jetbrains.kotlin.idea.base.codeInsight.duration
 import org.jetbrains.kotlin.idea.base.psi.dropCurlyBracketsIfPossible
 import org.jetbrains.kotlin.idea.completion.KotlinFirCompletionParameters
 import org.jetbrains.kotlin.idea.completion.impl.k2.contributors.FirCompletionContributor
@@ -23,17 +22,13 @@ import org.jetbrains.kotlin.psi.KtBlockStringTemplateEntry
 import org.jetbrains.kotlin.psi.KtNameReferenceExpression
 import org.jetbrains.kotlin.psi.KtSimpleNameStringTemplateEntry
 import org.jetbrains.kotlin.psi.KtStringTemplateEntryWithExpression
-import kotlin.time.Duration
 
 internal class LookupElementSink(
     private val resultSet: CompletionResultSet,
-    private val parameters: KotlinFirCompletionParameters,
+    internal val parameters: KotlinFirCompletionParameters,
     private val groupPriority: Int = 0,
     private val contributorClass: Class<FirCompletionContributor<*>>? = null,
 ) {
-
-    var duration: Duration = Duration.ZERO
-        private set
 
     val prefixMatcher: PrefixMatcher
         get() = resultSet.prefixMatcher
@@ -56,11 +51,16 @@ internal class LookupElementSink(
         resultSet.restartCompletionOnPrefixChange(prefixCondition)
     }
 
+    fun runRemainingContributors(
+        parameters: CompletionParameters,
+        consumer: (CompletionResult) -> Unit,
+    ) {
+        resultSet.runRemainingContributors(parameters, consumer)
+    }
+
     private fun decorateLookupElement(
         element: LookupElement,
     ): LookupElementDecorator<LookupElement> {
-        duration += element.duration
-
         element.groupPriority = groupPriority
         element.contributorClass = contributorClass
 

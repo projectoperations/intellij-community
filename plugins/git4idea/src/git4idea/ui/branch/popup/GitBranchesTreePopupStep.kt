@@ -18,12 +18,12 @@ import com.intellij.ui.ExperimentalUI
 import com.intellij.ui.popup.ActionPopupOptions
 import com.intellij.ui.popup.ActionPopupStep
 import com.intellij.ui.popup.PopupFactoryImpl
-import git4idea.GitBranch
+import com.intellij.vcs.git.shared.actions.GitDataKeys
+import com.intellij.vcs.git.shared.repo.GitRepositoriesFrontendHolder
 import git4idea.GitReference
-import git4idea.GitTag
 import git4idea.GitVcs
 import git4idea.actions.branch.GitBranchActionsDataKeys
-import git4idea.actions.branch.GitBranchActionsUtil.userWantsSyncControl
+import git4idea.config.GitVcsSettings
 import git4idea.repo.GitRefUtil
 import git4idea.repo.GitRepository
 import git4idea.ui.branch.GIT_SINGLE_REF_ACTION_GROUP
@@ -33,7 +33,7 @@ import git4idea.ui.branch.tree.*
 import org.intellij.lang.annotations.Language
 import javax.swing.JComponent
 
-class GitBranchesTreePopupStep(
+internal class GitBranchesTreePopupStep(
   project: Project,
   selectedRepository: GitRepository?,
   repositories: List<GitRepository>,
@@ -42,7 +42,6 @@ class GitBranchesTreePopupStep(
   private var finalRunnable: Runnable? = null
 
   private val topLevelItems: List<Any> = buildList {
-    val affectedRepositories = affectedRepositories(selectedRepository, repositories)
     val presentationFactory = PresentationFactory()
 
     if (ExperimentalUI.isNewUI() && isFirstStep) {
@@ -68,18 +67,20 @@ class GitBranchesTreePopupStep(
     private set
 
   override fun createTreeModel(filterActive: Boolean): GitBranchesTreeModel {
-    return when {
-      !filterActive && repositories.size > 1
-      && !userWantsSyncControl(project) && selectedRepository != null -> {
-        GitBranchesTreeSelectedRepoModel(project, selectedRepository, repositories, topLevelItems)
-          .apply(GitBranchesTreeSelectedRepoModel::init)
+    val holder = GitRepositoriesFrontendHolder.getInstance(project)
+    val repositoriesFrontendModel = repositories.map { holder.get(it.rpcId) }
+
+    val model = when {
+      !filterActive && repositories.size > 1 && !GitVcsSettings.getInstance(project).shouldExecuteOperationsOnAllRoots() && selectedRepository != null -> {
+        GitBranchesTreeSelectedRepoModel(project, holder.get(selectedRepository.rpcId), repositoriesFrontendModel, topLevelItems)
       }
       filterActive && repositories.size > 1 -> {
-        GitBranchesTreeMultiRepoFilteringModel(project, repositories, topLevelItems).apply(GitBranchesTreeMultiRepoFilteringModel::init)
+        GitBranchesTreeMultiRepoFilteringModel(project, repositoriesFrontendModel, topLevelItems)
       }
-      !filterActive && repositories.size > 1 -> GitBranchesTreeMultiRepoModel(project, repositories, topLevelItems)
-      else -> GitBranchesTreeSingleRepoModel(project, repositories.first(), topLevelItems).apply(GitBranchesTreeSingleRepoModel::init)
+      !filterActive && repositories.size > 1 -> GitBranchesTreeMultiRepoModel(project, repositoriesFrontendModel, topLevelItems)
+      else -> GitBranchesTreeSingleRepoModel(project, repositoriesFrontendModel.first(), topLevelItems)
     }
+    return model.apply(GitBranchesTreeModel::init)
   }
 
   override fun setTreeModel(treeModel: GitBranchesTreeModel) {
@@ -89,12 +90,9 @@ class GitBranchesTreePopupStep(
   override fun getFinalRunnable() = finalRunnable
 
   override fun onChosen(selectedValue: Any?, finalChoice: Boolean): PopupStep<out Any>? {
-    if (selectedValue is GitBranchesTreeModel.TopLevelRepository) {
-      return GitBranchesTreePopupStep(project, selectedValue.repository, listOf(selectedValue.repository), false)
-    }
-
-    if (selectedValue is GitRepository) {
-      return GitBranchesTreePopupStep(project, selectedValue, listOf(selectedValue), false)
+    if (selectedValue is GitBranchesTreeModel.RepositoryNode) {
+      val repo = repositories.find { it.rpcId == selectedValue.repository.repositoryId } ?: return null
+      return GitBranchesTreePopupStep(project, repo, listOf(repo), false)
     }
 
     val refUnderRepository = selectedValue as? GitBranchesTreeModel.RefUnderRepository
@@ -102,8 +100,8 @@ class GitBranchesTreePopupStep(
 
     if (reference != null) {
       val actionGroup = ActionManager.getInstance().getAction(GIT_SINGLE_REF_ACTION_GROUP) as? ActionGroup ?: DefaultActionGroup()
-      return createActionStep(actionGroup, project, selectedRepository,
-                              refUnderRepository?.repository?.let(::listOf) ?: affectedRepositories, reference)
+      val repo = refUnderRepository?.repository?.let { refRepo -> repositories.find { it.rpcId == refRepo.repositoryId } }
+      return createActionStep(actionGroup, project, selectedRepository, repo?.let(::listOf) ?: affectedRepositories, reference)
     }
 
     if (selectedValue is PopupFactoryImpl.ActionItem) {
@@ -139,7 +137,7 @@ class GitBranchesTreePopupStep(
   fun isBranchesDiverged(): Boolean {
     return repositories.size > 1
            && getCommonName(repositories) { GitRefUtil.getCurrentReference(it)?.fullName ?: return@getCommonName null } == null
-           && userWantsSyncControl(project)
+           && GitVcsSettings.getInstance(project).shouldExecuteOperationsOnAllRoots()
   }
 
   companion object {
@@ -198,12 +196,7 @@ class GitBranchesTreePopupStep(
         sink[CommonDataKeys.PROJECT] = project
         sink[GitBranchActionsDataKeys.AFFECTED_REPOSITORIES] = repositories
         sink[GitBranchActionsDataKeys.SELECTED_REPOSITORY] = selectedRepository
-        if (reference is GitBranch) {
-          sink[GitBranchActionsDataKeys.BRANCHES] = listOf(reference)
-        }
-        else if (reference is GitTag) {
-          sink[GitBranchActionsDataKeys.TAGS] = listOf(reference)
-        }
+        sink[GitDataKeys.SELECTED_REF] = reference
       }
   }
 }

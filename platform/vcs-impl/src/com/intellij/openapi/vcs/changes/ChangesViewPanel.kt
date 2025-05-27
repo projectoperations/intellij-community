@@ -9,6 +9,7 @@ import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.actionSystem.toolbarLayout.ToolbarLayoutStrategy
 import com.intellij.openapi.vcs.VcsBundle
 import com.intellij.openapi.vcs.changes.ui.ChangesListView
+import com.intellij.openapi.vcs.changes.ui.ChangesViewContentManagerListener
 import com.intellij.openapi.vcs.merge.ChangesViewConflictsBanner
 import com.intellij.openapi.vcs.merge.MergeConflictManager
 import com.intellij.ui.ScrollPaneFactory.createScrollPane
@@ -18,7 +19,6 @@ import com.intellij.util.ui.JBUI.Panels.simplePanel
 import com.intellij.util.ui.UIUtil
 import com.intellij.util.ui.components.BorderLayoutPanel
 import org.jetbrains.annotations.ApiStatus
-import javax.swing.JComponent
 import javax.swing.SwingConstants
 import kotlin.properties.Delegates.observable
 
@@ -37,15 +37,9 @@ class ChangesViewPanel(val changesView: ChangesListView, parentDisposable: Dispo
       setTargetComponent(changesView)
     }
 
-  var statusComponent by observable<JComponent?>(null) { _, oldValue, newValue ->
-    if (oldValue == newValue) return@observable
-
-    if (oldValue != null) centerPanel.remove(oldValue)
-    if (newValue != null) centerPanel.addToBottom(newValue)
-  }
-
   private val changesScrollPane = createScrollPane(changesView, true)
-  private val centerPanel = simplePanel(changesScrollPane).andTransparent()
+  private val scrollableBordersPanel = simplePanel(changesScrollPane).andTransparent()
+  private val centerPanel = simplePanel(scrollableBordersPanel).andTransparent()
   private val conflictsBanner =
     ChangesViewConflictsBanner(
       VcsBundle.message("changes.view.conflicts.banner.title"),
@@ -68,12 +62,12 @@ class ChangesViewPanel(val changesView: ChangesListView, parentDisposable: Dispo
     toolbar.layoutStrategy = ToolbarLayoutStrategy.AUTOLAYOUT_STRATEGY
     if (isHorizontal) {
       toolbar.setOrientation(SwingConstants.HORIZONTAL)
-      ScrollableContentBorder.setup(changesScrollPane, Side.TOP, centerPanel)
+      ScrollableContentBorder.setup(changesScrollPane, Side.TOP, scrollableBordersPanel)
       addToTop(toolbar.component)
     }
     else {
       toolbar.setOrientation(SwingConstants.VERTICAL)
-      ScrollableContentBorder.setup(changesScrollPane, Side.LEFT, centerPanel)
+      ScrollableContentBorder.setup(changesScrollPane, setOf(Side.LEFT), scrollableBordersPanel)
       addToLeft(toolbar.component)
     }
   }
@@ -86,6 +80,9 @@ class ChangesViewPanel(val changesView: ChangesListView, parentDisposable: Dispo
       }
       else {
         conflictsBanner.close()
+      }
+      ChangeListManager.getInstance(project).invokeAfterUpdate(true) {
+        project.getMessageBus().syncPublisher(ChangesViewContentManagerListener.TOPIC).toolWindowMappingChanged()
       }
     }
   }

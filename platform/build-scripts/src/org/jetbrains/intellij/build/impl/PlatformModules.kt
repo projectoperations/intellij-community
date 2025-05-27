@@ -13,7 +13,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jdom.CDATA
 import org.jdom.Element
-import org.jetbrains.intellij.build.*
+import org.jetbrains.intellij.build.BuildContext
+import org.jetbrains.intellij.build.FrontendModuleFilter
+import org.jetbrains.intellij.build.PLATFORM_LOADER_JAR
+import org.jetbrains.intellij.build.ProductModulesLayout
+import org.jetbrains.intellij.build.UTIL_8_JAR
+import org.jetbrains.intellij.build.UTIL_JAR
+import org.jetbrains.intellij.build.UTIL_RT_JAR
 import org.jetbrains.intellij.build.impl.PlatformJarNames.PRODUCT_CLIENT_JAR
 import org.jetbrains.intellij.build.impl.PlatformJarNames.PRODUCT_JAR
 import org.jetbrains.intellij.build.impl.PlatformJarNames.TEST_FRAMEWORK_JAR
@@ -23,7 +29,7 @@ import org.jetbrains.jps.model.java.JpsJavaExtensionService
 import org.jetbrains.jps.model.module.JpsModuleReference
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.*
+import java.util.SortedSet
 
 @Suppress("RemoveRedundantQualifierName")
 private val PLATFORM_API_MODULES = java.util.List.of(
@@ -165,12 +171,12 @@ internal suspend fun createPlatformLayout(projectLibrariesUsedByPlugins: SortedS
     "intellij.platform.util.xmlDom",
     "intellij.platform.tracing.rt",
     "intellij.platform.util.base",
-    "intellij.platform.util.base.kmp",
+    "intellij.platform.util.base.multiplatform",
     "intellij.platform.diagnostic",
     // it contains common telemetry related code (utils, TelemetryContext) for OpenTelemetry
     "intellij.platform.diagnostic.telemetry.rt",
     "intellij.platform.util",
-    "intellij.platform.util.kmp",
+    "intellij.platform.util.multiplatform",
     "intellij.platform.core",
     // it has package `kotlin.coroutines.jvm.internal` - should be packed into the same JAR as coroutine lib,
     // to ensure that package index will not report one more JAR in a search path
@@ -538,6 +544,7 @@ private val excludedPaths = java.util.Set.of(
   "/META-INF/unattendedHost.xml",
   "/META-INF/cwmBackendConnection.xml",
   "/META-INF/cwmConnectionFrontend.xml",
+  "/META-INF/clientUltimate.xml",
 )
 
 private val COMMUNITY_IMPL_EXTENSIONS = setOf(
@@ -633,10 +640,19 @@ private fun getModuleDescriptor(moduleName: String, jpsModuleName: String, xIncl
 
 private suspend fun collectAndEmbedProductModules(root: Element, xIncludePathResolver: XIncludePathResolver, context: BuildContext): Set<ModuleItem> {
   val frontendModuleFilter = context.getFrontendModuleFilter()
+  val contentModuleFilter = context.getContentModuleFilter()
   val result = LinkedHashSet<ModuleItem>()
-  for (moduleElement in (root.getChildren("content").asSequence().flatMap { it.getChildren("module") })) {
+  val moduleElements = root.getChildren("content").flatMap { it.getChildren("module") }
+  for (moduleElement in moduleElements) {
     val moduleName = moduleElement.getAttributeValue("name") ?: continue
     val loadingRule = moduleElement.getAttributeValue("loading")
+    val dependencyHelper = (context as BuildContextImpl).jarPackagerDependencyHelper
+    if (dependencyHelper.isOptionalLoadingRule(loadingRule) && !contentModuleFilter.isOptionalModuleIncluded(moduleName, pluginMainModuleName = null)) {
+      Span.current().addEvent("Tag for module '$moduleName' is removed from the core plugin by $contentModuleFilter")
+      moduleElement.parent.removeContent(moduleElement)
+      continue
+    }
+
     val relativeOutFile = if (loadingRule == "embedded") getProductModuleJarName(moduleName, context, frontendModuleFilter) else "modules/$moduleName.jar"
     result.add(ModuleItem(moduleName = moduleName, relativeOutputFile = relativeOutFile, reason = ModuleIncludeReasons.PRODUCT_MODULES))
     PRODUCT_MODULE_IMPL_COMPOSITION.get(moduleName)?.let {

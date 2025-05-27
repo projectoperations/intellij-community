@@ -1,6 +1,7 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.plugins
 
+import com.intellij.platform.plugins.testFramework.PluginSetTestBuilder
 import com.intellij.testFramework.LoggedErrorProcessor
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.rules.InMemoryFsExtension
@@ -347,7 +348,7 @@ internal class PluginXIncludeTest {
   }
 
   private fun buildPluginSet(expiredPluginIds: Array<String> = emptyArray(), disabledPluginIds: Array<String> = emptyArray()) =
-    PluginSetTestBuilder(pluginsPath)
+    PluginSetTestBuilder.fromPath(pluginsPath)
       .withExpiredPlugins(*expiredPluginIds)
       .withDisabledPlugins(*disabledPluginIds)
       .build()
