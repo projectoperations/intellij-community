@@ -19,7 +19,9 @@ java_library(
     "//platform/execution-impl/backend",
     "//platform/execution.dashboard/backend",
     "//platform/identifiers/backend",
+    "//spellchecker/xml",
     "//platform/find/backend",
+    "//platform/managed-cache/managed.cache.backend",
   ]
 )
 ### auto-generated section `build intellij.platform.backend.main` end

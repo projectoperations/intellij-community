@@ -7,6 +7,7 @@ import com.intellij.openapi.command.undo.UndoableAction
 
 
 internal class UndoDumpUnit(
+  private val id: String,
   private val command: String,
   private val actions: Collection<UndoableAction>,
   private val isGlobal: Boolean,
@@ -16,6 +17,7 @@ internal class UndoDumpUnit(
   private val confirmationPolicy: UndoConfirmationPolicy,
   private val affectedDocuments: Collection<DocumentReference>,
   private val additionalAffectedDocuments: Collection<DocumentReference>,
+  private val flushReason: UndoCommandFlushReason?,
 ) {
 
   companion object {
@@ -23,6 +25,7 @@ internal class UndoDumpUnit(
     @JvmStatic
     fun fromGroup(group: UndoableGroup): UndoDumpUnit {
       return UndoDumpUnit(
+        "@" + Integer.toHexString(System.identityHashCode(group)),
         command(group.commandName),
         ArrayList(group.actions),
         group.isGlobal,
@@ -32,12 +35,14 @@ internal class UndoDumpUnit(
         group.confirmationPolicy,
         group.affectedDocuments,
         emptyList(),
+        group.flushReason,
       )
     }
 
     @JvmStatic
     fun fromMerger(merger: CommandMerger): UndoDumpUnit {
       return UndoDumpUnit(
+        "",
         command(merger.commandName),
         ArrayList(merger.currentActions),
         merger.isGlobal,
@@ -47,6 +52,7 @@ internal class UndoDumpUnit(
         merger.undoConfirmationPolicy,
         ArrayList(merger.allAffectedDocuments),
         ArrayList(merger.additionalAffectedDocuments),
+        null,
       )
     }
 
@@ -60,11 +66,9 @@ internal class UndoDumpUnit(
   }
 
   override fun toString(): String {
-    val actionsStr = actions.joinToString(
-      separator = ", ",
-      prefix = "[",
-      postfix = "]",
-    ) { action -> "($action)" }
+    val actionsStr = actions.joinToString(separator = ", ", prefix = "[", postfix = "]") { action ->
+      "($action)"
+    }
     val isGlobalStr = if (isGlobal) " global" else ""
     val isTransparentStr = if (isTransparent) " transparent" else ""
     val isTemporaryStr = if (isTemporary) " temp" else ""
@@ -72,13 +76,10 @@ internal class UndoDumpUnit(
     val confirmationPolicyStr = if (confirmationPolicy != UndoConfirmationPolicy.DEFAULT) " $confirmationPolicy" else ""
     val docs = if (affectedDocuments.size > 1) " affected: ${printDocs(affectedDocuments)}" else ""
     val addDocs = if (additionalAffectedDocuments.size > 1) " additional: ${printDocs(additionalAffectedDocuments)}" else ""
-    return "{$command with ${actions.size} actions: $actionsStr" +
-           "$isGlobalStr$isTransparentStr$isTemporaryStr$isValidStr$confirmationPolicyStr$docs$addDocs}"
+    return "{$command $id$isGlobalStr$isTransparentStr$isTemporaryStr$isValidStr with ${actions.size} ${if (actions.size == 1) "action" else "actions"} $flushReason: $actionsStr$confirmationPolicyStr$docs$addDocs}"
   }
 
   private fun printDocs(docs: Collection<DocumentReference>): String {
-    return docs.joinToString(", ", "[", "]") { d ->
-      d.document?.toString() ?: "null"
-    }
+    return docs.joinToString(", ", "[", "]")
   }
 }

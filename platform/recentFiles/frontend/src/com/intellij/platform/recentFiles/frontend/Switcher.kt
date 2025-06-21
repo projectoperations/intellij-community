@@ -21,7 +21,6 @@ import com.intellij.openapi.fileEditor.impl.EditorWindow
 import com.intellij.openapi.fileEditor.impl.FileEditorManagerImpl
 import com.intellij.openapi.fileEditor.impl.getOpenMode
 import com.intellij.openapi.keymap.KeymapUtil
-import com.intellij.openapi.progress.blockingContext
 import com.intellij.openapi.project.LightEditActionFactory
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopup
@@ -607,9 +606,7 @@ object Switcher : BaseSwitcherAction(null), ActionRemoteBehaviorSpecification.Fr
         }
         val event = AnActionEvent.createEvent(dataContext, gotoAction.templatePresentation.clone(),
                                               ACTION_PLACE, ActionUiKind.NONE, e)
-        blockingContext {
-          ActionUtil.performAction(gotoAction, event)
-        }
+        ActionUtil.performAction(gotoAction, event)
       }
     }
 
@@ -666,7 +663,7 @@ private class SwitcherScrollPane(view: Component, noBorder: Boolean)
   init {
     border = if (noBorder) JBUI.Borders.empty() else JBUI.Borders.customLineRight(JBUI.CurrentTheme.Popup.separatorColor())
     viewportBorder = JBUI.Borders.empty()
-    minimumSize = JBUI.size(if (noBorder) 250 else 0, 100)
+    minimumSize = JBUI.DialogSizes.medium()
   }
 
   override fun getPreferredSize(): Dimension {

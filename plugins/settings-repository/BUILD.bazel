@@ -13,6 +13,7 @@ jvm_library(
   visibility = ["//visibility:public"],
   srcs = glob(["src/**/*.kt", "src/**/*.java"], allow_empty = True),
   deps = [
+    "//platform/core-api:core",
     "//platform/credential-store",
     "//platform/editor-ui-api:editor-ui",
     "//platform/platform-api:ide",
@@ -20,6 +21,7 @@ jvm_library(
     "@lib//:jetbrains-intellij-deps-eclipse-jgit",
     "@lib//:settings_repository-eclipse-jgit-ssh-apache-agent",
     "@lib//:settings_repository-eclipse-jgit-ssh-apache",
+    "//platform/projectModel-api:projectModel",
     "//platform/vcs-impl",
     "//platform/projectModel-impl",
     "@lib//:jzlib",
@@ -54,6 +56,7 @@ jvm_library(
 ### auto-generated section `build intellij.settingsRepository` end
 
 ### auto-generated section `build intellij.settingsRepository.tests` start
+load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_java//java:defs.bzl", "java_library")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_test")
 
@@ -62,10 +65,12 @@ jvm_library(
   visibility = ["//visibility:public"],
   srcs = glob(["testSrc/**/*.kt", "testSrc/**/*.java"], allow_empty = True),
   deps = [
+    "//platform/core-api:core",
     "//platform/credential-store",
     "//platform/platform-api:ide",
     "//platform/platform-impl:ide-impl",
     "//platform/platform-impl:ide-impl_test_lib",
+    "//platform/projectModel-api:projectModel",
     "//platform/vcs-impl",
     "//platform/vcs-impl:vcs-impl_test_lib",
     "//platform/projectModel-impl",
@@ -90,7 +95,7 @@ jvm_library(
   ]
 )
 
-jvm_test(
+jps_test(
   name = "settingsRepository-tests_test",
   runtime_deps = [":settingsRepository-tests_test_lib"]
 )

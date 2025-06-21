@@ -21,7 +21,12 @@ public /* sealed */ interface NullabilitySource {
     /**
      * Type nullability is not specified
      */
-    NONE,
+    NONE {
+      @Override
+      public NullabilitySource inherited() {
+        return this;
+      }
+    },
     /**
      * Type nullability is mandated by language specification
      * (e.g., primitive type, or disjunction type)
@@ -32,6 +37,59 @@ public /* sealed */ interface NullabilitySource {
      * Currently, not possible in Java, but may be used in other languages like Kotlin.
      */
     LANGUAGE_DEFINED
+  }
+
+  /**
+   * @return source of type nullability inherited from a bound
+   * @see ExtendsBound
+   */
+  default NullabilitySource inherited() {
+    return new ExtendsBound(this);
+  }
+
+  /**
+   * Source of type nullability inherited from a bound.
+   * <p>
+   * Sometimes, it's important to distinguish.
+   * E.g., consider the method return type for two declarations:
+   * <ol>
+   *   <li>{@code <T> @Nullable T m()}
+   *   <li>{@code <T extends @Nullable Object> T m()}
+   * </ol>
+   * In both cases, return type nullability is {@code Nullable}. 
+   * However, with {@code T = @NotNull String} instantiation, the first should 
+   * produce {@code @Nullable String}, while the second should produce {@code @NotNull String}.
+   */
+  final class ExtendsBound implements NullabilitySource {
+    private final @NotNull NullabilitySource myBoundSource;
+
+    public ExtendsBound(@NotNull NullabilitySource source) { myBoundSource = source; }
+    
+    public @NotNull NullabilitySource boundSource() {
+      return myBoundSource;
+    }
+
+    @Override
+    public ExtendsBound inherited() {
+      return this;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+      if (o == null || getClass() != o.getClass()) return false;
+      ExtendsBound bound = (ExtendsBound)o;
+      return myBoundSource.equals(bound.myBoundSource);
+    }
+
+    @Override
+    public int hashCode() {
+      return myBoundSource.hashCode();
+    }
+
+    @Override
+    public String toString() {
+      return "inherited " + myBoundSource;
+    }
   }
 
   /**
@@ -75,21 +133,34 @@ public /* sealed */ interface NullabilitySource {
     private final @NotNull PsiAnnotation myAnnotation;
 
     public ContainerAnnotation(@NotNull PsiAnnotation annotation) {
-      PsiModifierList owner = (PsiModifierList)requireNonNull(annotation.getOwner(), "Annotation has no owner");
-      PsiModifierListOwner parent = (PsiModifierListOwner)requireNonNull(owner.getParent(), "Modifier list has no parent");
-      if (parent.getModifierList() != owner) {
-        throw new IllegalStateException("Modifier list parent is incorrect");
-      }
       myAnnotation = annotation;
+      container(); // validate
     }
 
     public @NotNull PsiModifierListOwner container() {
-      PsiModifierList owner = (PsiModifierList)requireNonNull(myAnnotation.getOwner());
-      PsiModifierListOwner parent = (PsiModifierListOwner)requireNonNull(owner.getParent());
-      if (parent.getModifierList() != owner) {
-        throw new IllegalStateException("Modifier list parent is incorrect");
+      PsiModifierList modifierList = (PsiModifierList)requireNonNull(myAnnotation.getOwner(), "Annotation has no owner");
+      PsiElement owner = requireNonNull(modifierList.getParent(), "Modifier list has no parent");
+      if (owner instanceof PsiModifierListOwner) {
+        PsiModifierListOwner member = (PsiModifierListOwner)owner;
+        if (member.getModifierList() != modifierList) {
+          throw new IllegalStateException("Modifier list parent is incorrect");
+        }
+        return member;
       }
-      return parent;
+      else if (owner instanceof PsiPackageStatement) {
+        PsiPackageStatement packageStatement = (PsiPackageStatement)owner;
+        if (packageStatement.getAnnotationList() != modifierList) {
+          throw new IllegalStateException("Modifier list parent is incorrect");
+        }
+        PsiElement targetPackage = packageStatement.getPackageReference().resolve();
+        if (!(targetPackage instanceof PsiPackage)) {
+          throw new IllegalStateException("Package reference is not resolved");
+        }
+        return (PsiPackage)targetPackage;
+      }
+      else {
+        throw new IllegalStateException("Unsupported modifier list parent: " + owner.getClass().getName());
+      }
     }
 
     public @NotNull PsiAnnotation annotation() {

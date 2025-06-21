@@ -17,6 +17,7 @@ import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.impl.EditorComponentImpl;
 import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.openapi.progress.EmptyProgressIndicator;
@@ -75,9 +76,8 @@ final class InspectorTable extends JBSplitter implements UiDataProvider, Disposa
   private final MyModel myModel;
   private StripeTable myTable;
   private ConsoleView myPreviewComponent;
-  private JBTabbedPane myTabs;
+  private JBTabbedPane myAccessibilityInspectionTabs;
   private List<UiInspectorAccessibilityInspection> myFailedInspections;
-
 
   InspectorTable(final @NotNull List<? extends PropertyBean> clickInfo, @Nullable Project project) {
     super(true, 0.75f);
@@ -125,9 +125,6 @@ final class InspectorTable extends JBSplitter implements UiDataProvider, Disposa
 
   private void init(@Nullable Component component) {
     setSplitterProportionKey("UiInspector.table.splitter.proportion");
-
-    myTabs = new JBTabbedPane(SwingConstants.TOP);
-    myTabs.setTabComponentInsets(JBUI.emptyInsets());
 
     myTable = new StripeTable(myModel);
     TableSpeedSearch.installOn(myTable);
@@ -200,6 +197,9 @@ final class InspectorTable extends JBSplitter implements UiDataProvider, Disposa
 
     myTable.setCellSelectionEnabled(true);
     myTable.setAutoResizeMode(JTable.AUTO_RESIZE_LAST_COLUMN);
+
+    myAccessibilityInspectionTabs = new JBTabbedPane();
+    myAccessibilityInspectionTabs.setTabComponentInsets(JBUI.emptyInsets());
 
     setFirstComponent(new JBScrollPane(myTable));
     if (component != null) {
@@ -441,9 +441,6 @@ final class InspectorTable extends JBSplitter implements UiDataProvider, Disposa
         return;
       }
       selectedProperty = property;
-
-      myTabs.removeAll();
-
       if (value instanceof Dimension || value instanceof Rectangle || value instanceof Border || value instanceof Insets) {
         if (myModel.myComponent != null) {
           setSecondComponent(new DimensionsComponent(myModel.myComponent));
@@ -475,33 +472,37 @@ final class InspectorTable extends JBSplitter implements UiDataProvider, Disposa
         ProgressManager.getInstance().runProcessWithProgressAsynchronously(task, previewUpdateIndicator);
 
         setSecondComponent(myPreviewComponent.getComponent());
+
         if (myFailedInspections != null && !myFailedInspections.isEmpty()) {
+          myAccessibilityInspectionTabs.removeAll();
           int inspectionCount = 0;
           for (UiInspectorAccessibilityInspection failedInspection : myFailedInspections) {
             if (failedInspection.getPropertyName().equalsIgnoreCase(selectedProperty.trim())) {
               inspectionCount++;
-
-              String inspectionName = InternalActionsBundle.message("ui.inspector.accessibility.audit.inspection.tab.text", inspectionCount);
-
-              JPanel inspectionPanel = new JPanel(new BorderLayout());
-              inspectionPanel.setBorder(JBUI.Borders.empty(10));
-
               JTextArea textArea = new JTextArea(failedInspection.getDescription());
               textArea.setEditable(false);
-
               textArea.setLineWrap(true);
               textArea.setWrapStyleWord(true);
-              textArea.setBorder(null);
-              textArea.setMinimumSize(JBUI.size(200, 100));
+              textArea.setBorder(new JBEmptyBorder(4, 10, 4, 4));
+              textArea.setMinimumSize(JBUI.size(20, 10));
+              textArea.setOpaque(true);
+              // Set the color similar to the preview component, which is a console view
+              textArea.setBackground(
+                EditorColorsManager.getInstance().getGlobalScheme().getColor(ConsoleViewContentType.CONSOLE_BACKGROUND_KEY));
 
-              inspectionPanel.add(textArea, BorderLayout.CENTER);
-              myTabs.addTab(inspectionName, inspectionPanel);
+              JScrollPane scrollPane = new JBScrollPane(textArea);
+              scrollPane.setBorder(BorderFactory.createLineBorder(JBColor.border()));
+              scrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+
+              myAccessibilityInspectionTabs.addTab(
+                InternalActionsBundle.message("ui.inspector.accessibility.audit.inspection.tab.text", inspectionCount), scrollPane);
             }
           }
           if (inspectionCount > 0) {
-            myTabs.insertTab(InternalActionsBundle.message("ui.inspector.accessibility.audit.preview.tab.text"), null, myPreviewComponent.getComponent(), null, 0);
-            myTabs.setSelectedIndex(0);
-            setSecondComponent(myTabs);
+            myAccessibilityInspectionTabs.insertTab(InternalActionsBundle.message("ui.inspector.accessibility.audit.preview.tab.text"),
+                                                    null, myPreviewComponent.getComponent(), null, 0);
+            myAccessibilityInspectionTabs.setSelectedIndex(0);
+            setSecondComponent(myAccessibilityInspectionTabs);
           }
         }
       }
@@ -689,16 +690,18 @@ final class InspectorTable extends JBSplitter implements UiDataProvider, Disposa
         changed = ((MyModel)model).myProperties.get(row).changed;
       }
 
-      if (myFailedInspections != null) {
-        String propertyName = (value != null) ? value.toString() : "";
+      if (myFailedInspections != null && value != null) {
+        String propertyName = value.toString();
         for (UiInspectorAccessibilityInspection failedInspection : myFailedInspections) {
           if (failedInspection.getPropertyName().equalsIgnoreCase(propertyName.trim())) {
-            this.setIcon(failedInspection.getIcon());
-            this.setHorizontalTextPosition(LEFT);
+            setIcon(failedInspection.getIcon());
+            setHorizontalTextPosition(LEFT);
+            setToolTipText(InternalActionsBundle.message("ui.inspector.accessibility.audit.table.property.name.tooltip"));
             break;
           }
           else {
-            this.setIcon(null);
+            setToolTipText(null);
+            setIcon(null);
           }
         }
       }

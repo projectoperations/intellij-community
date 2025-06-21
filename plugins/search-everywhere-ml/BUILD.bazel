@@ -1,4 +1,5 @@
 ### auto-generated section `build intellij.searchEverywhereMl` start
+load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources", "jvm_test")
 
 jvm_resources(
@@ -14,6 +15,7 @@ jvm_library(
   srcs = glob(["src/**/*.kt", "src/**/*.java"], allow_empty = True),
   deps = [
     "@lib//:kotlin-stdlib",
+    "//platform/core-api:core",
     "//platform/editor-ui-api:editor-ui",
     "//platform/lang-impl",
     "//platform/statistics",
@@ -30,6 +32,7 @@ jvm_library(
   associates = [":search-everywhere-ml"],
   deps = [
     "@lib//:kotlin-stdlib",
+    "//platform/core-api:core",
     "//platform/editor-ui-api:editor-ui",
     "//platform/lang-impl",
     "//platform/statistics",
@@ -41,7 +44,7 @@ jvm_library(
   runtime_deps = [":search-everywhere-ml_resources"]
 )
 
-jvm_test(
+jps_test(
   name = "search-everywhere-ml_test",
   runtime_deps = [":search-everywhere-ml_test_lib"]
 )

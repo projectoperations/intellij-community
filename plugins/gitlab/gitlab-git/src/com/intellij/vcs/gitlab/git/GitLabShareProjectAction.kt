@@ -6,8 +6,9 @@ import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
+import com.intellij.openapi.project.DumbAwareAction
 
-class GitLabShareProjectAction : AnAction() {
+class GitLabShareProjectAction : DumbAwareAction() {
   override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
 
   override fun update(e: AnActionEvent) {
@@ -18,6 +19,8 @@ class GitLabShareProjectAction : AnAction() {
   override fun actionPerformed(e: AnActionEvent) {
     val project = e.getData(CommonDataKeys.PROJECT) ?: return
     val file = e.getData(CommonDataKeys.VIRTUAL_FILE)
+
+    if (project.isDisposed) return
 
     GitLabShareProjectUtil.shareProjectOnGitLab(project, file)
   }

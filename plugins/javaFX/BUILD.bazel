@@ -1,4 +1,5 @@
 ### auto-generated section `build intellij.javaFX` start
+load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources", "jvm_test")
 
 jvm_resources(
@@ -13,11 +14,18 @@ jvm_library(
   visibility = ["//visibility:public"],
   srcs = glob(["src/**/*.kt", "src/**/*.java", "src/**/*.form"], allow_empty = True),
   deps = [
+    "//platform/analysis-api:analysis",
+    "//platform/code-style-api:codeStyle",
+    "//platform/core-api:core",
     "//platform/editor-ui-api:editor-ui",
+    "//platform/execution-impl",
+    "//platform/indexing-api:indexing",
     "//jps/model-api:model",
     "//platform/lang-api:lang",
     "//java/execution/openapi:java-execution",
     "//java/execution/impl",
+    "//platform/lang-core",
+    "//platform/projectModel-api:projectModel",
     "//platform/refactoring",
     "//platform/platform-impl:ide-impl",
     "//platform/ide-core-impl",
@@ -40,6 +48,7 @@ jvm_library(
     "//platform/platform-util-io:ide-util-io",
     "//spellchecker",
     "//java/java-impl-refactorings:impl-refactorings",
+    "//xml/xml-psi-api:psi",
     "//platform/util/jdom",
   ],
   runtime_deps = [":javaFX_resources"]
@@ -51,11 +60,18 @@ jvm_library(
   srcs = glob(["testSrc/**/*.kt", "testSrc/**/*.java", "testSrc/**/*.form"], allow_empty = True),
   associates = [":javaFX"],
   deps = [
+    "//platform/analysis-api:analysis",
+    "//platform/code-style-api:codeStyle",
+    "//platform/core-api:core",
     "//platform/editor-ui-api:editor-ui",
+    "//platform/execution-impl",
+    "//platform/indexing-api:indexing",
     "//jps/model-api:model",
     "//platform/lang-api:lang",
     "//java/execution/openapi:java-execution",
     "//java/execution/impl",
+    "//platform/lang-core",
+    "//platform/projectModel-api:projectModel",
     "//platform/refactoring",
     "//platform/testFramework",
     "//platform/testFramework:testFramework_test_lib",
@@ -86,12 +102,13 @@ jvm_library(
     "//spellchecker",
     "//spellchecker:spellchecker_test_lib",
     "//java/java-impl-refactorings:impl-refactorings",
+    "//xml/xml-psi-api:psi",
     "//platform/util/jdom",
   ],
   runtime_deps = [":javaFX_resources"]
 )
 
-jvm_test(
+jps_test(
   name = "javaFX_test",
   runtime_deps = [":javaFX_test_lib"]
 )
@@ -112,7 +129,10 @@ jvm_library(
   visibility = ["//visibility:public"],
   srcs = glob(["properties/src/**/*.kt", "properties/src/**/*.java"], allow_empty = True),
   deps = [
+    "//platform/core-api:core",
     "//platform/platform-impl:ide-impl",
+    "//xml/xml-psi-api:psi",
+    "//xml/xml-analysis-api:analysis",
     "//xml/xml-psi-impl:psi-impl",
     "//plugins/properties/properties-psi-impl:backend-psi",
     "//plugins/javaFX",

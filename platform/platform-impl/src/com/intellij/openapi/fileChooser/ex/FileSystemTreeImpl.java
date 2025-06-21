@@ -28,6 +28,7 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.Convertor;
 import com.intellij.util.ui.tree.AbstractTreeModel;
 import com.intellij.util.ui.tree.TreeUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -50,7 +51,6 @@ import java.util.stream.Stream;
 
 public class FileSystemTreeImpl implements FileSystemTree {
   private final Tree myTree;
-  private final FileTreeStructure myTreeStructure;
   private final Project myProject;
   private final ArrayList<Runnable> myOkActions = new ArrayList<>(2);
   private final FileChooserDescriptor myDescriptor;
@@ -72,14 +72,15 @@ public class FileSystemTreeImpl implements FileSystemTree {
                             final @Nullable Runnable onInitialized,
                             final @Nullable Convertor<? super TreePath, String> speedSearchConverter) {
     myProject = project;
+    FileTreeStructure treeStructure;
     if (renderer == null) {
       renderer = new FileRenderer().forTree();
       myFileTreeModel = createFileTreeModel(descriptor, tree);
-      myTreeStructure = null;
+      treeStructure = null;
     }
     else {
-      myTreeStructure = new FileTreeStructure(project, descriptor);
-      myFileTreeModel = new StructureTreeModel<>(myTreeStructure, getFileComparator(), this);
+      treeStructure = new FileTreeStructure(project, descriptor);
+      myFileTreeModel = new StructureTreeModel<>(treeStructure, getFileComparator(), this);
     }
     myDescriptor = descriptor;
     myTree = tree;
@@ -113,6 +114,7 @@ public class FileSystemTreeImpl implements FileSystemTree {
     return FileComparator.getInstance();
   }
 
+  @ApiStatus.Internal
   protected @NotNull FileTreeModel createFileTreeModel(@NotNull FileChooserDescriptor descriptor, @NotNull Tree tree) {
     return new FileTreeModel(descriptor, new FileRefresher(true, 3, () -> ModalityState.stateForComponent(tree)));
   }

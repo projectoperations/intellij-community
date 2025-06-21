@@ -25,6 +25,8 @@ jvm_library(
   kotlinc_opts = ":custom",
   deps = [
     "@lib//:kotlin-stdlib",
+    "//platform/indexing-api:indexing",
+    "//platform/projectModel-api:projectModel",
     "//platform/refactoring",
     "//platform/util",
     "//platform/core-api:core",
@@ -34,6 +36,7 @@ jvm_library(
     "//java/java-psi-api:psi",
     "//xml/dom-openapi:dom",
     "//xml/xml-psi-api:psi",
+    "//xml/xml-analysis-api:analysis",
     "//java/java-analysis-api:analysis",
     "//plugins/kotlin/code-insight/intentions-shared:kotlin-code-insight-intentions-shared",
     "//plugins/kotlin/code-insight/utils",

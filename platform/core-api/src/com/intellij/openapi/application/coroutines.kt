@@ -5,7 +5,6 @@ import com.intellij.concurrency.currentThreadContext
 import com.intellij.diagnostic.ThreadDumper
 import com.intellij.openapi.application.UiDispatcherKind.RELAX
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.progress.blockingContext
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Computable
 import com.intellij.openapi.util.IntellijInternalApi
@@ -160,7 +159,7 @@ sealed interface ReadAndWriteScope {
 /**
  * This method is renamed. Consider using [readAndEdtWriteAction].
  */
-@Deprecated(message = "This method is renamed to clarify its semantics", replaceWith = ReplaceWith("com.intellij.openapi.application.readAndEdtWriteAction(action)", "com.intellij.openapi.application.readAndEdtWriteAction"))
+@Deprecated(message = "This method is renamed because it has unclear threading semantics", replaceWith = ReplaceWith("com.intellij.openapi.application.readAndEdtWriteAction(action)", "com.intellij.openapi.application.readAndEdtWriteAction"))
 suspend fun <T> readAndWriteAction(action: ReadAndWriteScope.() -> ReadResult<T>): T {
   return constrainedReadAndWriteAction(action = action)
 }
@@ -256,9 +255,7 @@ suspend fun <T> constrainedReadAndWriteAction(vararg constraints: ReadConstraint
  */
 suspend fun <T> edtWriteAction(action: () -> T): T {
   return withContext(Dispatchers.EDT) {
-    blockingContext {
-      ApplicationManager.getApplication().runWriteAction(Computable(action))
-    }
+    ApplicationManager.getApplication().runWriteAction(Computable(action))
   }
 }
 
@@ -274,9 +271,7 @@ suspend fun <T> edtWriteAction(action: () -> T): T {
 @Experimental
 suspend fun <T> writeAction(action: () -> T): T {
   return withContext(Dispatchers.EDT) {
-    blockingContext {
-      ApplicationManager.getApplication().runWriteAction(Computable(action))
-    }
+    ApplicationManager.getApplication().runWriteAction(Computable(action))
   }
 }
 
@@ -286,7 +281,7 @@ private object RunInBackgroundWriteActionMarker
   override val key: CoroutineContext.Key<*> get() = this
 }
 
-@Experimental
+@Internal
 @ApiStatus.Obsolete
 fun CoroutineContext.isBackgroundWriteAction(): Boolean =
   currentThreadContext()[RunInBackgroundWriteActionMarker] != null
@@ -308,7 +303,6 @@ fun CoroutineContext.isBackgroundWriteAction(): Boolean =
  * @see com.intellij.openapi.command.writeCommandAction
  */
 @Experimental
-@Internal
 suspend fun <T> backgroundWriteAction(action: () -> T): T {
   val context = if (useBackgroundWriteAction) {
     Dispatchers.Default + RunInBackgroundWriteActionMarker
@@ -366,9 +360,7 @@ ${dump.rawDump}""")
  */
 @Experimental
 suspend fun <T> writeIntentReadAction(action: () -> T): T {
-  return blockingContext {
-    ApplicationManager.getApplication().runWriteIntentReadAction(ThrowableComputable(action))
-  }
+  return ApplicationManager.getApplication().runWriteIntentReadAction(ThrowableComputable(action))
 }
 
 private fun readWriteActionSupport() = ApplicationManager.getApplication().getService(ReadWriteActionSupport::class.java)

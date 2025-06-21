@@ -28,6 +28,10 @@ private object PluginBuilderConsts {
 
 private val pluginIdCounter = AtomicInteger()
 
+/**
+ * use [com.intellij.platform.testFramework.plugins.plugin] instead
+ */
+@Deprecated("Use PluginSpec instead")
 class PluginBuilder() {
   private data class ExtensionBlock(val ns: String, val text: String)
   private data class DependsTag(val pluginId: String, val configFile: String?)

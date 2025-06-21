@@ -4,36 +4,39 @@ package com.intellij.platform.debugger.impl.frontend
 import com.intellij.concurrency.ConcurrentCollectionFactory
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.readAction
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.Ref
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.platform.debugger.impl.rpc.XBreakpointApi
 import com.intellij.platform.project.projectId
 import com.intellij.platform.util.coroutines.childScope
-import com.intellij.xdebugger.impl.XDebuggerUtilImpl
 import com.intellij.xdebugger.impl.XLineBreakpointInstallationInfo
 import com.intellij.xdebugger.impl.breakpoints.*
 import com.intellij.xdebugger.impl.breakpoints.ui.BreakpointItem
 import com.intellij.xdebugger.impl.frame.XDebugSessionProxy.Companion.useFeLineBreakpointProxy
 import com.intellij.xdebugger.impl.rpc.*
-import com.intellij.xdebugger.impl.toRequest
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.shareIn
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.VisibleForTesting
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentMap
-import java.util.concurrent.atomic.AtomicInteger
+import kotlin.time.Duration.Companion.seconds
 
-private val LOG = logger<FrontendXBreakpointManager>()
+private val log = logger<FrontendXBreakpointManager>()
 
 @ApiStatus.Internal
 @VisibleForTesting
 class FrontendXBreakpointManager(private val project: Project, private val cs: CoroutineScope) : XBreakpointManagerProxy {
-  private val requestCounter = AtomicInteger()
-  private val breakpointsChanged = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+  private val breakpointsChanged = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+  private val breakpointsChangedWithReplay = breakpointsChanged.shareIn(cs, SharingStarted.Eagerly, replay = 1)
 
   private val breakpoints: ConcurrentMap<XBreakpointId, XBreakpointProxy> = ConcurrentCollectionFactory.createConcurrentMap()
 
@@ -64,16 +67,19 @@ class FrontendXBreakpointManager(private val project: Project, private val cs: C
       FrontendXBreakpointTypesManager.getInstance(project).typesInitialized().await()
       val (initialBreakpoints, breakpointEvents) = XDebuggerManagerApi.getInstance().getBreakpoints(project.projectId())
       for (breakpointDto in initialBreakpoints) {
-        addBreakpoint(breakpointDto)
+        addBreakpoint(breakpointDto, updateUI = false)
       }
+      lineBreakpointManager.queueAllBreakpointsUpdate()
 
       breakpointEvents.toFlow().collect { event ->
         when (event) {
           is XBreakpointEvent.BreakpointAdded -> {
-            addBreakpoint(event.breakpointDto)
+            log.info("Breakpoint add request from backend: ${event.breakpointDto.id}")
+            addBreakpoint(event.breakpointDto, updateUI = true)
           }
           is XBreakpointEvent.BreakpointRemoved -> {
-            removeBreakpointsLocally(setOf(event.breakpointId))
+            log.info("Breakpoint removal request from backend: ${event.breakpointId}")
+            removeBreakpointLocally(event.breakpointId)
             // breakpointRemoved event happened on the server, so we can remove id from the frontend
             breakpointIdsRemovedLocally.remove(event.breakpointId)
           }
@@ -82,19 +88,39 @@ class FrontendXBreakpointManager(private val project: Project, private val cs: C
     }
   }
 
-  override fun addBreakpoint(breakpointDto: XBreakpointDto): XBreakpointProxy? {
-    if (breakpointDto.id in breakpointIdsRemovedLocally) {
-      // don't add breakpoints if it was already removed locally
-      return null
+  /**
+   * Waits for breakpoint creation from [XBreakpointEvent.BreakpointAdded] event from backend.
+   *
+   * [addBreakpoint] is not called in parallel, to have only one source of truth and avoid races.
+   */
+  override suspend fun awaitBreakpointCreation(breakpointDto: XBreakpointDto): XBreakpointProxy? {
+    return findOrAwaitElement(breakpointsChangedWithReplay, logMessage = breakpointDto.id.toString()) {
+      val breakpointId = breakpointDto.id
+      val currentBreakpoint = breakpoints[breakpointDto.id]
+      if (currentBreakpoint != null) {
+        Ref.create(currentBreakpoint)
+      }
+      else if (breakpointId in breakpointIdsRemovedLocally) {
+        Ref.create(null)
+      }
+      else {
+        null
+      }
     }
+  }
+
+  private fun addBreakpoint(breakpointDto: XBreakpointDto, updateUI: Boolean): XBreakpointProxy? {
     val currentBreakpoint = breakpoints[breakpointDto.id]
     if (currentBreakpoint != null) {
+      log.info("Breakpoint creation skipped for ${breakpointDto.id}, because it already exists")
       return currentBreakpoint
     }
-    val type = FrontendXBreakpointTypesManager.getInstance(project).getTypeById(breakpointDto.typeId)
-    if (type == null) {
+    if (breakpointDto.id in breakpointIdsRemovedLocally) {
+      // don't add breakpoints if it was already removed locally
+      log.info("Breakpoint creation skipped for ${breakpointDto.id}, because it was removed locally")
       return null
     }
+    val type = FrontendXBreakpointTypesManager.getInstance(project).getTypeById(breakpointDto.typeId) ?: return null
     val newBreakpoint = createXBreakpointProxy(project, cs, breakpointDto, type, this, onBreakpointChange = {
       breakpointsChanged.tryEmit(Unit)
       if (it is XLineBreakpointProxy) {
@@ -104,16 +130,16 @@ class FrontendXBreakpointManager(private val project: Project, private val cs: C
     val previousBreakpoint = breakpoints.putIfAbsent(breakpointDto.id, newBreakpoint)
     if (previousBreakpoint != null) {
       newBreakpoint.dispose()
+      log.info("Breakpoint creation skipped for ${breakpointDto.id}, because it is already created")
       return previousBreakpoint
     }
-    if (newBreakpoint is XLineBreakpointProxy) {
-      lineBreakpointManager.registerBreakpoint(newBreakpoint, true)
-    }
+    (newBreakpoint as? FrontendXLineBreakpointProxy)?.registerInManager(updateUI)
+    log.info("Breakpoint created for ${breakpointDto.id}")
     breakpointsChanged.tryEmit(Unit)
     return newBreakpoint
   }
 
-  override fun canToggleLightBreakpoint(editor: Editor, info: XLineBreakpointInstallationInfo): Boolean {
+  private fun canToggleLightBreakpoint(editor: Editor, info: XLineBreakpointInstallationInfo): Boolean {
     val type = info.types.singleOrNull() ?: return false
     if (findBreakpointsAtLine(type, info.position.file, info.position.line).isNotEmpty()) {
       return false
@@ -125,100 +151,64 @@ class FrontendXBreakpointManager(private val project: Project, private val cs: C
     return lineInfo?.singleBreakpointVariant == true
   }
 
-  override fun toggleLightBreakpoint(editor: Editor, installationInfo: XLineBreakpointInstallationInfo): Deferred<XLineBreakpointProxy?> {
-    val requestId = requestCounter.getAndIncrement()
-    return cs.async {
-      val lightBreakpointPosition = LightBreakpointPosition(installationInfo.position.file, installationInfo.position.line)
-      val type = installationInfo.types.firstOrNull() ?: return@async null
-
-      if (LOG.isDebugEnabled) {
-        LOG.debug("[$requestId] Toggling light breakpoint at ${lightBreakpointPosition.file.path}:${lightBreakpointPosition.line}, type: ${type.id}")
-      }
-
-      val lightBreakpoint = FrontendXLightLineBreakpoint(project, this@async, type, installationInfo, this@FrontendXBreakpointManager)
+  /**
+   * Detects whether a breakpoint is likely to be installed with no need for user interaction,
+   * and if so, shows a temporary (a.k.a. light) breakpoint during [block] execution.
+   */
+  override suspend fun <T> withLightBreakpointIfPossible(
+    editor: Editor?, info: XLineBreakpointInstallationInfo, block: suspend () -> T,
+  ): T {
+    if (editor == null || !readAction { canToggleLightBreakpoint(editor, info) }) {
+      return block()
+    }
+    val lightBreakpointPosition = LightBreakpointPosition(info.position.file, info.position.line)
+    val type = info.types.first()
+    return coroutineScope {
+      val lightBreakpoint = createLightBreakpointIfPossible(lightBreakpointPosition, type, info, editor)
       try {
-        val oldBreakpoint = lightBreakpoints.putIfAbsent(lightBreakpointPosition, lightBreakpoint)
-        if (oldBreakpoint != null) {
-          if (LOG.isDebugEnabled) {
-            LOG.debug("[$requestId] Found existing light breakpoint at ${lightBreakpointPosition.file.path}:${lightBreakpointPosition.line}, disposing new one")
-          }
-          lightBreakpoint.dispose()
-        }
-
-        if (LOG.isDebugEnabled) {
-          LOG.debug("[$requestId] Sending toggle request for breakpoint at ${lightBreakpointPosition.file.path}:${lightBreakpointPosition.line}, hasExisting: ${oldBreakpoint != null}")
-        }
-
-        val response = XBreakpointTypeApi.getInstance().toggleLineBreakpoint(project.projectId(), installationInfo.toRequest(oldBreakpoint != null))
-
-        if (LOG.isDebugEnabled) {
-          LOG.debug("[$requestId] Received response for toggle request: ${response?.javaClass?.simpleName}")
-        }
-
-        withContext(Dispatchers.EDT + NonCancellable) {
-          lightBreakpoints.remove(lightBreakpointPosition, lightBreakpoint)
-          lightBreakpoint.dispose()
-          when (response) {
-            is XLineBreakpointInstalledResponse -> {
-              val breakpointDto = response.breakpoint
-              if (LOG.isDebugEnabled) {
-                LOG.debug("[$requestId] Processing XLineBreakpointInstalledResponse, breakpointDto: ${breakpointDto?.id}")
-              }
-              if (breakpointDto != null) {
-                val result = addBreakpoint(breakpointDto) as? XLineBreakpointProxy
-                if (LOG.isDebugEnabled) {
-                  LOG.debug("[$requestId] Added breakpoint: ${result?.id}, at line: ${result?.getLine()}")
-                }
-                result
-              }
-              else {
-                if (LOG.isDebugEnabled) {
-                  LOG.debug("[$requestId] No breakpoint DTO in response, returning null")
-                }
-                null
-              }
-            }
-            XRemoveBreakpointResponse -> {
-              if (LOG.isDebugEnabled) {
-                LOG.debug("[$requestId] Processing XRemoveBreakpointResponse")
-              }
-              val breakpoint = XDebuggerUtilImpl.findBreakpointsAtLine(project, installationInfo).singleOrNull()
-              if (LOG.isDebugEnabled) {
-                LOG.debug("[$requestId] Found breakpoint to remove: ${breakpoint?.id}")
-              }
-              if (breakpoint != null) {
-                XDebuggerUtilImpl.removeBreakpointIfPossible(project, installationInfo, breakpoint)
-                if (LOG.isDebugEnabled) {
-                  LOG.debug("[$requestId] Removed breakpoint: ${breakpoint.id}")
-                }
-              }
-              null
-            }
-            else -> {
-              if (LOG.isDebugEnabled) {
-                LOG.debug("[$requestId] Unknown response type: ${response?.javaClass?.name}")
-              }
-              null
-            }
-          }
-        }
+        block()
       }
       finally {
         lightBreakpoints.remove(lightBreakpointPosition, lightBreakpoint)
-        lightBreakpoint.dispose()
+        lightBreakpoint?.dispose()
       }
     }
   }
 
-  private fun removeBreakpointsLocally(breakpointsToRemove: Collection<XBreakpointId>) {
-    for (breakpointToRemove in breakpointsToRemove) {
-      val removedBreakpoint = breakpoints.remove(breakpointToRemove)
-      removedBreakpoint?.dispose()
-      if (removedBreakpoint is XLineBreakpointProxy) {
-        lineBreakpointManager.unregisterBreakpoint(removedBreakpoint)
+  private suspend fun CoroutineScope.createLightBreakpointIfPossible(
+    lightBreakpointPosition: LightBreakpointPosition,
+    type: XLineBreakpointTypeProxy,
+    info: XLineBreakpointInstallationInfo,
+    editor: Editor,
+  ): FrontendXLightLineBreakpoint? {
+    while (true) {
+      val newBreakpoint = FrontendXLightLineBreakpoint(project, this, type, info, this@FrontendXBreakpointManager)
+      val oldBreakpoint: FrontendXLightLineBreakpoint? = lightBreakpoints.putIfAbsent(lightBreakpointPosition, newBreakpoint)
+      if (oldBreakpoint == null) {
+        return newBreakpoint
       }
-      breakpointIdsRemovedLocally.add(breakpointToRemove)
+
+      // there is a parallel request with a light breakpoint
+      newBreakpoint.dispose()
+      // wait for the previous request to complete
+      oldBreakpoint.awaitDispose()
+
+      // recheck the ability to install a light breakpoint
+      if (!canToggleLightBreakpoint(editor, info)) return null
     }
+  }
+
+  private fun removeBreakpointLocally(breakpointId: XBreakpointId) {
+    breakpointIdsRemovedLocally.add(breakpointId)
+    val removedBreakpoint = breakpoints.remove(breakpointId)
+    removedBreakpoint?.dispose()
+    if (removedBreakpoint == null) {
+      log.info("Breakpoint removal has no effect for $breakpointId, because it doesn't exist locally")
+    }
+    else {
+      log.info("Breakpoint removed for $breakpointId")
+    }
+    (removedBreakpoint as? FrontendXLineBreakpointProxy)?.unregisterInManager()
     breakpointsChanged.tryEmit(Unit)
   }
 
@@ -274,16 +264,11 @@ class FrontendXBreakpointManager(private val project: Project, private val cs: C
   }
 
   override fun removeBreakpoint(breakpoint: XBreakpointProxy) {
-    removeBreakpointsLocally(setOf(breakpoint.id))
+    log.info("Breakpoint removal request from frontend: ${breakpoint.id}")
+    removeBreakpointLocally(breakpoint.id)
     breakpointsChanged.tryEmit(Unit)
     cs.launch {
-      XBreakpointApi.getInstance().removeBreakpoint(breakpoint.id)
-    }
-  }
-
-  override fun removeBreakpoints(breakpoints: Collection<XBreakpointProxy>) {
-    for (breakpoint in breakpoints) {
-      removeBreakpoint(breakpoint)
+      XBreakpointTypeApi.getInstance().removeBreakpoint(breakpoint.id)
     }
   }
 
@@ -294,4 +279,73 @@ class FrontendXBreakpointManager(private val project: Project, private val cs: C
   }
 
   private data class LightBreakpointPosition(val file: VirtualFile, val line: Int)
+
+  private fun FrontendXLineBreakpointProxy.registerInManager(updateUI: Boolean) {
+    while (true) {
+      val status = registrationInLineManagerStatus.get()
+      when (status) {
+        RegistrationStatus.DEREGISTERED -> return
+        RegistrationStatus.IN_PROGRESS, RegistrationStatus.REGISTERED -> error("Breakpoint $id is already registered")
+        RegistrationStatus.NOT_STARTED -> {
+          if (!registrationInLineManagerStatus.compareAndSet(RegistrationStatus.NOT_STARTED, RegistrationStatus.IN_PROGRESS)) continue
+          lineBreakpointManager.registerBreakpoint(this, updateUI)
+          if (!registrationInLineManagerStatus.compareAndSet(RegistrationStatus.IN_PROGRESS, RegistrationStatus.REGISTERED)) {
+            val newStatus = registrationInLineManagerStatus.get()
+            check(newStatus == RegistrationStatus.DEREGISTERED) { "Unexpected status: $newStatus" }
+            unregisterInManager()
+          }
+          return
+        }
+      }
+    }
+  }
+
+  private fun FrontendXLineBreakpointProxy.unregisterInManager() {
+    registrationInLineManagerStatus.set(RegistrationStatus.DEREGISTERED)
+    lineBreakpointManager.unregisterBreakpoint(this)
+  }
+}
+
+/**
+ * Searches element with [search] or suspends until the element appears.
+ * Uses [updateFlow] as a trigger for updates.
+ * [updateFlow] must be a flow with replay
+ */
+internal suspend fun <T> findOrAwaitElement(
+  updateFlow: Flow<*>,
+  logMessage: String? = null,
+  timeoutS: Int = 60, search: () -> Ref<T>?,
+): T? {
+  val existing = search()
+  if (existing != null) return existing.get()
+
+  if (logMessage != null) {
+    log.info("[findOrAwaitElement] Waiting for creation event for $logMessage")
+  }
+  return coroutineScope {
+    val result = CompletableDeferred<T>()
+    val job = launch {
+      updateFlow.collect {
+        if (logMessage != null) {
+          log.info("[findOrAwaitElement] Flow updated, check for $logMessage")
+        }
+        val existing = search()
+        if (existing != null) {
+          result.complete(existing.get())
+        }
+      }
+    }
+    try {
+      return@coroutineScope withTimeout(timeoutS.seconds) {
+        result.await()
+      }
+    }
+    catch (_: TimeoutCancellationException) {
+      log.error("[findOrAwaitElement] Failed to await for event for $logMessage in $timeoutS seconds")
+      return@coroutineScope null
+    }
+    finally {
+      job.cancel()
+    }
+  }
 }

@@ -22,6 +22,7 @@ import com.intellij.openapi.actionSystem.impl.Utils
 import com.intellij.openapi.application.*
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.diagnostic.getOrLogException
 import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.ex.FileEditorProviderManager.Companion.getInstance
@@ -56,6 +57,7 @@ import com.intellij.util.PlatformUtils
 import com.intellij.util.cancelOnDispose
 import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.messages.Topic
+import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.TimerUtil
 import com.intellij.util.ui.UIUtil
 import kotlinx.coroutines.*
@@ -129,9 +131,11 @@ class StructureViewWrapperImpl(
       override fun stateChanged(toolWindowManager: ToolWindowManager, toolWindow: ToolWindow, changeType: ToolWindowManagerEventType) {
         if (toolWindow !== myToolWindow) return
         when (changeType) {
+          ToolWindowManagerEventType.ActivateToolWindow,
           ToolWindowManagerEventType.ShowToolWindow -> loggedRun("update file") { checkUpdate() }
           ToolWindowManagerEventType.HideToolWindow -> if (!project.isDisposed) {
             myFile = null
+            myFirstRun = true
             rebuildNow("clear a structure on hide")
           }
           else -> {}
@@ -188,12 +192,36 @@ class StructureViewWrapperImpl(
           }
         }
         .collectLatest {
-          writeIntentReadAction {
-            if (!myToolWindow.contentManager.isDisposed) {
-              launch {
-                rebuildImpl()
+          LOG.debug("starting rebuild request processing")
+          // A nested coroutine scope so we can cancel it without terminating the whole collector.
+          coroutineScope {
+            // Not using simple cancelOnDispose because the content manager may be disposed at any moment,
+            // which can create a race condition here.
+            // What we want is:
+            // 1) be sure that our job is cancelled if it's disposed;
+            // 2) not even start the rebuild if it's already disposed.
+            // So we end up with pretty much a copy-paste from cancelOnDispose except we use tryRegister.
+            val parentDisposable: Disposable = myToolWindow.contentManager
+            val thisJob = coroutineContext.job
+            val thisDisposable = Disposable {
+              thisJob.cancel("disposed")
+            }
+            thisJob.invokeOnCompletion { e ->
+              Disposer.dispose(thisDisposable)
+              if (e != null) {
+                LOG.debug("finished rebuild request processing with an exception", e)
               }
-                .cancelOnDispose(myToolWindow.contentManager)
+            }
+            if (!Disposer.tryRegister(parentDisposable, thisDisposable)) {
+              LOG.debug("canceled rebuild request processing because the tool window content manager is already disposed")
+              return@coroutineScope
+            }
+            runCatching {
+              rebuildImpl()
+              LOG.debug("finished rebuild request processing successfully")
+            }.getOrLogException { e ->
+              // catch and hope the next request will succeed, instead of just crashing the whole thing
+              LOG.error("failed rebuild request processing", e)
             }
           }
         }
@@ -237,7 +265,10 @@ class StructureViewWrapperImpl(
           myFirstRun = false
 
           coroutineScope.launch {
-            if (file != null) {
+            if (!myToolWindow.isVisible) {
+              return@launch
+            }
+            else if (file != null) {
               setFile(file)
             }
             else if (firstRun) {
@@ -479,7 +510,7 @@ class StructureViewWrapperImpl(
       if (myModuleStructureComponent == null && myStructureView == null) {
         val panel: JBPanelWithEmptyText = object : JBPanelWithEmptyText() {
           override fun getBackground(): Color {
-            return UIUtil.getTreeBackground()
+            return JBUI.CurrentTheme.ToolWindow.background()
           }
         }
         panel.emptyText.setText(LangBundle.message("panel.empty.text.no.structure"))
@@ -547,7 +578,7 @@ class StructureViewWrapperImpl(
 
   private fun createContentPanel(component: JComponent): ContentPanel {
     val panel = ContentPanel()
-    panel.background = UIUtil.getTreeBackground()
+    panel.background = JBUI.CurrentTheme.ToolWindow.background()
     panel.add(component, BorderLayout.CENTER)
     return panel
   }
@@ -611,9 +642,10 @@ class StructureViewWrapperImpl(
       val project = CommonDataKeys.PROJECT.getData(asyncDataContext)
       return when {
         commonFiles != null && commonFiles.size == 1 -> commonFiles[0]
-        AppMode.isRemoteDevHost() && project != null && focusOwner is IdeFrame -> {
-          // In RD when focus is set to a frontend-component
-          // (e.g., tabs, editors, notification tool window) on the backend it will be set to `IdeFrame`
+        AppMode.isRemoteDevHost() && project != null -> {
+          // In RD, when focus is set to a frontend-component (e.g., tabs, editors, notification tool window),
+          // on the backend it can be set to anything, unfortunately.
+          // So we fall back to the active editor, or else the structure view may stop updating completely.
           FileEditorManager.getInstance(project).selectedFiles.firstOrNull()
         }
         else -> null

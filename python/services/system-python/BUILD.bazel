@@ -1,4 +1,5 @@
 ### auto-generated section `build intellij.python.community.services.systemPython` start
+load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources", "jvm_test")
 
 jvm_resources(
@@ -32,6 +33,7 @@ jvm_library(
     "//python/services/internal-impl:python-community-services-internal-impl",
     "//platform/util",
     "//python/installer",
+    "//python/python-venv:community-impl-venv",
   ],
   exports = ["//python/services/shared"],
   runtime_deps = [":system-python_resources"]
@@ -60,6 +62,7 @@ jvm_library(
     "//python/testFramework",
     "@lib//:hamcrest",
     "//python/services/shared",
+    "//python/services/shared:shared_test_lib",
     "//python/services/internal-impl:python-community-services-internal-impl",
     "//python/services/internal-impl:python-community-services-internal-impl_test_lib",
     "//platform/util",
@@ -79,7 +82,7 @@ jvm_library(
   ]
 )
 
-jvm_test(
+jps_test(
   name = "system-python_test",
   runtime_deps = [":system-python_test_lib"]
 )

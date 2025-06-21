@@ -13,7 +13,6 @@ import fleet.rpc.Rpc
 import fleet.rpc.core.RpcFlow
 import fleet.rpc.core.SendChannelSerializer
 import fleet.rpc.remoteApiDescriptor
-import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.channels.SendChannel
 import kotlinx.serialization.Serializable
 import org.jetbrains.annotations.ApiStatus
@@ -37,6 +36,8 @@ interface XBreakpointTypeApi : RemoteApi<Unit> {
       return RemoteApiProviderService.resolve(remoteApiDescriptor<XBreakpointTypeApi>())
     }
   }
+
+  suspend fun removeBreakpoint(breakpointId: XBreakpointId)
 }
 
 @ApiStatus.Internal
@@ -83,16 +84,16 @@ sealed interface XToggleLineBreakpointResponse
 @ApiStatus.Internal
 @Serializable
 data class XLineBreakpointInstalledResponse(
-  val breakpoint: XBreakpointDto?,
+  val breakpoint: XBreakpointDto,
 ) : XToggleLineBreakpointResponse
 
 @ApiStatus.Internal
 @Serializable
-object XRemoveBreakpointResponse : XToggleLineBreakpointResponse
+object XNoBreakpointPossibleResponse : XToggleLineBreakpointResponse
 
 @ApiStatus.Internal
 @Serializable
-object XLineBreakpointIgnoreResponse : XToggleLineBreakpointResponse
+object XRemoveBreakpointResponse : XToggleLineBreakpointResponse
 
 @ApiStatus.Internal
 @Serializable
@@ -109,8 +110,7 @@ data class XLineBreakpointInstallationRequest(
   val isTemporary: Boolean,
   val isConditional: Boolean,
   val condition: String?,
-  val canRemoveBreakpoint: Boolean,
-  val hasOneBreakpoint: Boolean,
+  val hasBreakpoints: Boolean,
 )
 
 
@@ -128,5 +128,5 @@ data class XLineBreakpointVariantDto(
 @Serializable
 data class VariantSelectedResponse(
   val selectedVariantIndex: Int,
-  @Serializable(with = SendChannelSerializer::class) val breakpointCallback: SendChannel<XBreakpointDto?>,
+  @Serializable(with = SendChannelSerializer::class) val breakpointCallback: SendChannel<XBreakpointDto>,
 )

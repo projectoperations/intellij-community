@@ -25,8 +25,12 @@ jvm_library(
   kotlinc_opts = ":custom",
   deps = [
     "@lib//:kotlin-stdlib",
+    "//platform/analysis-api:analysis",
+    "//platform/code-style-api:codeStyle",
     "//jps/model-api:model",
+    "//platform/lang-core",
     "//platform/lvcs-api:lvcs",
+    "//platform/projectModel-api:projectModel",
     "//platform/util/jdom",
     "@lib//:gson",
     "@lib//:kotlinc-kotlin-compiler-common",

@@ -7,11 +7,10 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.*
 import com.intellij.openapi.application.ex.ApplicationManagerEx
-import com.intellij.openapi.progress.Cancellation
-import com.intellij.openapi.progress.ProcessCanceledException
-import com.intellij.openapi.progress.ProgressManager
-import com.intellij.openapi.progress.util.SuvorovProgress
+import com.intellij.openapi.progress.*
 import com.intellij.openapi.project.DumbAware
+import com.intellij.platform.locking.impl.getGlobalThreadingSupport
+import com.intellij.testFramework.LoggedErrorProcessor
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.util.application
@@ -23,6 +22,7 @@ import org.assertj.core.api.Assertions.fail
 import org.junit.jupiter.api.Assumptions
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 @TestApplication
@@ -171,7 +171,7 @@ class PlatformUtilitiesTest {
       }
     }
     val nbraJob = launch {
-      Cancellation.withNonCancelableSection().use {
+      withContext(NonCancellable) {
         readAction {
           ReadAction.nonBlocking {
             try {
@@ -196,34 +196,26 @@ class PlatformUtilitiesTest {
     assertThat(counter.get()).isEqualTo(1)
   }
 
-  @Suppress("ForbiddenInSuspectContextMethod")
   @Test
   fun `transferredWriteAction allows write access when lock action is pending`(): Unit = timeoutRunBlocking(context = Dispatchers.Default) {
-    application.invokeAndWait {
-      getGlobalThreadingSupport().setLockAcquisitionInterceptor(SuvorovProgress::dispatchEventsUntilComputationCompletes)
-    }
-    try {
-      val bgWaStarted = Job(coroutineContext.job)
-      launch {
-        backgroundWriteAction {
-          bgWaStarted.complete()
-          Thread.sleep(100) // give chance EDT to start waiting for a coroutine
-          (application as ApplicationImpl).invokeAndWaitWithTransferredWriteAction {
-            assertThat(EDT.isCurrentThreadEdt()).isTrue
-            assertThat(application.isWriteAccessAllowed).isTrue
+    Assumptions.assumeTrue { installSuvorovProgress }
+    val bgWaStarted = Job(coroutineContext.job)
+    launch {
+      backgroundWriteAction {
+        bgWaStarted.complete()
+        Thread.sleep(100) // give chance EDT to start waiting for a coroutine
+        (application as ApplicationImpl).invokeAndWaitWithTransferredWriteAction {
+          assertThat(EDT.isCurrentThreadEdt()).isTrue
+          assertThat(application.isWriteAccessAllowed).isTrue
+          assertThat(application.isReadAccessAllowed).isTrue
             runWriteAction {}
-            assertThat(TransactionGuard.getInstance().isWritingAllowed).isTrue
-          }
+            runReadAction { }
+          assertThat(TransactionGuard.getInstance().isWritingAllowed).isTrue
         }
       }
-      bgWaStarted.join()
-      launch(Dispatchers.EDT) {
-      }
     }
-    finally {
-      application.invokeAndWait {
-        getGlobalThreadingSupport().removeLockAcquisitionInterceptor()
-      }
+    bgWaStarted.join()
+    launch(Dispatchers.EDT) {
     }
   }
 
@@ -233,7 +225,9 @@ class PlatformUtilitiesTest {
       (application as ApplicationImpl).invokeAndWaitWithTransferredWriteAction {
         assertThat(EDT.isCurrentThreadEdt()).isTrue
         assertThat(application.isWriteAccessAllowed).isTrue
+        assertThat(application.isReadAccessAllowed).isTrue
         runWriteAction {}
+        runReadAction { }
         assertThat(TransactionGuard.getInstance().isWritingAllowed).isTrue
       }
     }
@@ -267,5 +261,54 @@ class PlatformUtilitiesTest {
       }
       assertThat(exception.message).isEqualTo("custom message")
     }
+  }
+
+
+  class CustomException : RuntimeException()
+
+  @Test
+  fun `nested old modal progress does not leak lock`(): Unit = timeoutRunBlocking(context = Dispatchers.EDT) {
+    val customExceptionWasRethrown = AtomicBoolean(false)
+    val writeActionThrew = AtomicBoolean(false)
+    LoggedErrorProcessor.executeWith(object : LoggedErrorProcessor() {
+      override fun processError(category: String, message: String, details: Array<out String?>, t: Throwable?): Set<Action?> {
+        if (t is CustomException) {
+          // rethrow exception directly
+          throw t
+        }
+        return super.processError(category, message, details, t)
+      }
+    }).use {
+      try {
+        ProgressManager.getInstance().run(object : Task.Backgroundable(null, "title1") {
+          override fun run(indicator: ProgressIndicator) {
+            invokeLater {
+              ProgressManager.getInstance().run(object : Task.Backgroundable(null, "title2") {
+                override fun run(indicator: ProgressIndicator) {
+                  application.invokeLater {
+                    throw CustomException()
+                  }
+                  try {
+                    application.invokeAndWait {
+                      runWriteAction {
+                      }
+                    }
+                  }
+                  catch (e: Throwable) {
+                    writeActionThrew.set(true)
+                  }
+                }
+              })
+            }
+          }
+        })
+      }
+      catch (_: CustomException) {
+        delay(1000)
+        customExceptionWasRethrown.set(true)
+      }
+    }
+    assertThat(customExceptionWasRethrown.get()).isTrue()
+    assertThat(writeActionThrew.get()).isFalse()
   }
 }

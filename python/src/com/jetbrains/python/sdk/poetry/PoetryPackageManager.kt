@@ -4,6 +4,7 @@ package com.jetbrains.python.sdk.poetry
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
 import com.jetbrains.python.errorProcessing.PyResult
+import com.jetbrains.python.packaging.common.NormalizedPythonPackageName
 import com.jetbrains.python.packaging.common.PythonOutdatedPackage
 import com.jetbrains.python.packaging.common.PythonPackage
 import com.jetbrains.python.packaging.common.PythonRepositoryPackageSpecification
@@ -17,6 +18,18 @@ import org.jetbrains.annotations.TestOnly
 @ApiStatus.Internal
 class PoetryPackageManager(project: Project, sdk: Sdk) : PythonPackageManager(project, sdk) {
   override val repositoryManager: PythonRepositoryManager = PipRepositoryManager(project)
+
+  override suspend fun syncCommand(): PyResult<Unit> {
+    return runPoetryWithSdk(sdk, "install").mapSuccess { }
+  }
+
+  suspend fun lockProject(): PyResult<Unit> {
+    runPoetryWithSdk(sdk, "lock").getOr {
+      return it
+    }
+    return reloadPackages().mapSuccess { }
+  }
+
 
   override suspend fun installPackageCommand(installRequest: PythonPackageInstallRequest, options: List<String>): PyResult<Unit> {
     if (installRequest !is PythonPackageInstallRequest.ByRepositoryPythonPackageSpecifications) {
@@ -32,9 +45,55 @@ class PoetryPackageManager(project: Project, sdk: Sdk) : PythonPackageManager(pr
   }
 
   override suspend fun uninstallPackageCommand(vararg pythonPackages: String): PyResult<Unit> {
-    return poetryUninstallPackage(sdk, *pythonPackages).mapSuccess { }
+    if (pythonPackages.isEmpty()) return PyResult.success(Unit)
+
+    val (standalonePackages, declaredPackages) = categorizePackages(pythonPackages)
+
+    uninstallDeclaredPackages(declaredPackages).getOr { return it }
+    uninstallStandalonePackages(standalonePackages).getOr { return it }
+
+    return PyResult.success(Unit)
   }
 
+  /**
+   * Categorizes packages into standalone packages and pyproject.toml declared packages.
+   */
+  private fun categorizePackages(packages: Array<out String>): Pair<List<NormalizedPythonPackageName>, List<NormalizedPythonPackageName>> {
+    val dependencyNames = dependencies.map { it.name }.toSet()
+    return packages
+      .map { NormalizedPythonPackageName.from(it) }
+      .partition { it.name !in dependencyNames }
+  }
+
+  /**
+   * Uninstalls packages using pip through Poetry.
+   */
+  private suspend fun uninstallStandalonePackages(packages: List<NormalizedPythonPackageName>): PyResult<Unit> {
+    return if (packages.isNotEmpty()) {
+      poetryUninstallPackage(
+        sdk = sdk,
+        packages = packages.map { it.name }.toTypedArray()
+      ).mapSuccess { }
+    }
+    else {
+      PyResult.success(Unit)
+    }
+  }
+
+  /**
+   * Removes packages declared in pyproject.toml using Poetry.
+   */
+  private suspend fun uninstallDeclaredPackages(packages: List<NormalizedPythonPackageName>): PyResult<Unit> {
+    return if (packages.isNotEmpty()) {
+      poetryRemovePackage(
+        sdk = sdk,
+        packages = packages.map { it.name }.toTypedArray()
+      ).mapSuccess { }
+    }
+    else {
+      PyResult.success(Unit)
+    }
+  }
 
   override suspend fun loadPackagesCommand(): PyResult<List<PythonPackage>> {
     val (installed, _) = poetryListPackages(sdk).getOr { return it }

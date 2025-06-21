@@ -10,39 +10,41 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
+import com.intellij.platform.project.ProjectId
 import com.intellij.platform.searchEverywhere.*
-import com.intellij.platform.searchEverywhere.backend.impl.SeBackendItemDataProvidersHolderEntity.Companion.ProvidersHolder
-import com.intellij.platform.searchEverywhere.backend.impl.SeBackendItemDataProvidersHolderEntity.Companion.Session
+import com.intellij.platform.searchEverywhere.equalityProviders.SeEqualityChecker
+import com.intellij.platform.searchEverywhere.providers.SeLog
 import com.intellij.platform.searchEverywhere.providers.SeProvidersHolder
 import com.intellij.platform.searchEverywhere.providers.target.SeTypeVisibilityStatePresentation
-import com.jetbrains.rhizomedb.entities
-import com.jetbrains.rhizomedb.exists
+import com.jetbrains.rhizomedb.EID
 import fleet.kernel.DurableRef
-import fleet.kernel.change
 import fleet.kernel.onDispose
 import fleet.kernel.rete.Rete
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.channels.consumeEach
 import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.Nls
 
 @ApiStatus.Internal
 @Service(Service.Level.PROJECT)
 class SeBackendService(val project: Project, private val coroutineScope: CoroutineScope) {
+  private val sessionIdToProviderHolders: MutableMap<EID, SeProvidersHolder> = HashMap()
+  private val mutex: Mutex = Mutex()
 
-  suspend fun getItems(sessionRef: DurableRef<SeSessionEntity>,
-                       providerId: SeProviderId,
-                       params: SeParams,
-                       dataContextId: DataContextId?,
-                       requestedCountChannel: ReceiveChannel<Int>
+  @OptIn(ExperimentalCoroutinesApi::class)
+  suspend fun getItems(
+    sessionRef: DurableRef<SeSessionEntity>,
+    providerIds: List<SeProviderId>,
+    isAllTab: Boolean,
+    params: SeParams,
+    dataContextId: DataContextId?,
+    requestedCountChannel: ReceiveChannel<Int>,
   ): Flow<SeItemData> {
-    val provider = getProvidersHolder(sessionRef, dataContextId)?.get(providerId, false) ?: return emptyFlow()
-
     val requestedCountState = MutableStateFlow(0)
     val receivingJob = coroutineScope.launch {
       requestedCountChannel.consumeEach { count ->
@@ -50,27 +52,38 @@ class SeBackendService(val project: Project, private val coroutineScope: Corouti
       }
     }
 
-    return flow {
-      val itemsFlow = provider.getItems(params)
+    SeLog.log(SeLog.ITEM_EMIT) { "Backend will request items from providers: ${providerIds.joinToString(", ")}" }
 
-      itemsFlow.collect { item ->
+    val itemsFlows = providerIds.mapNotNull {
+      getProvidersHolder(sessionRef, dataContextId)
+        ?.get(it, isAllTab)
+        ?.getItems(params)
+    }
+
+    val equalityChecker = SeEqualityChecker()
+    return flow {
+      itemsFlows.merge().buffer(capacity = 0, onBufferOverflow = BufferOverflow.SUSPEND).mapNotNull { itemData ->
+        equalityChecker.checkAndUpdateIfNeeded(itemData)
+      }.collect { item ->
         requestedCountState.first { it > 0 }
         requestedCountState.update { it - 1 }
 
         emit(item)
       }
     }.onCompletion {
+      SeLog.log(SeLog.ITEM_EMIT) { "Backend merged flow completed" }
       receivingJob.cancel()
     }
   }
 
-  private suspend fun getProvidersHolder(sessionRef: DurableRef<SeSessionEntity>,
-                                         dataContextId: DataContextId?): SeProvidersHolder? {
+  private suspend fun getProvidersHolder(
+    sessionRef: DurableRef<SeSessionEntity>,
+    dataContextId: DataContextId?,
+  ): SeProvidersHolder? =
+    mutex.withLock {
+      val session = sessionRef.derefOrNull() ?: return@withLock null
+      sessionIdToProviderHolders[session.eid]?.let { return@withLock it }
 
-    val session = sessionRef.derefOrNull() ?: return null
-    var existingHolderEntities = entities(Session, session)
-
-    if (existingHolderEntities.isEmpty()) {
       if (dataContextId == null) {
         throw IllegalStateException("Cannot create providers on the backend: no serialized data context")
       }
@@ -80,61 +93,48 @@ class SeBackendService(val project: Project, private val coroutineScope: Corouti
       } ?: throw IllegalStateException("Cannot create providers on the backend: couldn't deserialize data context")
 
       val actionEvent = AnActionEvent.createEvent(dataContext, null, "", ActionUiKind.NONE, null)
-
-      // We may create providers several times, but only one set of providers will be saved as a property to a session entity
       val providersHolder = SeProvidersHolder.initialize(actionEvent, project, sessionRef, "Backend")
+      sessionIdToProviderHolders[session.eid] = providersHolder
 
-      existingHolderEntities = change {
-        if (!session.exists()) {
-          Disposer.dispose(providersHolder)
-          return@change emptySet()
-        }
-
-        val existingEntities = entities(Session, session)
-        if (existingEntities.isNotEmpty()) {
-          Disposer.dispose(providersHolder)
-          existingEntities
-        }
-        else {
-          val entity = SeBackendItemDataProvidersHolderEntity.new {
-            it[ProvidersHolder] = providersHolder
-            it[Session] = session
-          }
-
-          entity.onDispose(coroutineScope.coroutineContext[Rete]!!) {
-            Disposer.dispose(providersHolder)
-          }
-
-          setOf(entity)
-        }
+      session.onDispose(coroutineScope.coroutineContext[Rete]!!) {
+        Disposer.dispose(providersHolder)
+        sessionIdToProviderHolders.remove(session.eid)
       }
+
+      return@withLock providersHolder
     }
 
-    return existingHolderEntities.firstOrNull()?.providersHolder
-  }
-
-  suspend fun itemSelected(sessionRef: DurableRef<SeSessionEntity>, itemData: SeItemData, modifiers: Int, searchText: String): Boolean {
-    val provider = getProvidersHolder(sessionRef, null)?.get(itemData.providerId, false) ?: return false
+  suspend fun itemSelected(sessionRef: DurableRef<SeSessionEntity>, itemData: SeItemData, modifiers: Int, searchText: String, isAllTab: Boolean): Boolean {
+    val provider = getProvidersHolder(sessionRef, null)?.get(itemData.providerId, isAllTab) ?: return false
 
     return provider.itemSelected(itemData, modifiers, searchText)
   }
 
-  suspend fun getSearchScopesInfoForProvider(
+  suspend fun getSearchScopesInfoForProviders(
     sessionRef: DurableRef<SeSessionEntity>,
     dataContextId: DataContextId,
-    providerId: SeProviderId,
-  ): SeSearchScopesInfo? {
-    val provider = getProvidersHolder(sessionRef, dataContextId)?.get(providerId, false)
-    return provider?.getSearchScopesInfo()
+    providerIds: List<SeProviderId>,
+    isAllTab: Boolean,
+  ): Map<SeProviderId, SeSearchScopesInfo> {
+    return providerIds.mapNotNull { providerId ->
+      val provider = getProvidersHolder(sessionRef, dataContextId)?.get(providerId, isAllTab)
+      provider?.getSearchScopesInfo()?.let {
+        providerId to it
+      }
+    }.toMap()
   }
 
-  suspend fun getTypeVisibilityStatesForProvider(
+  suspend fun getTypeVisibilityStatesForProviders(
+    index: Int,
     sessionRef: DurableRef<SeSessionEntity>,
     dataContextId: DataContextId,
-    providerId: SeProviderId,
-  ): List<SeTypeVisibilityStatePresentation>? {
-    val provider = getProvidersHolder(sessionRef, dataContextId)?.get(providerId, false)
-    return provider?.getTypeVisibilityStates()
+    providerIds: List<SeProviderId>,
+    isAllTab: Boolean,
+  ): List<SeTypeVisibilityStatePresentation> {
+    return providerIds.mapNotNull { providerId ->
+      val provider = getProvidersHolder(sessionRef, dataContextId)?.get(providerId, isAllTab)
+      provider?.getTypeVisibilityStates(index)
+    }.flatten()
   }
 
   suspend fun getDisplayNameForProvider(
@@ -153,10 +153,38 @@ class SeBackendService(val project: Project, private val coroutineScope: Corouti
   suspend fun canBeShownInFindResults(
     sessionRef: DurableRef<SeSessionEntity>,
     dataContextId: DataContextId,
+    providerIds: List<SeProviderId>,
+    isAllTab: Boolean,
+  ): Boolean {
+    return providerIds.any { providerId ->
+      val provider = getProvidersHolder(sessionRef, dataContextId)?.get(providerId, isAllTab)
+      provider?.canBeShownInFindResults() ?: false
+    }
+  }
+
+  suspend fun isShownInSeparateTab(
+    sessionRef: DurableRef<SeSessionEntity>,
+    dataContextId: DataContextId,
     providerId: SeProviderId,
   ): Boolean {
-    val provider = getProvidersHolder(sessionRef, dataContextId)?.get(providerId, false) ?: return false
-    return provider.canBeShownInFindResults()
+    return getProvidersHolder(sessionRef, dataContextId)?.getLegacyContributor(providerId, false)?.isShownInSeparateTab ?: false
+  }
+
+  suspend fun openInFindToolWindow(
+    projectId: ProjectId,
+    sessionRef: DurableRef<SeSessionEntity>,
+    dataContextId: DataContextId?,
+    providerIds: List<SeProviderId>,
+    params: SeParams,
+    isAllTab: Boolean,
+  ): Boolean {
+    val providersHolder = getProvidersHolder(sessionRef, dataContextId)
+    if (providersHolder == null) return false
+
+    SeFindToolWindowManager(project).openInFindToolWindow(
+      providerIds, params, isAllTab, providersHolder, projectId,
+    )
+    return true
   }
 
   companion object {

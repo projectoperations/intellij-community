@@ -1,4 +1,5 @@
 ### auto-generated section `build intellij.execution.process.mediator.client` start
+load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources", "jvm_test")
 
 jvm_resources(
@@ -19,6 +20,7 @@ jvm_library(
     "@lib//:protobuf",
     "//platform/execution-process-mediator/daemon",
     "//platform/execution-process-mediator/common",
+    "//platform/core-api:core",
     "//platform/util",
     "//platform/util-ex",
     "//platform/platform-impl:ide-impl",
@@ -43,6 +45,7 @@ jvm_library(
     "//platform/execution-process-mediator/daemon",
     "//platform/execution-process-mediator/common",
     "//platform/execution-process-mediator/common:common_test_lib",
+    "//platform/core-api:core",
     "//platform/util",
     "//platform/util-ex",
     "//platform/platform-impl:ide-impl",
@@ -59,7 +62,7 @@ jvm_library(
   runtime_deps = [":client_resources"]
 )
 
-jvm_test(
+jps_test(
   name = "client_test",
   runtime_deps = [":client_test_lib"]
 )

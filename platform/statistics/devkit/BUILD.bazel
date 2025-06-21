@@ -1,4 +1,5 @@
 ### auto-generated section `build intellij.platform.statistics.devkit` start
+load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources", "jvm_test")
 
 jvm_resources(
@@ -14,12 +15,16 @@ jvm_library(
   srcs = glob(["src/**/*.kt", "src/**/*.java", "src/**/*.form"], allow_empty = True),
   deps = [
     "@lib//:kotlin-stdlib",
+    "//platform/analysis-api:analysis",
+    "//platform/code-style-api:codeStyle",
+    "//platform/core-api:core",
     "//platform/editor-ui-api:editor-ui",
     "//platform/platform-api:ide",
     "//platform/platform-impl:ide-impl",
     "//platform/lang-api:lang",
     "//platform/lang-impl",
     "//platform/execution-impl",
+    "//platform/projectModel-api:projectModel",
     "@lib//:guava",
     "//platform/statistics",
     "//platform/util/progress",
@@ -41,6 +46,9 @@ jvm_library(
   associates = [":devkit"],
   deps = [
     "@lib//:kotlin-stdlib",
+    "//platform/analysis-api:analysis",
+    "//platform/code-style-api:codeStyle",
+    "//platform/core-api:core",
     "//platform/editor-ui-api:editor-ui",
     "//platform/platform-api:ide",
     "//platform/platform-impl:ide-impl",
@@ -48,6 +56,7 @@ jvm_library(
     "//platform/lang-api:lang",
     "//platform/lang-impl",
     "//platform/execution-impl",
+    "//platform/projectModel-api:projectModel",
     "//platform/testFramework",
     "//platform/testFramework:testFramework_test_lib",
     "@lib//:guava",
@@ -65,7 +74,7 @@ jvm_library(
   runtime_deps = [":devkit_resources"]
 )
 
-jvm_test(
+jps_test(
   name = "devkit_test",
   runtime_deps = [":devkit_test_lib"]
 )

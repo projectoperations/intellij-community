@@ -299,13 +299,14 @@ open class MavenArtifactsBuilder(protected val context: BuildContext) {
         }
       }
     }
+    val patchedDependencies = context.productProperties.mavenArtifacts.patchDependencies(module, dependencies)
     computationInProgress.remove(module)
     if (!mavenizable) {
       nonMavenizableModules.add(module)
       return null
     }
 
-    val artifactData = MavenArtifactData(module, generateMavenCoordinatesForModule(module), dependencies)
+    val artifactData = MavenArtifactData(module, generateMavenCoordinatesForModule(module), patchedDependencies)
     if (!module.isLibraryModule()) {
       results[module] = artifactData
     }
@@ -328,7 +329,7 @@ open class MavenArtifactsBuilder(protected val context: BuildContext) {
   }
 }
 
-internal enum class DependencyScope {
+enum class DependencyScope {
   COMPILE, RUNTIME
 }
 
@@ -353,7 +354,7 @@ internal data class MavenArtifactData(
   val dependencies: List<MavenArtifactDependency>
 )
 
-internal data class MavenArtifactDependency(
+data class MavenArtifactDependency(
   val coordinates: MavenCoordinates,
   val includeTransitiveDeps: Boolean,
   val excludedDependencies: List<String>,
@@ -481,16 +482,17 @@ private suspend fun layoutMavenArtifacts(
         val jar = artifactDir.resolve(artifactData.coordinates.getFileName(packaging = "jar"))
         buildJar(
           targetFile = jar,
-          sources = modulesWithSources.map {
-            val moduleOutput = context.getModuleOutputDir(it)
-            check(Files.exists(moduleOutput)) {
-              "$it module output directory doesn't exist: $moduleOutput"
-            }
-            if (moduleOutput.toString().endsWith(".jar")) {
-              ZipSource(file = moduleOutput, distributionFileEntryProducer = null, filter = createModuleSourcesNamesFilter(commonModuleExcludes))
-            }
-            else {
-              DirSource(dir = moduleOutput, excludes = commonModuleExcludes)
+          sources = modulesWithSources.flatMap {
+            context.getModuleOutputRoots(it).map { moduleOutput ->
+              check(Files.exists(moduleOutput)) {
+                "$it module output directory doesn't exist: $moduleOutput"
+              }
+              if (moduleOutput.toString().endsWith(".jar")) {
+                ZipSource(file = moduleOutput, distributionFileEntryProducer = null, filter = createModuleSourcesNamesFilter(commonModuleExcludes))
+              }
+              else {
+                DirSource(dir = moduleOutput, excludes = commonModuleExcludes)
+              }
             }
           },
         )

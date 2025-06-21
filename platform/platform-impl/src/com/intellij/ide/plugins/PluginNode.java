@@ -237,10 +237,12 @@ public final class PluginNode implements IdeaPluginDescriptor {
     this.vendor = vendor;
   }
 
+  @ApiStatus.Internal
   public @Nullable PluginNodeVendorDetails getVendorDetails() {
     return vendorDetails;
   }
 
+  @ApiStatus.Internal
   public void setVendorDetails(@Nullable PluginNodeVendorDetails vendorDetails) {
     this.vendorDetails = vendorDetails;
   }
@@ -468,6 +470,10 @@ public final class PluginNode implements IdeaPluginDescriptor {
 
   public void addDepends(@NotNull String id, boolean optional) {
     myDependencies.add(new PluginNodeDependency(PluginId.getId(id), optional));
+  }
+
+  public void addDepends(@NotNull PluginId id, boolean optional) {
+    myDependencies.add(new PluginNodeDependency(id, optional));
   }
 
   @Override

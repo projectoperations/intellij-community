@@ -296,7 +296,7 @@ class SchemeManagerImpl<T : Scheme, MUTABLE_SCHEME : T>(
     }
   }
 
-  override fun reload(retainFilter: ((scheme: T) -> Boolean)?) {
+  override fun reload() {
     processor.beforeReloaded(this)
     // we must not remove non-persistent (e.g., predefined) schemes, because we cannot load them
     // do not schedule the scheme file removing because we just need to update our runtime state, not state on disk
@@ -305,22 +305,20 @@ class SchemeManagerImpl<T : Scheme, MUTABLE_SCHEME : T>(
   }
 
   // this method is used to reflect already performed changes on disk, so, `isScheduleToDelete = false` is passed to `retainExternalInfo`
-  internal fun removeExternalizableSchemesFromRuntimeState(retainFilter: ((scheme: T) -> Boolean)? = null) {
-    val effectiveRetainFilter = retainFilter ?: { scheme ->
-      ((scheme as? SerializableScheme)?.schemeState ?: processor.getState(scheme)) == SchemeState.NON_PERSISTENT
-    }
-
+  internal fun removeExternalizableSchemesFromRuntimeState() {
     // todo check is bundled/read-only schemes correctly handled
     val list = schemeListManager.data
     val iterator = list.list.iterator()
     for (scheme in iterator) {
-      if (effectiveRetainFilter(scheme)) {
+      if (((scheme as? SerializableScheme)?.schemeState ?: processor.getState(scheme)) == SchemeState.NON_PERSISTENT) {
         continue
       }
 
+      LOG.debug { "removeExternalizableSchemesFromRuntimeState: remove scheme '$scheme'@${System.identityHashCode(scheme)}" }
       activeScheme?.let {
         if (scheme === it) {
           currentPendingSchemeName = processor.getSchemeKey(it)
+          LOG.debug { "removeExternalizableSchemesFromRuntimeState: set currentPendingSchemeName to $currentPendingSchemeName" }
           activeScheme = null
         }
       }
@@ -455,6 +453,16 @@ class SchemeManagerImpl<T : Scheme, MUTABLE_SCHEME : T>(
     var fileNameWithoutExtension = currentFileNameWithoutExtension
     if (fileNameWithoutExtension == null || isRenamed(scheme)) {
       fileNameWithoutExtension = nameGenerator.generateUniqueName(schemeNameToFileName(processor.getSchemeKey(scheme)))
+      if (LOG.isDebugEnabled) {
+        val allSchemes = schemeListManager.schemes
+        LOG.debug("""
+          |Generate scheme file name '$fileNameWithoutExtension' for '$scheme'@${System.identityHashCode(scheme)}
+          | currentFileNameWithoutExtension=$currentFileNameWithoutExtension
+          | externalInfo=$externalInfo
+          | ${allSchemes.size} schemes:
+          | ${allSchemes.joinToString(separator = "\n ") { "${it.name}@${System.identityHashCode(it)} -> ${schemeListManager.getExternalInfo(it)?.fileNameWithoutExtension}" }}
+          |""".trimMargin())
+      }
     }
 
     val fileName = fileNameWithoutExtension + schemeExtension

@@ -78,17 +78,23 @@ open class IdeaCommunityProperties(private val communityHomeDir: Path) : BaseIde
     ))
     mavenArtifacts.patchCoordinates = { module, coordinates ->
       when {
-        JewelMavenArtifacts.isJewel(module) -> JewelMavenArtifacts.patchCoordinates(module, coordinates)
+        JewelMavenArtifacts.isPublishedJewelModule(module) -> JewelMavenArtifacts.patchCoordinates(module, coordinates)
         else -> coordinates
+      }
+    }
+    mavenArtifacts.patchDependencies = { module, dependencies ->
+      when {
+        JewelMavenArtifacts.isPublishedJewelModule(module) -> JewelMavenArtifacts.patchDependencies(module, dependencies)
+        else -> dependencies
       }
     }
     mavenArtifacts.addPomMetadata = { module, model ->
       when {
-        JewelMavenArtifacts.isJewel(module) -> JewelMavenArtifacts.addPomMetadata(module, model)
+        JewelMavenArtifacts.isPublishedJewelModule(module) -> JewelMavenArtifacts.addPomMetadata(module, model)
       }
     }
     mavenArtifacts.isJavadocJarRequired = {
-      JewelMavenArtifacts.isJewel(it)
+      JewelMavenArtifacts.isPublishedJewelModule(it)
     }
     mavenArtifacts.validate = { context, artifacts ->
       JewelMavenArtifacts.validate(context, artifacts)
@@ -152,8 +158,8 @@ open class IdeaCommunityProperties(private val communityHomeDir: Path) : BaseIde
 
     override fun getRootDirectoryName(appInfo: ApplicationInfoProperties, buildNumber: String): String = "idea-IC-$buildNumber"
 
-    override fun generateExecutableFilesPatterns(context: BuildContext, includeRuntime: Boolean, arch: JvmArchitecture): Sequence<String> =
-      super.generateExecutableFilesPatterns(context, includeRuntime, arch)
+    override fun generateExecutableFilesPatterns(context: BuildContext, includeRuntime: Boolean, arch: JvmArchitecture, targetLibcImpl: LibcImpl): Sequence<String> =
+      super.generateExecutableFilesPatterns(context, includeRuntime, arch, targetLibcImpl)
         .plus(KotlinBinaries.kotlinCompilerExecutables)
         .filterNot { it == "plugins/**/*.sh" }
   }

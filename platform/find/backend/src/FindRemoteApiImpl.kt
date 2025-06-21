@@ -2,9 +2,11 @@
 package com.intellij.platform.find.backend
 
 import com.intellij.find.FindModel
+import com.intellij.find.FindSettings
 import com.intellij.find.actions.ShowUsagesAction
 import com.intellij.find.findInProject.FindInProjectManager
 import com.intellij.find.impl.FindInProjectUtil
+import com.intellij.find.impl.FindPopupPanel
 import com.intellij.find.impl.getPresentableFilePath
 import com.intellij.find.replaceInProject.ReplaceInProjectManager
 import com.intellij.ide.ui.colors.rpcId
@@ -29,11 +31,13 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.launch
+import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 
 private val LOG: Logger = logger<FindRemoteApiImpl>()
 
 internal class FindRemoteApiImpl : FindRemoteApi {
+
   override suspend fun findByModel(findModel: FindModel, projectId: ProjectId, filesToScanInitially: List<VirtualFileId>): Flow<FindInFilesResult> {
     return channelFlow {
       coroutineScope {
@@ -84,7 +88,9 @@ internal class FindRemoteApiImpl : FindRemoteApi {
             length = adapter.navigationRange.endOffset - adapter.navigationRange.startOffset,
             originalLength = originalLength,
             fileId = virtualFile.rpcId(),
-            presentablePath = presentablePath,
+            presentablePath = if (virtualFile.parent == null) FindPopupPanel.getPresentablePath(project, virtualFile) ?: virtualFile.presentableUrl
+            else FindPopupPanel.getPresentablePath(project, virtualFile.parent) + File.separator + virtualFile.name,
+            shortenPresentablePath = presentablePath,
             backgroundColor = bgColor,
             tooltipText = adapter.tooltipText,
             iconId = adapter.icon?.rpcId(),
@@ -98,8 +104,11 @@ internal class FindRemoteApiImpl : FindRemoteApi {
     }
   }
 
-  override suspend fun performFindAllOrReplaceAll(findModel: FindModel, projectId: ProjectId) {
+  override suspend fun performFindAllOrReplaceAll(findModel: FindModel, openInNewTab: Boolean, projectId: ProjectId) {
     val project = projectId.findProjectOrNull()
+    val findSettings = FindSettings.getInstance()
+    val separateViewSaved = findSettings.isShowResultsInSeparateView
+    findSettings.isShowResultsInSeparateView = openInNewTab
     if (project == null) {
       LOG.warn("Project not found for id ${projectId}. FindAll/ReplaceAll operation skipped")
       return
@@ -110,5 +119,10 @@ internal class FindRemoteApiImpl : FindRemoteApi {
     else {
       FindInProjectManager.getInstance(project).findInPath(findModel)
     }
+    findSettings.isShowResultsInSeparateView = separateViewSaved
+  }
+
+  override suspend fun checkDirectoryExists(findModel: FindModel): Boolean {
+    return FindInProjectUtil.getDirectory(findModel) != null
   }
 }

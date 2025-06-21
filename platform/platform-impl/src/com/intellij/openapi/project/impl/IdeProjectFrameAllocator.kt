@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.project.impl
 
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer
@@ -24,13 +24,9 @@ import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.fileEditor.TextEditor
 import com.intellij.openapi.fileEditor.TextEditorWithPreview
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
-import com.intellij.openapi.fileEditor.impl.EditorsSplitters
-import com.intellij.openapi.fileEditor.impl.FileEditorManagerImpl
-import com.intellij.openapi.fileEditor.impl.FileEditorOpenOptions
-import com.intellij.openapi.fileEditor.impl.stopOpenFilesActivity
+import com.intellij.openapi.fileEditor.impl.*
 import com.intellij.openapi.fileEditor.impl.text.AsyncEditorLoader
 import com.intellij.openapi.options.advanced.AdvancedSettings
-import com.intellij.openapi.progress.blockingContext
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ReadmeShownUsageCollector.README_OPENED_ON_START_TS
 import com.intellij.openapi.project.guessProjectDir
@@ -54,6 +50,7 @@ import com.intellij.problems.WolfTheProblemSolver
 import com.intellij.psi.PsiManager
 import com.intellij.toolWindow.computeToolWindowBeans
 import com.intellij.ui.ScreenUtil
+import com.intellij.util.PlatformUtils
 import com.intellij.util.TimeoutUtil
 import com.intellij.util.messages.SimpleMessageBusConnection
 import kotlinx.coroutines.*
@@ -150,7 +147,7 @@ internal class IdeProjectFrameAllocator(
 
       val toolWindowInitJob = launch {
         val project = projectInitObservable.awaitProjectInit()
-        span<Unit>("initFrame") {
+        span("initFrame") {
           launch(CoroutineName("tool window pane creation")) {
             val toolWindowManager = async { project.serviceAsync<ToolWindowManager>() as? ToolWindowManagerImpl }
             val taskListDeferred = async(CoroutineName("toolwindow init command creation")) {
@@ -160,7 +157,7 @@ internal class IdeProjectFrameAllocator(
               deferredProjectFrameHelper.await().toolWindowPane
             }
             toolWindowManager.await()?.init(
-              toolWindowPane,
+              pane = toolWindowPane,
               reopeningEditorJob = reopeningEditorJob,
               taskListDeferred = taskListDeferred,
             )
@@ -172,9 +169,7 @@ internal class IdeProjectFrameAllocator(
         val project = projectInitObservable.awaitProjectInit()
         val startUpContextElementToPass = FUSProjectHotStartUpMeasurer.getStartUpContextElementToPass() ?: EmptyCoroutineContext
 
-        val onNoEditorsLeft = blockingContext {
-          captureThreadContext(Runnable { FUSProjectHotStartUpMeasurer.reportNoMoreEditorsOnStartup(System.nanoTime()) })
-        }
+        val onNoEditorsLeft = captureThreadContext { FUSProjectHotStartUpMeasurer.reportNoMoreEditorsOnStartup(System.nanoTime()) }
 
         @Suppress("UsagesOfObsoleteApi")
         (project as ComponentManagerEx).getCoroutineScope().launch(startUpContextElementToPass + rootTask()) {
@@ -193,7 +188,7 @@ internal class IdeProjectFrameAllocator(
           )
         }.invokeOnCompletion { throwable ->
           if (throwable != null) {
-            onNoEditorsLeft.run()
+            onNoEditorsLeft()
           }
         }
       }
@@ -246,7 +241,7 @@ internal class IdeProjectFrameAllocator(
         return
       }
     }
-    catch (_: CancellationException) {
+    catch (@Suppress("IncorrectCancellationExceptionHandling") _: CancellationException) {
     }
 
     // make sure that in case of some error we close frame for a not loaded project
@@ -257,7 +252,7 @@ internal class IdeProjectFrameAllocator(
 
   private fun getFrame(): IdeFrameImpl? {
     return options.frame
-           ?: (ApplicationManager.getApplication().serviceIfCreated<WindowManager>() as? WindowManagerImpl)?.removeAndGetRootFrame()
+           ?: (serviceIfCreated<WindowManager>() as? WindowManagerImpl)?.removeAndGetRootFrame()
   }
 
   private suspend fun getFrameInfo(): FrameInfo {
@@ -369,9 +364,7 @@ private suspend fun postOpenEditors(
   }
 
   project.getUserData(ProjectImpl.CREATION_TIME)?.let { startTime ->
-    blockingContext {
-      LifecycleUsageTriggerCollector.onProjectOpenFinished(project, TimeoutUtil.getDurationMillis(startTime), frameHelper.isTabbedWindow)
-    }
+    LifecycleUsageTriggerCollector.onProjectOpenFinished(project, TimeoutUtil.getDurationMillis(startTime), frameHelper.isTabbedWindow)
   }
 
   // check after `initDockableContentFactory` - editor in a docked window
@@ -381,26 +374,39 @@ private suspend fun postOpenEditors(
       openProjectViewIfNeeded(project, toolWindowInitJob)
       findAndOpenReadmeIfNeeded(project)
     }
-    blockingContext {
-      FUSProjectHotStartUpMeasurer.reportNoMoreEditorsOnStartup(System.nanoTime())
-    }
+    FUSProjectHotStartUpMeasurer.reportNoMoreEditorsOnStartup(System.nanoTime())
   }
 }
 
 private suspend fun focusSelectedEditor(editorComponent: EditorsSplitters) {
   val composite = editorComponent.currentWindow?.selectedComposite ?: return
-  composite.waitForAvailable()
+  // TODO: this check for JB Client is made to keep the same behaviour in monolith,
+  //   but in 253 we may remove this check and see what may be broken with async editor focus
+  if (!PlatformUtils.isJetBrainsClient()) {
+    // let's focus the editor synchronously in local mode
+    composite.waitForAvailable()
+    focusSelectedEditorInComposite(composite)
+  }
+  else {
+    // in Remote Dev we cannot wait for composite availability synchronously,
+    // since editors come from the backend and this is a too long process
+    composite.coroutineScope.launch(Dispatchers.EDT + FUSProjectHotStartUpMeasurer.getContextElementToPass()) {
+      composite.waitForAvailable()
+      focusSelectedEditorInComposite(composite)
+    }
+  }
+}
+
+private suspend fun focusSelectedEditorInComposite(composite: EditorComposite) {
   val textEditor = composite.selectedEditor as? TextEditor
   if (textEditor == null) {
     FUSProjectHotStartUpMeasurer.firstOpenedUnknownEditor(composite.file, System.nanoTime())
     composite.preferredFocusedComponent?.requestFocusInWindow()
   }
   else {
-    blockingContext {
-      AsyncEditorLoader.performWhenLoaded(textEditor.editor) {
-        FUSProjectHotStartUpMeasurer.firstOpenedEditor(composite.file, composite.project)
-        composite.preferredFocusedComponent?.requestFocusInWindow()
-      }
+    AsyncEditorLoader.performWhenLoaded(textEditor.editor) {
+      FUSProjectHotStartUpMeasurer.firstOpenedEditor(composite.file, composite.project)
+      composite.preferredFocusedComponent?.requestFocusInWindow()
     }
   }
 }
@@ -458,7 +464,7 @@ fun createIdeFrame(frameInfo: FrameInfo): IdeFrameImpl {
     // This has to be done after restoring the actual state, as otherwise setExtendedState() may overwrite the normal bounds.
     if (restoreNormalBounds) {
       frame.normalBounds = bounds
-      frame.screenBounds = ScreenUtil.getScreenDevice(bounds!!)?.defaultConfiguration?.bounds
+      frame.screenBounds = ScreenUtil.getScreenDevice(bounds)?.defaultConfiguration?.bounds
       if (IDE_FRAME_EVENT_LOG.isDebugEnabled) { // avoid unnecessary concatenation
         IDE_FRAME_EVENT_LOG.debug("Loaded saved normal bounds ${frame.normalBounds} for the screen ${frame.screenBounds}")
       }

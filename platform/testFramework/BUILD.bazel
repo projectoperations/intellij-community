@@ -1,4 +1,5 @@
 ### auto-generated section `build intellij.platform.testFramework` start
+load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_provided_library", "jvm_resources", "jvm_test")
 
 jvm_resources(
@@ -42,11 +43,15 @@ jvm_library(
     "@lib//:kotlin-stdlib",
     "@lib//:kotlinx-coroutines-core",
     "//java/java-runtime:rt",
+    "//platform/analysis-api:analysis",
     "//platform/analysis-impl",
     "//platform/backend/observation",
     "//platform/backend/workspace",
     "//platform/boot",
+    "//platform/code-style-api:codeStyle",
     "//platform/code-style-impl:codeStyle-impl",
+    "//platform/util/concurrency",
+    "//platform/core-api:core",
     "//platform/core-ui",
     "//platform/diagnostic/telemetry",
     "//platform/editor-ui-ex:editor-ex",
@@ -60,11 +65,15 @@ jvm_library(
     "//platform/platform-util-io:ide-util-io",
     "//platform/platform-util-io-impl:ide-util-io-impl",
     "//platform/platform-util-netty:ide-util-netty",
+    "//platform/indexing-api:indexing",
     "//platform/indexing-impl",
     "//jps/model-api:model",
+    "//jps/model-serialization",
     "//platform/lang-api:lang",
+    "//platform/lang-core",
     "//platform/lang-impl",
     "//platform/lvcs-api:lvcs",
+    "//platform/projectModel-api:projectModel",
     "//platform/refactoring",
     "//platform/service-container",
     "//platform/structure-view-impl:structureView-impl",
@@ -90,8 +99,6 @@ jvm_library(
     "@lib//:junit5-provided",
     "@lib//:junit5Params-provided",
     "//libraries/junit4",
-    "//platform/core-ui",
-    "//platform/execution-impl",
     "//platform/ide-core-impl",
     "//platform/platform-impl:ide-impl",
     "//platform/testFramework/common",
@@ -118,6 +125,7 @@ jvm_library(
     "@lib//:assert_j",
     "@lib//:kotlin-stdlib",
     "@lib//:kotlinx-coroutines-core",
+    "@lib//:kotlinx-coroutines-slf4j",
     "@lib//:http-client",
     "@lib//:jackson",
     "@lib//:jackson-databind",
@@ -126,12 +134,17 @@ jvm_library(
     "//java/java-runtime:rt",
     "//libraries/junit4",
     "//libraries/junit5-launcher",
+    "//platform/analysis-api:analysis",
     "//platform/analysis-impl",
     "//platform/backend/observation",
     "//platform/backend/observation:observation_test_lib",
     "//platform/backend/workspace",
     "//platform/boot",
+    "//platform/code-style-api:codeStyle",
     "//platform/code-style-impl:codeStyle-impl",
+    "//platform/util/concurrency",
+    "//platform/util/concurrency:concurrency_test_lib",
+    "//platform/core-api:core",
     "//platform/core-ui",
     "//platform/diagnostic/telemetry",
     "//platform/diagnostic/telemetry:telemetry_test_lib",
@@ -147,11 +160,15 @@ jvm_library(
     "//platform/platform-util-io:ide-util-io",
     "//platform/platform-util-io-impl:ide-util-io-impl",
     "//platform/platform-util-netty:ide-util-netty",
+    "//platform/indexing-api:indexing",
     "//platform/indexing-impl",
     "//jps/model-api:model",
+    "//jps/model-serialization",
     "//platform/lang-api:lang",
+    "//platform/lang-core",
     "//platform/lang-impl",
     "//platform/lvcs-api:lvcs",
+    "//platform/projectModel-api:projectModel",
     "//platform/refactoring",
     "//platform/service-container",
     "//platform/service-container:service-container_test_lib",
@@ -182,7 +199,7 @@ jvm_library(
   ]
 )
 
-jvm_test(
+jps_test(
   name = "testFramework_test",
   runtime_deps = [":testFramework_test_lib"]
 )

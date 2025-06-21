@@ -100,9 +100,15 @@ enum class JavaFeature {
 
   SCOPED_VALUES(LanguageLevel.JDK_21_PREVIEW, "feature.scoped.values"),
   STRUCTURED_CONCURRENCY(LanguageLevel.JDK_21_PREVIEW, "feature.structured.concurrency"),
+
+  IMPLICIT_CLASS_NAME_OUT_OF_SCOPE(LanguageLevel.JDK_22_PREVIEW, "feature.implicit.class.name.out.of.scope"),
   CLASSFILE_API(LanguageLevel.JDK_22_PREVIEW, "feature.classfile.api"),
   STREAM_GATHERERS(LanguageLevel.JDK_22_PREVIEW, "feature.stream.gatherers"),
-  STATEMENTS_BEFORE_SUPER(LanguageLevel.JDK_22_PREVIEW, "feature.statements.before.super"),
+  STATEMENTS_BEFORE_SUPER(LanguageLevel.JDK_22_PREVIEW, "feature.statements.before.super") {
+    override fun isSufficient(useSiteLevel: LanguageLevel): Boolean {
+      return super.isSufficient(useSiteLevel) || useSiteLevel.isAtLeast(LanguageLevel.JDK_25)
+    }
+  },
   /**
    * Was a preview feature in Java 20 Preview.
    * Keep the implementation, as it could reappear in the future.
@@ -113,6 +119,7 @@ enum class JavaFeature {
   //jep 463,477
   INHERITED_STATIC_MAIN_METHOD(LanguageLevel.JDK_22_PREVIEW, "feature.inherited.static.main.method"),
   IMPLICIT_IMPORT_IN_IMPLICIT_CLASSES(LanguageLevel.JDK_23_PREVIEW, "feature.implicit.import.in.implicit.classes"),
+  //JEP 507
   PRIMITIVE_TYPES_IN_PATTERNS(LanguageLevel.JDK_23_PREVIEW, "feature.primitive.types.in.patterns"),
 
   //see together with PACKAGE_IMPORTS_SHADOW_MODULE_IMPORTS and TRANSITIVE_DEPENDENCY_ON_JAVA_BASE
@@ -125,6 +132,9 @@ enum class JavaFeature {
   MARKDOWN_COMMENT(LanguageLevel.JDK_23, "feature.markdown.comment"),
   PACKAGE_IMPORTS_SHADOW_MODULE_IMPORTS(LanguageLevel.JDK_24_PREVIEW, "feature.package.import.shadow.module.import"),
   TRANSITIVE_DEPENDENCY_ON_JAVA_BASE(LanguageLevel.JDK_24_PREVIEW, "feature.package.transitive.dependency.on.java.base"),
+
+  JAVA_LANG_IO(LanguageLevel.JDK_25, "feature.java.lang.io"),
+
   VALHALLA_VALUE_CLASSES(LanguageLevel.JDK_X, "feature.valhalla.value.classes"),
   ;
 
@@ -198,7 +208,7 @@ enum class JavaFeature {
     get() = if (minimumLevel.isPreview) null else this.minimumLevel
 
   companion object {
-    // Should correspond to jdk.internal.javac.PreviewFeature.Feature enum
+    // Values taken from jdk.internal.javac.PreviewFeature.Feature enum
     @Contract(pure = true)
     @JvmStatic
     fun convertFromPreviewFeatureName(feature: @NonNls String): JavaFeature? {
@@ -215,6 +225,7 @@ enum class JavaFeature {
         "STREAM_GATHERERS" -> STREAM_GATHERERS
         "FOREIGN" -> FOREIGN_FUNCTIONS
         "VIRTUAL_THREADS" -> VIRTUAL_THREADS
+        "MODULE_IMPORTS" -> MODULE_IMPORT_DECLARATIONS
         else -> null
       }
     }

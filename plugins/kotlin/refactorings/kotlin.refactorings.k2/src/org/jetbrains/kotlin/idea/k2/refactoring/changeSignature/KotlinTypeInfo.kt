@@ -79,14 +79,22 @@ internal fun KtPsiFactory.createType(
                     }
 
                     val ktSubstitutor = createSubstitutor(inheritedCallable, baseFunction)
-                    val ktType = createTypeCodeFragment(typeText.ifEmpty { StandardClassIds.Any.asFqNameString() }, baseFunction).getContentElement()?.type
-                    if (ktType != null) {
-                        val type = ktSubstitutor?.substitute(ktType) ?: ktType
-                        val substitutedType = type.render(position = variance)
-                        if (isReceiver && type is KaDefinitelyNotNullType) {
-                            return createType("($substitutedType)")
+
+                    if (ktSubstitutor !is KaSubstitutor.Empty) {
+                        val codeFragment =
+                            createTypeCodeFragment(typeText.ifEmpty { StandardClassIds.Any.asFqNameString() }, baseFunction)
+                        val ktType = analyze(codeFragment) {
+                            codeFragment.getContentElement()?.type?.createPointer()
+                        }?.restore()
+
+                        if (ktType != null) {
+                            val type = ktSubstitutor?.substitute(ktType) ?: ktType
+                            val substitutedType = type.render(position = variance)
+                            if (isReceiver && type is KaDefinitelyNotNullType) {
+                                return createType("($substitutedType)")
+                            }
+                            return createType(substitutedType)
                         }
-                        return createType(substitutedType)
                     }
                 }
             }

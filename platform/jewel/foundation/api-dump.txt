@@ -1,6 +1,55 @@
+f:org.jetbrains.jewel.foundation.DisabledAppearanceValues
+- sf:$stable:I
+- sf:Companion:org.jetbrains.jewel.foundation.DisabledAppearanceValues$Companion
+- <init>(I,I,I):V
+- equals(java.lang.Object):Z
+- f:getAlpha():I
+- f:getBrightness():I
+- f:getContrast():I
+- hashCode():I
+f:org.jetbrains.jewel.foundation.DisabledAppearanceValues$Companion
+f:org.jetbrains.jewel.foundation.DisabledAppearanceValuesKt
+- sf:getLocalDisabledAppearanceValues():androidx.compose.runtime.ProvidableCompositionLocal
 org.jetbrains.jewel.foundation.actionSystem.DataProviderContext
 - a:lazy(java.lang.String,kotlin.jvm.functions.Function0):V
 - a:set(java.lang.String,java.lang.Object):V
+f:org.jetbrains.jewel.foundation.code.MimeType$Known
+- sf:$stable:I
+- sf:INSTANCE:org.jetbrains.jewel.foundation.code.MimeType$Known
+- f:fromMarkdownLanguageName-YABSuFg(java.lang.String):java.lang.String
+- f:getAGSL-9EQw4cI():java.lang.String
+- f:getAIDL-9EQw4cI():java.lang.String
+- f:getC-9EQw4cI():java.lang.String
+- f:getCPP-9EQw4cI():java.lang.String
+- f:getDART-9EQw4cI():java.lang.String
+- f:getDIFF-9EQw4cI():java.lang.String
+- f:getGO-9EQw4cI():java.lang.String
+- f:getGRADLE-9EQw4cI():java.lang.String
+- f:getGRADLE_KTS-9EQw4cI():java.lang.String
+- f:getGROOVY-9EQw4cI():java.lang.String
+- f:getJAVA-9EQw4cI():java.lang.String
+- f:getJAVASCRIPT-9EQw4cI():java.lang.String
+- f:getJSON-9EQw4cI():java.lang.String
+- f:getKOTLIN-9EQw4cI():java.lang.String
+- f:getMANIFEST-9EQw4cI():java.lang.String
+- f:getPATCH-9EQw4cI():java.lang.String
+- f:getPROGUARD-9EQw4cI():java.lang.String
+- f:getPROPERTIES-9EQw4cI():java.lang.String
+- f:getPROTO-9EQw4cI():java.lang.String
+- f:getPYTHON-9EQw4cI():java.lang.String
+- f:getREGEX-9EQw4cI():java.lang.String
+- f:getRESOURCE-9EQw4cI():java.lang.String
+- f:getRUST-9EQw4cI():java.lang.String
+- f:getSHELL-9EQw4cI():java.lang.String
+- f:getSQL-9EQw4cI():java.lang.String
+- f:getSVG-9EQw4cI():java.lang.String
+- f:getTEXT-9EQw4cI():java.lang.String
+- f:getTOML-9EQw4cI():java.lang.String
+- f:getTYPESCRIPT-9EQw4cI():java.lang.String
+- f:getUNKNOWN-9EQw4cI():java.lang.String
+- f:getVERSION_CATALOG-9EQw4cI():java.lang.String
+- f:getXML-9EQw4cI():java.lang.String
+- f:getYAML-9EQw4cI():java.lang.String
 org.jetbrains.jewel.foundation.code.highlighting.CodeHighlighter
 - a:highlight-zTGadEY(java.lang.String,java.lang.String):kotlinx.coroutines.flow.Flow
 org.jetbrains.jewel.foundation.lazy.SelectableLazyItemScope
@@ -16,3 +65,9 @@ org.jetbrains.jewel.foundation.lazy.SelectableLazyListScope
 - bs:stickyHeader$default(org.jetbrains.jewel.foundation.lazy.SelectableLazyListScope,java.lang.Object,java.lang.Object,Z,kotlin.jvm.functions.Function3,I,java.lang.Object):V
 org.jetbrains.jewel.foundation.theme.JewelTheme
 - sf:Companion:org.jetbrains.jewel.foundation.theme.JewelTheme$Companion
+f:org.jetbrains.jewel.foundation.theme.JewelTheme$Companion
+- f:getInstanceUuid(androidx.compose.runtime.Composer,I):java.util.UUID
+f:org.jetbrains.jewel.foundation.theme.JewelThemeKt
+- sf:getLocalThemeInstanceUuid():androidx.compose.runtime.ProvidableCompositionLocal
+f:org.jetbrains.jewel.foundation.theme.ThemeDefinition
+- f:getDisabledAppearanceValues():org.jetbrains.jewel.foundation.DisabledAppearanceValues

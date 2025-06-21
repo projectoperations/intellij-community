@@ -3,6 +3,7 @@ package com.intellij.openapi.progress.util;
 
 import com.intellij.ide.IdeEventQueue;
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.application.ThreadingSupport;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import sun.awt.SunToolkit;
@@ -19,7 +20,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 @ApiStatus.Internal
-class EventStealer {
+public class EventStealer {
   private final LinkedBlockingQueue<InputEvent> myInputEvents = new LinkedBlockingQueue<>();
   private final LinkedBlockingQueue<InvocationEvent> myInvocationEvents = new LinkedBlockingQueue<>();
   private final @NotNull Consumer<? super InputEvent> myInputEventDispatcher;
@@ -44,12 +45,8 @@ class EventStealer {
     }, parent);
   }
 
-  final boolean foo() {
-    return true;
-  }
 
-
-  static boolean isUrgentInvocationEvent(AWTEvent event) {
+  public static boolean isUrgentInvocationEvent(AWTEvent event) {
     // LWCToolkit does 'invokeAndWait', which blocks native event processing until finished. The OS considers that blockage to be
     // app freeze, stops rendering UI and shows beach-ball cursor. We want the UI to act (almost) normally in write-action progresses,
     // so we let these specific events to be dispatched, hoping they wouldn't access project/code model.
@@ -57,13 +54,15 @@ class EventStealer {
     // problem (IDEA-192282): LWCToolkit event might be posted before PotemkinProgress appears,
     // and it then just sits in the queue blocking the whole UI until the progress is finished.
     String eventString = event.toString();
+    // see IDEA-291469 Menu on macOS is invoked inside checkCanceled (PotemkinProgress)
+    if (eventString.contains(",runnable=com.intellij.openapi.actionSystem.impl.ActionMenu$$Lambda") ||
+        eventString.contains(",runnable=com.intellij.platform.ide.menu.MacNativeActionMenuKt$$Lambda")) {
+      return false;
+    }
     return eventString.contains(",runnable=sun.lwawt.macosx.LWCToolkit") || // [tav] todo: remove in 2022.2
-           (event.getClass().getName().equals("sun.awt.AWTThreading$TrackedInvocationEvent") || // see JBR-4208
-            eventString.contains(",runnable=ForcedWriteActionRunnable") ||
-            eventString.contains(",runnable=DispatchTerminationEvent")
-            // see IDEA-291469 Menu on macOS is invoked inside checkCanceled (PotemkinProgress)
-            && !(eventString.contains(",runnable=com.intellij.openapi.actionSystem.impl.ActionMenu$$Lambda") ||
-                 eventString.contains(",runnable=com.intellij.platform.ide.menu.MacNativeActionMenuKt$$Lambda")));
+           eventString.contains(",runnable=" + ThreadingSupport.RunnableWithTransferredWriteAction.NAME) ||
+           eventString.contains(",runnable=DispatchTerminationEvent") ||
+           event.getClass().getName().equals("sun.awt.AWTThreading$TrackedInvocationEvent"); // see JBR-4208
   }
 
 
@@ -96,32 +95,6 @@ class EventStealer {
       if (event == null) return;
 
       event.dispatch();
-    }
-  }
-
-  public void dispatchInvocationEventsForDuration(long durationMillis) throws InterruptedException {
-    long initialStamp = System.nanoTime();
-    while (true) {
-      long elapsedSinceStartNanos = System.nanoTime() - initialStamp;
-      long sleep = durationMillis - (elapsedSinceStartNanos / 1_000_000);
-      if (sleep <= 0) return;
-      InvocationEvent event = myInvocationEvents.poll(sleep, TimeUnit.MILLISECONDS);
-      if (event == null || event.toString().contains("DispatchTerminationEvent")) return;
-
-      event.dispatch();
-    }
-  }
-
-  static class DispatchTerminationEvent implements Runnable {
-    public static final DispatchTerminationEvent INSTANCE = new DispatchTerminationEvent();
-
-    @Override
-    public void run() {
-    }
-
-    @Override
-    public String toString() {
-      return "DispatchTerminationEvent";
     }
   }
 }

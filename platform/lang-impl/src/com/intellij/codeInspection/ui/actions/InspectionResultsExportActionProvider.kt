@@ -6,16 +6,14 @@ import com.intellij.codeInspection.ex.GlobalInspectionContextImpl
 import com.intellij.codeInspection.ex.InspectionProfileImpl
 import com.intellij.codeInspection.ui.InspectionResultsView
 import com.intellij.codeInspection.ui.InspectionTree
-import com.intellij.codeInspection.ui.actions.InspectionResultsExportActionProvider.Companion.LOCATION_KEY
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.invokeLater
 import com.intellij.openapi.application.runReadAction
-import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.EditorBundle
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
-import com.intellij.openapi.observable.properties.PropertyGraph
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
@@ -24,38 +22,45 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.guessProjectDir
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.NlsContexts.ProgressTitle
+import com.intellij.openapi.util.UserDataHolderBase
+import com.intellij.openapi.util.UserDataHolderEx
 import com.intellij.ui.dsl.builder.*
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.concurrency.annotations.RequiresEdt
+import org.jetbrains.annotations.ApiStatus
 import java.nio.file.Path
 import java.util.function.Supplier
 import javax.swing.Icon
 import javax.swing.JComponent
 import javax.swing.JPanel
 
-private val LOG: Logger = Logger.getInstance(InspectionResultsExportActionProvider::class.java)
+private val LOG = logger<InspectionResultsExportActionProvider>()
+private const val LOCATION_PROPERTY_NAME = "com.intellij.codeInspection.ui.actions.InspectionResultsExportActionProvider.location"
 
 /**
  * Extension point to add actions in the inspection results export popup.
  */
-abstract class InspectionResultsExportActionProvider(text: Supplier<String?>,
-                                                     description: Supplier<String?>,
-                                                     icon: Icon?) : InspectionViewActionBase(text, description, icon) {
+@ApiStatus.Internal
+abstract class InspectionResultsExportActionProvider(
+  text: Supplier<String?>,
+  description: Supplier<String?>,
+  icon: Icon?,
+) : InspectionViewActionBase(text, description, icon) {
 
   companion object {
-    val EP_NAME: ExtensionPointName<InspectionResultsExportActionProvider> = ExtensionPointName.create("com.intellij.inspectionResultsExportActionProvider")
-    const val LOCATION_KEY: String = "com.intellij.codeInspection.ui.actions.InspectionResultsExportActionProvider.location"
+    @JvmField
+    internal val EP_NAME: ExtensionPointName<InspectionResultsExportActionProvider> = ExtensionPointName("com.intellij.inspectionResultsExportActionProvider")
   }
-
-  val propertyGraph: PropertyGraph = PropertyGraph()
 
   abstract val progressTitle: @ProgressTitle String
 
   override fun actionPerformed(e: AnActionEvent) {
     val view: InspectionResultsView = getView(e) ?: return
 
-    val dialog = ExportDialog(this, view)
+    val dataHolder = UserDataHolderBase()
+    val dialog = ExportDialog(this, view, dataHolder)
     if (!dialog.showAndGet()) return
     val path = dialog.path
 
@@ -83,7 +88,7 @@ abstract class InspectionResultsExportActionProvider(text: Supplier<String?>,
         }
 
         invokeLater {
-          onExportSuccessful()
+          onExportSuccessful(dataHolder)
         }
       }
     })
@@ -93,24 +98,30 @@ abstract class InspectionResultsExportActionProvider(text: Supplier<String?>,
    * Performs the actual inspection results export.
    */
   @RequiresBackgroundThread
-  abstract fun writeResults(tree: InspectionTree,
-                            profile: InspectionProfileImpl,
-                            globalInspectionContext: GlobalInspectionContextImpl,
-                            project: Project,
-                            outputPath: Path)
+  abstract fun writeResults(
+    tree: InspectionTree,
+    profile: InspectionProfileImpl,
+    globalInspectionContext: GlobalInspectionContextImpl,
+    project: Project,
+    outputPath: Path,
+  )
 
   @RequiresEdt
-  open fun onExportSuccessful() {}
+  open fun onExportSuccessful(data: UserDataHolderEx) {}
 
   /**
    * Additional configuration to be added in [ExportDialog].
    */
-  open fun additionalSettings(): JPanel? = null
+  open fun additionalSettings(data: UserDataHolderEx): JPanel? = null
 
 }
 
-private class ExportDialog(private val actionProvider: InspectionResultsExportActionProvider, val view: InspectionResultsView) : DialogWrapper(view.project, true) {
+internal class ExportDialog(private val actionProvider: InspectionResultsExportActionProvider, val view: InspectionResultsView, val dataHolder: UserDataHolderEx) : DialogWrapper(view.project, true) {
   var location: String = ""
+
+  companion object {
+    val LOCATION_KEY: Key<String> = Key.create<String>(LOCATION_PROPERTY_NAME)
+  }
 
   init {
     setOKButtonText(InspectionsBundle.message("inspection.export.save.button"))
@@ -119,7 +130,8 @@ private class ExportDialog(private val actionProvider: InspectionResultsExportAc
 
     location = PropertiesComponent
       .getInstance(view.project)
-      .getValue(LOCATION_KEY, view.project.guessProjectDir()?.path ?: "")
+      .getValue(LOCATION_PROPERTY_NAME, view.project.guessProjectDir()?.path ?: "")
+    LOCATION_KEY.set(dataHolder, location)
 
     init()
   }
@@ -137,7 +149,7 @@ private class ExportDialog(private val actionProvider: InspectionResultsExportAc
         .bottomGap(BottomGap.SMALL)
       row(EditorBundle.message("export.to.html.output.directory.label")) {
         textFieldWithBrowseButton(
-          FileChooserDescriptorFactory.createSingleFolderDescriptor().withTitle(EditorBundle.message("export.to.html.select.output.directory.title")),
+          FileChooserDescriptorFactory.singleDir().withTitle(EditorBundle.message("export.to.html.select.output.directory.title")),
           view.project
         )
           .columns(COLUMNS_LARGE)
@@ -147,7 +159,7 @@ private class ExportDialog(private val actionProvider: InspectionResultsExportAc
             else null
           }
       }
-      actionProvider.additionalSettings()?.let {
+      actionProvider.additionalSettings(dataHolder)?.let {
         row { cell(it) }
       }
     }
@@ -156,7 +168,8 @@ private class ExportDialog(private val actionProvider: InspectionResultsExportAc
   override fun doOKAction() {
     PropertiesComponent
       .getInstance(view.project)
-      .setValue(LOCATION_KEY, location)
+      .setValue(LOCATION_PROPERTY_NAME, location)
+    LOCATION_KEY.set(dataHolder, location)
     super.doOKAction()
   }
 }

@@ -992,6 +992,8 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   }
 
   @Override
+  @Nullable
+  @ApiStatus.Obsolete
   public VirtualFile getVirtualFile() {
     return myVirtualFile;
   }
@@ -3976,7 +3978,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
         myMarkupModelListener.attributesChanged((RangeHighlighterEx)highlighter, true,
                                                 EditorUtil.attributesImpactFontStyle(attributes),
                                                 EditorUtil.attributesImpactForegroundColor(attributes));
-        myMarkupModel.getErrorStripeMarkersModel().attributesChanged((RangeHighlighterEx)highlighter, true);
+        myMarkupModel.errorStripeMarkersModel.attributesChanged((RangeHighlighterEx)highlighter, true);
       }
     }
   }

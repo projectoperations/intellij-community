@@ -10,20 +10,17 @@ import com.jetbrains.python.packaging.requirement.PyRequirementVersionSpec
 /**
  * This helper is not an API, consider using methods listed below.
  *
- * @see PyPackageManager.parseRequirement
- * @see PyPackageManager.parseRequirements
- *
  * @see PyRequirementParser.fromLine
  * @see PyRequirementParser.fromText
  * @see PyRequirementParser.fromFile
  */
-fun pyRequirement(name: String): PyRequirement = PyRequirementImpl(name, emptyList(), listOf(name), "")
+fun pyRequirement(name: String, versionSpec: PyRequirementVersionSpec? = null): PyRequirement = PyRequirementImpl(name,
+                                                                                                                  listOfNotNull(versionSpec),
+                                                                                                                  listOf(name),
+                                                                                                                  "")
 
 /**
  * This helper is not an API, consider using methods listed below.
- *
- * @see PyPackageManager.parseRequirement
- * @see PyPackageManager.parseRequirements
  *
  * @see PyRequirementParser.fromLine
  * @see PyRequirementParser.fromText
@@ -32,12 +29,10 @@ fun pyRequirement(name: String): PyRequirement = PyRequirementImpl(name, emptyLi
 fun pyRequirement(name: String, relation: PyRequirementRelation, version: String): PyRequirement =
   pyRequirement(name, relation, version, "")
 
+
 /**
  * This helper is not an API, consider using methods listed below.
  * If given version could not be normalized, then specified relation will be replaced with [PyRequirementRelation.STR_EQ].
- *
- * @see PyPackageManager.parseRequirement
- * @see PyPackageManager.parseRequirements
  *
  * @see PyRequirementParser.fromLine
  * @see PyRequirementParser.fromText

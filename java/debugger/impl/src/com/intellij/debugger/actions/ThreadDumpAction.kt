@@ -10,12 +10,17 @@ import com.intellij.debugger.engine.evaluation.EvaluationContextImpl
 import com.intellij.debugger.engine.suspendAllAndEvaluate
 import com.intellij.debugger.impl.*
 import com.intellij.debugger.jdi.VirtualMachineProxyImpl
+import com.intellij.debugger.statistics.DebuggerStatistics
+import com.intellij.debugger.statistics.ThreadDumpStatus
+import com.intellij.notification.NotificationType
 import com.intellij.openapi.diagnostic.ControlFlowException
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.progress.ProgressManager
+import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.registry.Registry
+import com.intellij.openapi.util.removeUserData
 import com.intellij.platform.ide.progress.withBackgroundProgress
 import com.intellij.rt.debugger.VirtualThreadDumper
 import com.intellij.threadDumpParser.ThreadDumpParser
@@ -23,6 +28,7 @@ import com.intellij.threadDumpParser.ThreadState
 import com.intellij.unscramble.MergeableDumpItem
 import com.intellij.unscramble.toDumpItems
 import com.intellij.util.lang.JavaVersion
+import com.intellij.xdebugger.impl.XDebuggerManagerImpl
 import com.jetbrains.jdi.ThreadReferenceImpl
 import com.sun.jdi.*
 import kotlinx.coroutines.TimeoutCancellationException
@@ -39,6 +45,8 @@ class ThreadDumpAction {
   companion object {
     private val extendedProviders: ExtensionPointName<ThreadDumpItemsProviderFactory> =
       ExtensionPointName.Companion.create("com.intellij.debugger.dumpItemsProvider")
+
+    private val EVALUATION_IN_PROGRESS = Key.create<Boolean>("intellij.java.debugger.evaluation.in.progress")
 
     @JvmStatic
     fun buildThreadStates(vmProxy: VirtualMachineProxyImpl): List<ThreadState> {
@@ -61,6 +69,9 @@ class ThreadDumpAction {
 
       if (onlyPlatformThreads || !Registry.`is`("debugger.thread.dump.extended")) {
         sendJavaPlatformThreads()
+        DebuggerStatistics.logPlatformThreadDumpFallback(
+          context.project, if (onlyPlatformThreads) ThreadDumpStatus.PLATFORM_DUMP_ALT_CLICK else ThreadDumpStatus.PLATFORM_DUMP_EXTENDED_DUMP_DISABLED
+        )
         return
       }
 
@@ -91,8 +102,21 @@ class ThreadDumpAction {
         }
 
         if (providers.any { it.requiresEvaluation }) {
+
+          val vm = context.debugProcess!!.virtualMachineProxy
+          // If the previous dump is still being evaluated, only show the Java platform thread dump and do not start a new evaluation.
+          if (vm.getUserData(EVALUATION_IN_PROGRESS) == true) {
+            sendJavaPlatformThreads()
+            DebuggerStatistics.logPlatformThreadDumpFallback(context.project, ThreadDumpStatus.PLATFORM_DUMP_FALLBACK_DURING_EVALUATION)
+            XDebuggerManagerImpl.getNotificationGroup()
+              .createNotification(JavaDebuggerBundle.message("thread.dump.during.previous.dump.evaluation.warning"), NotificationType.INFORMATION)
+              .notify(context.project)
+            return
+          }
+
           val timeout = Registry.intValue("debugger.thread.dump.suspension.timeout.ms", 500).milliseconds
           try {
+            vm.putUserData(EVALUATION_IN_PROGRESS, true)
             suspendAllAndEvaluate(context, timeout) { suspendContext ->
               getAllItems(suspendContext)
             }
@@ -100,6 +124,9 @@ class ThreadDumpAction {
           catch (_: TimeoutCancellationException) {
             thisLogger().warn("timeout while waiting for evaluatable context ($timeout)")
             sendJavaPlatformThreads()
+            DebuggerStatistics.logPlatformThreadDumpFallback(context.project, ThreadDumpStatus.PLATFORM_DUMP_FALLBACK_TIMEOUT)
+          } finally {
+            vm.removeUserData(EVALUATION_IN_PROGRESS)
           }
         }
         else {
@@ -119,6 +146,7 @@ class ThreadDumpAction {
           else -> {
             thisLogger().error(e)
             sendJavaPlatformThreads()
+            DebuggerStatistics.logPlatformThreadDumpFallback(context.project, ThreadDumpStatus.PLATFORM_DUMP_FALLBACK_ERROR)
           }
         }
       }
@@ -196,24 +224,57 @@ private fun threadName(threadReference: ThreadReference): String =
 private fun threadName(threadNameRaw: String, threadReference: ObjectReference): String =
   threadNameRaw + "@" + threadReference.uniqueID()
 
-private fun getThreadField(
-  fieldName: String,
-  threadType: ReferenceType, threadObj: ThreadReference,
-  holderType: ReferenceType?, holderObj: ObjectReference?,
-): Value? {
-  DebuggerUtils.findField(threadType, fieldName)?.let {
-    return threadObj.getValue(it)
+private inline fun <reified T : Type> findThreadFieldImpl(fieldNames: List<String>, typeToSearch: ReferenceType): Field? {
+  val wellNamedFields = fieldNames.mapNotNull { DebuggerUtils.findField(typeToSearch, it) }
+  if (wellNamedFields.isEmpty()) return null
+
+  val wellTypedFields = wellNamedFields.filter { it.type() is T }
+  if (wellTypedFields.isEmpty()) {
+    val vm = typeToSearch.virtualMachine()
+    logger<ThreadDumpAction>().error(
+      "$typeToSearch has following fields ${wellNamedFields.map { it.name() }} with unexpected types ${wellNamedFields.map { it.type() }}, skipping it. " +
+      "VM: ${vm.name()}, ${vm.version()}.")
+    return null
   }
 
-  if (holderType != null) {
-    checkNotNull(holderObj)
-    DebuggerUtils.findField(holderType, fieldName)?.let {
-      return holderObj.getValue(it)
+  if (wellTypedFields.size > 1) {
+    val vm = typeToSearch.virtualMachine()
+    logger<ThreadDumpAction>().error(
+      "$typeToSearch has ambiguous list of fields ${wellTypedFields.map { it.name() }}, taking the first one. " +
+      "VM: ${vm.name()}, ${vm.version()}.")
+  }
+
+  return wellTypedFields.first()
+}
+
+private inline fun <reified T : Type> findThreadField(fieldNames: List<String>, jlThreadType: ReferenceType, fieldHolderType: ReferenceType?, optional: Boolean = false): Field? {
+  findThreadFieldImpl<T>(fieldNames, jlThreadType)?.let {
+    return it
+  }
+
+  if (fieldHolderType != null) {
+    findThreadFieldImpl<T>(fieldNames, fieldHolderType)?.let {
+      return it
     }
+  }
+
+  if (!optional) {
+    val vm = jlThreadType.virtualMachine()
+    logger<ThreadDumpAction>().error(
+      if (fieldHolderType != null) {
+        "$jlThreadType and $fieldHolderType have "
+      } else {
+        "$jlThreadType has "
+      } +
+      "none of fields $fieldNames. " +
+      "VM: ${vm.name()}, ${vm.version()}.")
   }
 
   return null
 }
+
+private inline fun <reified T : Type> findThreadField(fieldName: String, jlThreadType: ReferenceType, fieldHolderType: ReferenceType?, optional: Boolean = false): Field? =
+  findThreadField<T>(listOf(fieldName), jlThreadType, fieldHolderType, optional)
 
 private fun buildThreadStates(
   vmProxy: VirtualMachineProxyImpl,
@@ -224,6 +285,28 @@ private fun buildThreadStates(
   val result = mutableListOf<ThreadState>()
   val nameToThreadMap = mutableMapOf<String, ThreadState>()
   val waitingMap = mutableMapOf<String, String>() // key 'waits_for' value
+
+
+  val jlThreadType = vmProxy.classesByName("java.lang.Thread").single()
+
+  // Since Project Loom some of Thread's fields have been encapsulated into FieldHolder,
+  // so we try to look up fields in the thread itself and in its holder.
+  val holderField = findThreadField<ClassType>("holder", jlThreadType, null, optional = true)
+
+  val fieldHolderType = holderField?.type()?.let { it as ClassType }
+  val daemonField = findThreadField<BooleanType>(listOf("daemon", "isDaemon"), jlThreadType, fieldHolderType)
+  val priorityField = findThreadField<IntegerType>("priority", jlThreadType, fieldHolderType)
+  val tidField = findThreadField<LongType>("tid", jlThreadType, fieldHolderType)
+
+  fun getFieldValue(field: Field?, threadReference: ThreadReference, fieldHolder: ObjectReference?): Value? {
+    if (field == null) return null
+
+    return when (val fieldHost = field.declaringType()) {
+      jlThreadType -> threadReference.getValue(field)
+      fieldHolderType -> fieldHolder!!.getValue(field)
+      else -> { logger<ThreadDumpAction>().error("unexpected declaring type of field $field: $fieldHost"); null }
+    }
+  }
 
   fun processOne(threadReference: ThreadReference, virtualThreadInfo: Pair<String, Long>?) {
     ProgressManager.checkCanceled()
@@ -265,16 +348,10 @@ private fun buildThreadStates(
 
       rawStackTrace = getStackTrace(threadReference)
 
-      // Since Project Loom some of Thread's fields are encapsulated into FieldHolder,
-      // so we try to look up fields in the thread itself and in its holder.
-      val threadType = threadReference.referenceType()
-      val (holderObj, holderType) = when (val value = getThreadField("holder", threadType, threadReference, null, null)) {
-        is ObjectReference -> value to value.referenceType()
-        else -> null to null
-      }
-      isDaemon = (getThreadField("daemon", threadType, threadReference, holderType, holderObj) as BooleanValue?)?.booleanValue() ?: false
-      prio = (getThreadField("priority", threadType, threadReference, holderType, holderObj) as IntegerValue?)?.intValue()
-      tid = (getThreadField("tid", threadType, threadReference, holderType, holderObj) as LongValue?)?.longValue()
+      val holderObj = getFieldValue(holderField, threadReference, null)?.let { it as ObjectReference }
+      isDaemon = getFieldValue(daemonField, threadReference, holderObj)?.let { (it as BooleanValue).booleanValue() } ?: false
+      prio = getFieldValue(priorityField, threadReference, holderObj)?.let { (it as IntegerValue).intValue() }
+      tid = getFieldValue(tidField, threadReference, holderObj)?.let { (it as LongValue).longValue() }
     }
 
     val threadState = ThreadState(threadName, stateString)
@@ -461,10 +538,13 @@ private class JavaVirtualThreadsProvider : ThreadDumpItemsProviderFactory() {
     override val requiresEvaluation get() = enabled
 
     override fun getItems(suspendContext: SuspendContextImpl?): List<MergeableDumpItem> {
-      if (!enabled) return emptyList()
-
-      val virtualThreads = evaluateAndGetAllVirtualThreads(suspendContext!!)
-      return buildThreadStates(vm, platformThreads = emptyList(), virtualThreads).toDumpItems()
+      return (
+        if (!enabled) emptyList()
+        else {
+          val virtualThreads = evaluateAndGetAllVirtualThreads(suspendContext!!)
+          buildThreadStates(vm, platformThreads = emptyList(), virtualThreads).toDumpItems()
+        })
+        .also { DebuggerStatistics.logVirtualThreadsDump(context.project, it.size) }
     }
 
     private fun evaluateAndGetAllVirtualThreads(suspendContext: SuspendContextImpl): List<Triple<ThreadReference, String, Long>> {

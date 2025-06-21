@@ -14,12 +14,14 @@ jvm_library(
   srcs = glob(["src/**/*.kt", "src/**/*.java"], allow_empty = True),
   deps = [
     "@lib//:kotlin-stdlib",
-    "@lib//:ngram-slp",
+    "//platform/analysis-api:analysis",
+    "//platform/core-api:core",
     "//platform/editor-ui-api:editor-ui",
     "//platform/platform-impl:ide-impl",
     "//platform/lang-impl",
     "//platform/analysis-impl",
     "//platform/ml-impl",
+    "//platform/projectModel-api:projectModel",
     "//platform/statistics",
     "//platform/core-ui",
     "//platform/platform-impl/codeinsight-inline:ide-codeinsight-inline",
@@ -46,6 +48,7 @@ jvm_library(
 ### auto-generated section `build intellij.completionMlRanking` end
 
 ### auto-generated section `build intellij.completionMlRanking.tests` start
+load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_java//java:defs.bzl", "java_library")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_test")
 
@@ -57,19 +60,21 @@ jvm_library(
     "//java/testFramework",
     "@lib//:assert_j",
     "//plugins/completion-ml-ranking",
+    "//platform/analysis-api:analysis",
+    "//platform/core-api:core",
     "//platform/editor-ui-api:editor-ui",
+    "//platform/projectModel-api:projectModel",
     "//platform/testFramework",
     "//platform/testFramework:testFramework_test_lib",
     "//platform/ml-impl",
     "//platform/ml-impl:ml-impl_test_lib",
     "//platform/core-ui",
-    "@lib//:ngram-slp",
     "//platform/platform-impl/internal",
     "//platform/ml-api:ml",
   ]
 )
 
-jvm_test(
+jps_test(
   name = "completionMlRanking-tests_test",
   runtime_deps = [":completionMlRanking-tests_test_lib"]
 )

@@ -27,6 +27,7 @@ jvm_library(
 ### auto-generated section `build intellij.platform.externalSystem.dependencyUpdater` end
 
 ### auto-generated section `build intellij.platform.externalSystem.dependencyUpdater.tests` start
+load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_java//java:defs.bzl", "java_library")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources", "jvm_test")
 
@@ -41,6 +42,7 @@ jvm_library(
   visibility = ["//visibility:public"],
   srcs = glob(["testSrc/**/*.kt", "testSrc/**/*.java"], allow_empty = True),
   deps = [
+    "//platform/core-api:core",
     "//platform/external-system-api/dependency-updater",
     "//java/openapi:java",
     "//plugins/groovy/groovy-psi:psi",
@@ -51,13 +53,14 @@ jvm_library(
     "//plugins/gradle/gradle-dependency-updater:dependencyUpdater",
     "//plugins/maven",
     "//plugins/maven/testFramework",
+    "//xml/xml-psi-api:psi",
     "//platform/testFramework",
     "//platform/testFramework:testFramework_test_lib",
   ],
   runtime_deps = [":externalSystem-dependencyUpdater-tests_test_resources"]
 )
 
-jvm_test(
+jps_test(
   name = "externalSystem-dependencyUpdater-tests_test",
   runtime_deps = [":externalSystem-dependencyUpdater-tests_test_lib"]
 )

@@ -5,7 +5,6 @@ import com.intellij.openapi.editor.RangeMarker;
 import com.intellij.openapi.editor.markup.GutterDraggableObject;
 import com.intellij.openapi.editor.markup.RangeHighlighter;
 import com.intellij.openapi.project.ProjectUtil;
-import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VfsUtilCore;
@@ -41,7 +40,8 @@ public final class XLineBreakpointImpl<P extends XBreakpointProperties> extends 
                              final @Nullable P properties, LineBreakpointState state) {
     super(type, breakpointManager, properties, state);
     myType = type;
-    myVisualRepresentation = new XBreakpointVisualRepresentation(asProxy(this), !useFeLineBreakpointProxy(), new XBreakpointManagerProxy.Monolith(breakpointManager));
+    myVisualRepresentation = new XBreakpointVisualRepresentation(getCoroutineScope(), asProxy(this), !useFeLineBreakpointProxy(),
+                                                                 new XBreakpointManagerProxy.Monolith(breakpointManager));
   }
 
   // TODO IJPL-185322 migrate to backend -> frontend rpc flow notification
@@ -66,10 +66,6 @@ public final class XLineBreakpointImpl<P extends XBreakpointProperties> extends 
   @Override
   public String getFileUrl() {
     return myState.getFileUrl();
-  }
-
-  TextRange getHighlightRange() {
-    return myType.getHighlightRange(this);
   }
 
   @Override
@@ -127,16 +123,21 @@ public final class XLineBreakpointImpl<P extends XBreakpointProperties> extends 
   public void updatePosition() {
     RangeMarker highlighter = myVisualRepresentation.getRangeMarker();
     if (highlighter != null && highlighter.isValid()) {
-      mySourcePosition = null; // reset the source position even if the line number has not changed, as the offset may be cached inside
+      resetSourcePosition(); // reset the source position even if the line number has not changed, as the offset may be cached inside
       setLine(highlighter.getDocument().getLineNumber(highlighter.getStartOffset()), false);
     }
+  }
+
+
+  public void resetSourcePosition() {
+    mySourcePosition = null;
   }
 
   public void setFileUrl(final String newUrl) {
     if (!Objects.equals(getFileUrl(), newUrl)) {
       var oldFile = getFile();
       myState.setFileUrl(newUrl);
-      mySourcePosition = null;
+      resetSourcePosition();
       myVisualRepresentation.removeHighlighter();
       myVisualRepresentation.redrawInlineInlays(oldFile, getLine());
       myVisualRepresentation.redrawInlineInlays(getFile(), getLine());
@@ -156,7 +157,7 @@ public final class XLineBreakpointImpl<P extends XBreakpointProperties> extends 
       }
       var oldLine = getLine();
       myState.setLine(line);
-      mySourcePosition = null;
+      resetSourcePosition();
 
       if (visualLineMightBeChanged) {
         myVisualRepresentation.removeHighlighter();
@@ -194,6 +195,6 @@ public final class XLineBreakpointImpl<P extends XBreakpointProperties> extends 
 
   @Override
   public String toString() {
-    return "XLineBreakpointImpl(" + myType.getId() + " at " + getShortFilePath() + ":" + getLine() + ")";
+    return "XLineBreakpointImpl(id = " + getBreakpointId() + ", " + myType.getId() + " at " + getShortFilePath() + ":" + getLine() + ")";
   }
 }

@@ -1,4 +1,5 @@
 ### auto-generated section `build intellij.yaml.backend` start
+load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources", "jvm_test")
 
 jvm_resources(
@@ -19,10 +20,15 @@ jvm_library(
   visibility = ["//visibility:public"],
   srcs = glob(["src/**/*.kt", "src/**/*.java"], allow_empty = True),
   deps = [
+    "//platform/analysis-api:analysis",
+    "//platform/code-style-api:codeStyle",
+    "//platform/core-api:core",
     "//platform/editor-ui-api:editor-ui",
     "//platform/platform-api:ide",
+    "//platform/indexing-api:indexing",
     "//platform/lang-api:lang",
     "//platform/lang-impl",
+    "//platform/projectModel-api:projectModel",
     "//platform/structure-view-impl:structureView-impl",
     "//spellchecker",
     "//platform/platform-impl:ide-impl",
@@ -38,6 +44,8 @@ jvm_library(
     "//platform/code-style-impl:codeStyle-impl",
     "//platform/statistics",
     "//plugins/yaml",
+    "//platform/searchEverywhere/shared:searchEverywhere",
+    "//platform/searchEverywhere/backend",
   ],
   runtime_deps = [
     ":backend_resources",
@@ -51,10 +59,17 @@ jvm_library(
   srcs = glob(["testSrc/**/*.kt", "testSrc/**/*.java"], allow_empty = True),
   associates = [":backend"],
   deps = [
+    "//platform/analysis-api:analysis",
+    "//platform/code-style-api:codeStyle",
+    "//platform/util/concurrency",
+    "//platform/util/concurrency:concurrency_test_lib",
+    "//platform/core-api:core",
     "//platform/editor-ui-api:editor-ui",
     "//platform/platform-api:ide",
+    "//platform/indexing-api:indexing",
     "//platform/lang-api:lang",
     "//platform/lang-impl",
+    "//platform/projectModel-api:projectModel",
     "//platform/structure-view-impl:structureView-impl",
     "//platform/testFramework",
     "//platform/testFramework:testFramework_test_lib",
@@ -83,6 +98,8 @@ jvm_library(
     "//tools/intellij.tools.ide.metrics.benchmark:ide-metrics-benchmark_test_lib",
     "//plugins/yaml",
     "//plugins/yaml:yaml_test_lib",
+    "//platform/searchEverywhere/shared:searchEverywhere",
+    "//platform/searchEverywhere/backend",
   ],
   runtime_deps = [
     ":backend_resources",
@@ -90,7 +107,7 @@ jvm_library(
   ]
 )
 
-jvm_test(
+jps_test(
   name = "backend_test",
   runtime_deps = [":backend_test_lib"]
 )

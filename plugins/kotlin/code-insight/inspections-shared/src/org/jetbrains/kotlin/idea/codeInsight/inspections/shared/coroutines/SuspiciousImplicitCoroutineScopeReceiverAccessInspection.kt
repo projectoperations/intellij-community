@@ -6,6 +6,8 @@ import com.intellij.codeInspection.ProblemDescriptor
 import com.intellij.codeInspection.ProblemHighlightType
 import com.intellij.codeInspection.ProblemsHolder
 import com.intellij.codeInspection.options.OptPane
+import com.intellij.modcommand.ModPsiUpdater
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
 import org.jetbrains.kotlin.analysis.api.KaSession
@@ -15,20 +17,27 @@ import org.jetbrains.kotlin.analysis.api.resolution.successfulVariableAccessCall
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassLikeSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaDeclarationSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.KaFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaReceiverParameterSymbol
 import org.jetbrains.kotlin.analysis.api.types.KaType
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinApplicableInspectionBase
+import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinModCommandQuickFix
 import org.jetbrains.kotlin.idea.codeinsight.api.applicators.ApplicabilityRange
 import org.jetbrains.kotlin.idea.codeinsight.utils.getCallExpressionSymbol
 import org.jetbrains.kotlin.idea.codeinsight.utils.isInlinedArgument
-import org.jetbrains.kotlin.name.ClassId
+import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.psi.*
+import org.jetbrains.kotlin.psi.psiUtil.findLabelAndCall
 import org.jetbrains.kotlin.psi.psiUtil.getQualifiedExpressionForSelector
 import org.jetbrains.kotlin.psi.psiUtil.hasSuspendModifier
 import org.jetbrains.kotlin.resolve.calls.util.getCalleeExpressionIfAny
 
-internal class SuspiciousImplicitCoroutineScopeReceiverAccessInspection() : KotlinApplicableInspectionBase<KtExpression, Unit>() {
+internal class SuspiciousImplicitCoroutineScopeReceiverAccessInspection() :
+    KotlinApplicableInspectionBase<KtExpression, SuspiciousImplicitCoroutineScopeReceiverAccessInspection.Context>() {
+
+    class Context(val receiverLabelName: Name)
+
     @JvmField
     var detectCoroutineScopeSubtypes: Boolean = false
 
@@ -54,7 +63,7 @@ internal class SuspiciousImplicitCoroutineScopeReceiverAccessInspection() : Kotl
         return qualifiedExpression == null
     }
 
-    override fun KaSession.prepareContext(element: KtExpression): Unit? {
+    override fun KaSession.prepareContext(element: KtExpression): Context? {
         // Resolve the call to check if it's a CoroutineScope function
         val resolvedCall = element.resolveToCall()?.let { callInfo ->
             when (element) {
@@ -84,16 +93,19 @@ internal class SuspiciousImplicitCoroutineScopeReceiverAccessInspection() : Kotl
             is KaReceiverParameterSymbol -> receiverSymbol.owningCallableSymbol
             else -> null
         } ?: return null 
-        
+
         // Check if there are any suspend lambdas between the call PSI and the implicit ContextReceiver symbol PSI
         if (!hasSuspendFunctionsInPath(element, receiverOwnerSymbol)) return null
 
-        return Unit
+        // Get the name for the label based on the type of receiverOwnerSymbol
+        val receiverLabelName = receiverOwnerSymbol.findLabelName() ?: return null
+
+        return Context(receiverLabelName)
     }
 
     context(KaSession) 
     private fun KaType.isCoroutineScopeType(acceptSubtypes: Boolean = true): Boolean {
-        val coroutineScopeType = findClass(COROUTINE_SCOPE_CLASS_ID)?.defaultType ?: return false
+        val coroutineScopeType = findClass(CoroutinesIds.COROUTINE_SCOPE_CLASS_ID)?.defaultType ?: return false
 
         return if (acceptSubtypes) {
             this.isSubtypeOf(coroutineScopeType)
@@ -113,25 +125,22 @@ internal class SuspiciousImplicitCoroutineScopeReceiverAccessInspection() : Kotl
             if (current is KtFunctionLiteral) {
                 if (receiverOwnerSymbol == current.symbol) return false
 
-                // Skip lambdas which happen to be inline
-                if (isInlinedArgument(current)) {
+                // Skip lambdas which happen to be fully locally inlined
+                if (isInlinedArgument(current, allowCrossinline = false)) {
                     current = current.parent
                     continue
                 }
 
+                // Check if the matching parameter's return type is a suspend type
+                val (functionSymbol, argumentSymbol) = getCallExpressionSymbol(current) ?: continue
                 // Resolve the outer call of the lambda
-                val callExpressionSymbol = getCallExpressionSymbol(current)
-                if (callExpressionSymbol != null) {
-                    // Check if the matching parameter's return type is a suspend type
-                    val (_, argumentSymbol) = callExpressionSymbol
-                    val parameterType = argumentSymbol.returnType
+                val parameterType = argumentSymbol.returnType
 
-                    if (parameterType.isSuspendFunctionType) {
-                        return true
-                    }
+                if (parameterType.isSuspendFunctionType && !isAllowedSuspendingFunction(functionSymbol)) {
+                    return true
                 }
             }
-            
+
             if (current is KtNamedFunction) {
                 if (current.modifierList?.hasSuspendModifier() == true) {
                     return true
@@ -144,9 +153,46 @@ internal class SuspiciousImplicitCoroutineScopeReceiverAccessInspection() : Kotl
         return false
     }
 
+    /**
+     * Checks if [functionSymbol] is considered to be safe to use implicit `CoroutineScope` receiver.
+     */
+    private fun isAllowedSuspendingFunction(functionSymbol: KaFunctionSymbol): Boolean =
+        when (functionSymbol.callableId) {
+            CoroutinesIds.SELECT_BUILDER_INVOKE_ID,
+            CoroutinesIds.SELECT_BUILDER_ON_TIMEOUT_ID -> true
+
+            else -> false
+        }
+
+    private fun KaDeclarationSymbol.findLabelName(): Name? =
+        when (val psi = psi) {
+            is KtFunctionLiteral -> {
+                val (labelName, _) = psi.findLabelAndCall()
+
+                labelName
+            }
+
+            is KtNamedDeclaration -> psi.nameAsName
+
+            else -> null
+        }
+
+    private class AddExplicitLabeledReceiverFix(private val context: Context) : KotlinModCommandQuickFix<KtExpression>() {
+        override fun getFamilyName(): String = KotlinBundle.message("inspection.suspicious.implicit.coroutine.scope.receiver.add.explicit.receiver.fix.text")
+        override fun applyFix(
+            project: Project,
+            element: KtExpression,
+            updater: ModPsiUpdater
+        ) {
+            val expressionWithExplicitReceiver =
+                KtPsiFactory(project).createExpression("this@${context.receiverLabelName}.${element.text}")
+            element.replace(expressionWithExplicitReceiver)
+        }
+    }
+
     override fun InspectionManager.createProblemDescriptor(
         element: KtExpression,
-        context: Unit,
+        context: Context,
         rangeInElement: TextRange?,
         onTheFly: Boolean
     ): ProblemDescriptor {
@@ -156,9 +202,7 @@ internal class SuspiciousImplicitCoroutineScopeReceiverAccessInspection() : Kotl
             /* descriptionTemplate = */ KotlinBundle.message("inspection.suspicious.implicit.coroutine.scope.receiver.description"),
             /* highlightType = */ ProblemHighlightType.GENERIC_ERROR_OR_WARNING,
             /* onTheFly = */ onTheFly,
-            /* ...fixes = */
+            /* fixes = */ AddExplicitLabeledReceiverFix(context),
         )
     }
 }
-
-private val COROUTINE_SCOPE_CLASS_ID: ClassId = ClassId.fromString("kotlinx/coroutines/CoroutineScope")

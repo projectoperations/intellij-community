@@ -43,6 +43,7 @@ import com.intellij.util.text.DateFormatUtil;
 import com.intellij.util.ui.StartupUiUtil;
 import com.intellij.xml.util.XmlStringUtil;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
+import kotlin.collections.CollectionsKt;
 import org.jdom.Element;
 import org.jetbrains.annotations.*;
 
@@ -64,6 +65,7 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
+@ApiStatus.Internal
 public class UnusedDeclarationPresentation extends DefaultInspectionToolPresentation {
   private static final String[] SUPPRESSIONS = {UnusedDeclarationInspectionBase.SHORT_NAME, UnusedDeclarationInspectionBase.ALTERNATIVE_ID};
   private final Map<RefEntity, UnusedDeclarationHint> myFixedElements = ConcurrentCollectionFactory.createConcurrentIdentityMap();
@@ -459,7 +461,16 @@ public class UnusedDeclarationPresentation extends DefaultInspectionToolPresenta
       return null;
     }
     if (skipEntryPoints(refinedElement)) return null;
+    if (!isProblemElementMatchesToolLanguage(refinedElement)) return null;
     return refinedElement;
+  }
+
+  private boolean isProblemElementMatchesToolLanguage(RefJavaElement refinedElement) {
+    var toolLanguageId = getToolWrapper().getLanguage();
+    if (toolLanguageId == null) return true;
+
+    var elementLanguageDialects = InspectionEngine.calcElementDialectIds(CollectionsKt.listOfNotNull(refinedElement.getPsiElement()));
+    return ToolLanguageUtil.isToolLanguageOneOf(elementLanguageDialects, toolLanguageId, getToolWrapper().applyToDialects());
   }
 
   protected boolean skipEntryPoints(RefJavaElement refElement) {

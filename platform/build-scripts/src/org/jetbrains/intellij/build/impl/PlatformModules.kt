@@ -47,8 +47,6 @@ private val PLATFORM_API_MODULES = java.util.List.of(
   "intellij.platform.usageView",
   "intellij.platform.execution",
   "intellij.xml",
-  "intellij.xml.psi",
-  "intellij.xml.structureView",
   "intellij.platform.kernel",
 )
 
@@ -71,23 +69,15 @@ private val PLATFORM_IMPLEMENTATION_MODULES = java.util.List.of(
   "intellij.platform.scriptDebugger.ui",
   "intellij.platform.smRunner",
   "intellij.platform.structureView.impl",
-  "intellij.platform.tasks.impl",
   "intellij.platform.testRunner",
   "intellij.platform.rd.community",
   "intellij.remoteDev.util",
   "intellij.platform.feedback",
-  "intellij.platform.warmup",
   "intellij.platform.usageView.impl",
   "intellij.platform.buildScripts.downloader",
-  "intellij.platform.ml.impl",
 
   "intellij.platform.runtime.product",
   "intellij.platform.bootstrap",
-
-  "intellij.relaxng",
-  "intellij.spellchecker",
-  "intellij.platform.webSymbols",
-  "intellij.xml.dom.impl",
 
   "intellij.platform.vcs.log",
 
@@ -109,6 +99,7 @@ private val PLATFORM_IMPLEMENTATION_MODULES = java.util.List.of(
   "intellij.platform.ide.favoritesTreeView",
   "intellij.platform.bookmarks",
   "intellij.platform.todo",
+  "intellij.libraries.cglib",
 )
 
 @Suppress("RemoveRedundantQualifierName")
@@ -223,7 +214,7 @@ internal suspend fun createPlatformLayout(projectLibrariesUsedByPlugins: SortedS
       )
     )
   }
-  
+
   //used as a transitive dependency in the 'proxy-vole' library and excluded from it, so needs to be included explicitly
   layout.withProjectLibrary("rhino")
 
@@ -609,7 +600,7 @@ suspend fun embedContentModules(file: Path, xIncludePathResolver: XIncludePathRe
       moduleElement.parent.removeContent(moduleElement)
       continue
     }
-    
+
     val descriptor = getModuleDescriptor(moduleName = moduleName, jpsModuleName = jpsModuleName, xIncludePathResolver = xIncludePathResolver, context = context)
     if (jpsModuleName == moduleName &&
         dependencyHelper.isPluginModulePackedIntoSeparateJar(context.findRequiredModule(jpsModuleName.removeSuffix("._test")), layout, frontendModuleFilter)) {

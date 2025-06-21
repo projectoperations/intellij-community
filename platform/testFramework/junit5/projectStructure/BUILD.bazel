@@ -1,4 +1,5 @@
 ### auto-generated section `build intellij.platform.testFramework.junit5.projectStructure` start
+load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_test")
 
 jvm_library(
@@ -7,7 +8,11 @@ jvm_library(
   visibility = ["//visibility:public"],
   srcs = glob(["src/**/*.kt", "src/**/*.java"], allow_empty = True),
   deps = [
+    "//platform/analysis-api:analysis",
+    "//platform/core-api:core",
     "//jps/model-api:model",
+    "//platform/lang-core",
+    "//platform/projectModel-api:projectModel",
     "//platform/testFramework/common",
     "//platform/testFramework/junit5",
     "//platform/lang-impl",
@@ -23,7 +28,11 @@ jvm_library(
   srcs = glob(["test/**/*.kt", "test/**/*.java"], allow_empty = True),
   associates = [":projectStructure"],
   deps = [
+    "//platform/analysis-api:analysis",
+    "//platform/core-api:core",
     "//jps/model-api:model",
+    "//platform/lang-core",
+    "//platform/projectModel-api:projectModel",
     "//platform/testFramework/common",
     "//platform/testFramework/junit5",
     "//platform/testFramework/junit5:junit5_test_lib",
@@ -35,7 +44,7 @@ jvm_library(
   ]
 )
 
-jvm_test(
+jps_test(
   name = "projectStructure_test",
   runtime_deps = [":projectStructure_test_lib"]
 )

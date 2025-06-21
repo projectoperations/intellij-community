@@ -12,7 +12,7 @@ import com.jetbrains.python.PyBundle
 import com.jetbrains.python.errorProcessing.asKotlinResult
 import com.jetbrains.python.getOrThrow
 import com.jetbrains.python.psi.LanguageLevel
-import com.jetbrains.python.sdk.add.v1.PyAddCondaPanelModel
+import com.jetbrains.python.target.ui.PyAddCondaPanelModel
 import com.jetbrains.python.sdk.flavors.conda.NewCondaEnvRequest
 import com.jetbrains.python.sdk.flavors.conda.PyCondaEnv
 import com.jetbrains.python.sdk.flavors.conda.PyCondaEnvIdentity
@@ -102,7 +102,7 @@ class PyAddCondaPanelModelTest {
 
     // Create env
     PyCondaEnv.createEnv(condaRule.condaCommand,
-                         NewCondaEnvRequest.EmptyNamedEnv(LanguageLevel.PYTHON38, name)).asKotlinResult().map { it.getResultStdoutStr() }.getOrThrow()
+                         NewCondaEnvRequest.EmptyNamedEnv(LanguageLevel.PYTHON38, name)).getOrThrow()
 
     val model = PyAddCondaPanelModel(null, emptyList(), projectRule.project)
 

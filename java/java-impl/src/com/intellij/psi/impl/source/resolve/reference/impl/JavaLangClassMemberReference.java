@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi.impl.source.resolve.reference.impl;
 
 import com.intellij.codeInsight.completion.InsertHandler;
@@ -6,6 +6,7 @@ import com.intellij.codeInsight.completion.InsertionContext;
 import com.intellij.codeInsight.completion.JavaLookupElementBuilder;
 import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.codeInspection.reference.PsiMemberReference;
+import com.intellij.lang.jvm.JvmModifier;
 import com.intellij.psi.*;
 import com.intellij.psi.util.MethodSignatureBackedByPsiMethod;
 import com.intellij.psi.util.PsiTreeUtil;
@@ -183,22 +184,43 @@ public class JavaLangClassMemberReference extends PsiReferenceBase<PsiLiteralExp
   }
 
   private static int matchMethodArguments(PsiMethod method, List<ReflectiveType> argumentTypes) {
-    final PsiParameter[] parameters = method.getParameterList().getParameters();
-    if (parameters.length != argumentTypes.size()) {
+    List<PsiType> allTypes = ContainerUtil.map(method.getParameterList().getParameters(), p -> p.getType());
+    if (method.isConstructor()) {
+      PsiType enclosingType = enclosingArgumentType(method);
+      if (enclosingType != null) {
+        allTypes = ContainerUtil.prepend(allTypes, enclosingType);
+      }
+    }
+
+    if (allTypes.size() != argumentTypes.size()) {
       return -1;
     }
     int mismatchCount = 0;
-    for (int i = 0; i < parameters.length; i++) {
+    for (int i = 0; i < allTypes.size(); i++) {
       final ReflectiveType argumentType = argumentTypes.get(i);
       if (argumentType == null) {
         mismatchCount++;
         continue;
       }
-      if (!argumentType.isEqualTo(parameters[i].getType())) {
+      if (!argumentType.isEqualTo(allTypes.get(i))) {
         return -1;
       }
     }
     return mismatchCount;
+  }
+
+  /**
+   * Returns the type of the containing class, if the method is not declared in a static context.
+   */
+  private static PsiType enclosingArgumentType(PsiMethod method) {
+    PsiClass containing = PsiTreeUtil.getParentOfType(method, PsiClass.class, true);
+    if (containing == null || containing.hasModifier(JvmModifier.STATIC)) return null;
+    PsiElement enclosing = PsiTreeUtil.findFirstParent(containing, true, element -> {
+      return element instanceof PsiClass || (element instanceof PsiModifierListOwner owner && owner.hasModifier(JvmModifier.STATIC));
+    });
+    if (enclosing instanceof PsiModifierListOwner owner && owner.hasModifier(JvmModifier.STATIC)) return null;
+    if (!(enclosing instanceof PsiClass psiClass)) return null;
+    return JavaPsiFacade.getInstance(method.getProject()).getElementFactory().createType(psiClass);
   }
 
   public static @Nullable List<PsiExpression> getReflectionMethodArguments(@NotNull PsiMethodCallExpression definitionCall, int argumentOffset) {

@@ -93,6 +93,13 @@ com.intellij.ide.TreeExpander
 - isCollapseAllVisible():Z
 - isExpandAllEnabled():Z
 - isExpandAllVisible():Z
+f:com.intellij.ide.browsers.chrome.ChromeSettings
+- sf:DISABLE_FIRST_RUN_EXPERIENCE_ARG:java.lang.String
+- sf:NO_DEFAULT_BROWSER_CHECK_ARG:java.lang.String
+- sf:NO_FIRST_RUN_ARG:java.lang.String
+- sf:REMOTE_DEBUGGING_PIPE_ARG:java.lang.String
+- sf:REMOTE_DEBUGGING_PORT_ARG:java.lang.String
+- sf:USER_DATA_DIR_ARG:java.lang.String
 com.intellij.ide.dnd.DnDNativeTarget
 - com.intellij.ide.dnd.DnDTarget
 - sf:EVENT_KEY:java.lang.String
@@ -131,6 +138,8 @@ com.intellij.ide.ui.laf.UIThemeLookAndFeelInfo
 - a:installTheme(javax.swing.UIDefaults):V
 - a:isDark():Z
 - a:isInitialized():Z
+c:com.intellij.ide.util.treeView.NodeRenderer
+- p:getMinHeight():I
 com.intellij.ide.warmup.WarmupConfigurator
 - sf:Companion:com.intellij.ide.warmup.WarmupConfigurator$Companion
 - a:getConfiguratorPresentableName():java.lang.String
@@ -639,6 +648,8 @@ com.intellij.openapi.wm.ToolWindowFactory
 - isApplicableAsync(com.intellij.openapi.project.Project,kotlin.coroutines.Continuation):java.lang.Object
 - isDoNotActivateOnStart():Z
 - shouldBeAvailable(com.intellij.openapi.project.Project):Z
+a:com.intellij.openapi.wm.ToolWindowManager
+- a:registerToolWindow(com.intellij.openapi.wm.RegisterToolWindowTask):com.intellij.openapi.wm.ToolWindow
 com.intellij.openapi.wm.WelcomeFrameProvider
 - a:createFrame():com.intellij.openapi.wm.IdeFrame
 com.intellij.openapi.wm.WelcomeScreen
@@ -920,7 +931,6 @@ com.intellij.ui.tabs.JBTabs
 - a:findInfo(java.awt.event.MouseEvent):com.intellij.ui.tabs.TabInfo
 - a:findInfo(java.lang.Object):com.intellij.ui.tabs.TabInfo
 - a:getComponent():javax.swing.JComponent
-- a:getDataProvider():com.intellij.openapi.actionSystem.DataProvider
 - getDropArea():java.awt.Rectangle
 - a:getIndexOf(com.intellij.ui.tabs.TabInfo):I
 - a:getPresentation():com.intellij.ui.tabs.JBTabsPresentation
@@ -936,7 +946,6 @@ com.intellij.ui.tabs.JBTabs
 - a:requestFocus():V
 - a:resetDropOver(com.intellij.ui.tabs.TabInfo):V
 - a:select(com.intellij.ui.tabs.TabInfo,Z):com.intellij.openapi.util.ActionCallback
-- a:setDataProvider(com.intellij.openapi.actionSystem.DataProvider):com.intellij.ui.tabs.JBTabs
 - a:setNavigationActionBinding(java.lang.String,java.lang.String):V
 - a:setPopupGroup(com.intellij.openapi.actionSystem.ActionGroup,java.lang.String,Z):com.intellij.ui.tabs.JBTabs
 - a:setPopupGroup(java.util.function.Supplier,java.lang.String,Z):com.intellij.ui.tabs.JBTabs

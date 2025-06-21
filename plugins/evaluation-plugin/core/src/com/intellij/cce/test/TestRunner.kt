@@ -7,7 +7,13 @@ import com.intellij.openapi.project.Project
 class TestRunnerParams(val language: Language)
 
 class TestRunRequest(val tests: List<String>, val project: Project)
-class TestRunResult(val passed: List<String>, val failed: List<String>, val output: String)
+class TestRunResult(
+  val exitCode: Int, val passed: List<String>,
+  val failed: List<String>,
+  val compilationSuccessful: Boolean,
+  val projectIsResolvable: Boolean,
+  val output: String,
+)
 
 interface TestRunner {
   companion object {

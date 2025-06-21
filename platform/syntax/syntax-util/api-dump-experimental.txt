@@ -2,6 +2,15 @@
 - a:getCancellationProvider():com.intellij.platform.syntax.CancellationProvider
 *f:com.intellij.platform.syntax.util.cancellation.CancellationProviderExtensionKt
 - *sf:cancellationProvider():com.intellij.platform.syntax.CancellationProvider
+*f:com.intellij.platform.syntax.util.language.FiniteSyntaxElementLanguageProvider
+- com.intellij.platform.syntax.util.language.SyntaxElementLanguageProvider
+- <init>(com.intellij.platform.syntax.SyntaxLanguage,com.intellij.platform.syntax.SyntaxElementTypeSet):V
+- getLanguages(com.intellij.platform.syntax.SyntaxElementType):kotlin.sequences.Sequence
+*:com.intellij.platform.syntax.util.language.SyntaxElementLanguageProvider
+- a:getLanguages(com.intellij.platform.syntax.SyntaxElementType):kotlin.sequences.Sequence
+*f:com.intellij.platform.syntax.util.language.SyntaxElementLanguageProviderKt
+- *sf:getLanguage(com.intellij.platform.syntax.util.language.SyntaxElementLanguageProvider,com.intellij.platform.syntax.SyntaxElementType):com.intellij.platform.syntax.SyntaxLanguage
+- *sf:syntaxElementLanguageProvider():com.intellij.platform.syntax.util.language.SyntaxElementLanguageProvider
 *c:com.intellij.platform.syntax.util.lexer.DelegateLexer
 - com.intellij.platform.syntax.util.lexer.LexerBase
 - <init>(com.intellij.platform.syntax.lexer.Lexer):V
@@ -143,6 +152,9 @@
 - setDebugMode(Z):V
 - setTokenTypeRemapper(com.intellij.platform.syntax.parser.SyntaxElementTypeRemapper):V
 - setWhitespaceSkippedCallback(com.intellij.platform.syntax.parser.WhitespaceSkippedCallback):V
+*:com.intellij.platform.syntax.util.runtime.GrammarKitLanguageDefinition
+- com.intellij.platform.syntax.LanguageSyntaxDefinition
+- getPairedBraces():java.util.Collection
 *f:com.intellij.platform.syntax.util.runtime.Modifiers
 - *sf:Companion:com.intellij.platform.syntax.util.runtime.Modifiers$Companion
 - sf:and-thSIBIw(I,I):I

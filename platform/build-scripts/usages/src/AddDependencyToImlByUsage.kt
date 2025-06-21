@@ -34,7 +34,7 @@ internal class AddDependencyToImlByUsage {
     fun main(args: Array<String>) {
       val m2Repo = Path.of(System.getProperty("user.home"), ".m2/repository")
       //val projectDir = Path.of(PathManager.getHomePath())
-      val projectDir = Path.of("/Users/develar/projects/idea")
+      val projectDir = Path.of("${System.getProperty("user.home")}/projects/idea")
       val project = JpsSerializationManager.getInstance().loadProject(projectDir.toString(), mapOf("MAVEN_REPOSITORY" to m2Repo.toString()), true)
 
       val items = listOf(
@@ -73,16 +73,17 @@ internal class AddDependencyToImlByUsage {
         //"intellij.platform.codeStyle",
         //"intellij.platform.util.base",
         //"intellij.platform.util.base.multiplatform",
-        //"intellij.platform.util.diff",
+        "intellij.platform.util.diff",
         //"intellij.platform.indexing",
         //"intellij.platform.ide",
         //"intellij.platform.jps.model",
         //"intellij.platform.testFramework",
-        "intellij.platform.credentialStore",
-        "intellij.platform.credentialStore.impl",
+        //"intellij.platform.credentialStore",
+        //"intellij.platform.credentialStore.impl",
         //"intellij.platform.macro",
-        "intellij.platform.lvcs",
-        "intellij.platform.lvcs.impl",
+        //"intellij.platform.lvcs",
+        //"intellij.grid.csv.core.impl",
+        "intellij.platform.concurrency",
         //"intellij.c",
         //"intellij.cidr.core",
       )

@@ -5,6 +5,7 @@ import com.intellij.ide.plugins.IdeaPluginDescriptorImpl
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.*
+import com.intellij.openapi.components.service
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.components.serviceOrNull
 import com.intellij.openapi.diagnostic.debug
@@ -16,9 +17,7 @@ import com.intellij.openapi.module.impl.ModuleManagerEx
 import com.intellij.openapi.module.impl.UnloadedModulesListStorage
 import com.intellij.openapi.module.impl.createGrouper
 import com.intellij.openapi.progress.ProgressManager
-import com.intellij.openapi.progress.blockingContext
 import com.intellij.openapi.progress.impl.CoreProgressManager
-import com.intellij.openapi.project.ModuleListener
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.RootsChangeRescanningInfo
 import com.intellij.openapi.roots.ModuleRootManager
@@ -155,7 +154,7 @@ abstract class ModuleManagerBridgeImpl(
         else {
           modules.map { it.name }
         }
-        AutomaticModuleUnloader.getInstance(project).setLoadedModules(moduleNames)
+        project.service<AutomaticModuleUnloader>().setLoadedModules(moduleNames)
       }
     }
   }
@@ -251,15 +250,18 @@ abstract class ModuleManagerBridgeImpl(
   protected open fun initFacets(modules: Collection<Pair<ModuleEntity, ModuleBridge>>) {
   }
 
-  final override fun calculateUnloadModules(builder: MutableEntityStorage, unloadedEntityBuilder: MutableEntityStorage): Pair<List<String>, List<String>> {
+  final override fun calculateUnloadModules(
+    builder: MutableEntityStorage,
+    unloadedEntityBuilder: MutableEntityStorage,
+  ): Pair<List<String>, List<String>> {
     val currentModuleNames = HashSet<String>()
     builder.entities(ModuleEntity::class.java).mapTo(currentModuleNames) { it.name }
     unloadedEntityBuilder.entities(ModuleEntity::class.java).mapTo(currentModuleNames) { it.name }
-    return AutomaticModuleUnloader.getInstance(project).calculateNewModules(currentModuleNames, builder, unloadedEntityBuilder)
+    return project.service<AutomaticModuleUnloader>().calculateNewModules(currentModuleNames, builder, unloadedEntityBuilder)
   }
 
   final override fun updateUnloadedStorage(modulesToLoad: List<String>, modulesToUnload: List<String>) {
-    AutomaticModuleUnloader.getInstance(project).updateUnloadedStorage(modulesToLoad, modulesToUnload)
+    project.service<AutomaticModuleUnloader>().updateUnloadedStorage(modulesToLoad, modulesToUnload)
   }
 
   final override fun getModifiableModel(): ModifiableModuleModel {
@@ -394,9 +396,7 @@ abstract class ModuleManagerBridgeImpl(
 
     // we need to save module configurations before unloading, otherwise their settings will be lost
     if (moduleEntitiesToUnload.isNotEmpty()) {
-      blockingContext {
-        project.save()
-      }
+      project.save()
     }
 
     val workspaceModel = project.serviceAsync<WorkspaceModel>() as WorkspaceModelInternal
@@ -530,13 +530,6 @@ abstract class ModuleManagerBridgeImpl(
     val MutableEntityStorage.mutableModuleMap: MutableExternalEntityMapping<ModuleBridge>
       get() = getMutableExternalMapping(MODULE_BRIDGE_MAPPING_ID)
 
-    fun fireModulesAdded(project: Project, modules: List<Module>) {
-      val bus = project.messageBus
-      if (!bus.isDisposed) {
-        bus.syncPublisher(ModuleListener.TOPIC).modulesAdded(project, modules)
-      }
-    }
-
     internal fun getModuleGroupPath(module: Module, entityStorage: VersionedEntityStorage): Array<String>? {
       val moduleEntity = (module as ModuleBridge).findModuleEntity(entityStorage.current) ?: return null
       return moduleEntity.groupPath?.path?.toTypedArray()
@@ -641,12 +634,13 @@ private fun checkModuleLevelServiceAndExtensionRegistration() {
 private fun checkModuleLevel(plugin: IdeaPluginDescriptorImpl, child: IdeaPluginDescriptorImpl, forbid: Boolean) {
   fun check(list: List<*>, asWarn: Boolean = false) {
     if (list.isNotEmpty()) {
-      val message = "Plugin $plugin is trying to register $list in a content module ($child). This is not supported"
+      val message = "Plugin $plugin is trying to register $list in a content module ($child). " +
+                    "Module-level services and extensions are deprecated, and support is scheduled to be removed."
       if (!asWarn || forbid) {
-        LOG.error(message)
+        LOG.warn(message)
       }
       else {
-        LOG.warn(message)
+        LOG.debug(message)
       }
     }
   }

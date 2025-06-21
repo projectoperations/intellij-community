@@ -1,8 +1,10 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.searchEverywhere.providers
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
 import org.jetbrains.annotations.ApiStatus
+import kotlin.coroutines.cancellation.CancellationException
 
 @ApiStatus.Internal
 enum class SeLog {
@@ -12,7 +14,8 @@ enum class SeLog {
   LIFE_CYCLE,
   FROZEN_COUNT,
   THROTTLING,
-  WARNING;
+  WARNING,
+  EQUALITY;
 
   companion object {
     private val allowedCategories = setOf(
@@ -23,6 +26,7 @@ enum class SeLog {
       FROZEN_COUNT,
       THROTTLING,
       WARNING,
+      EQUALITY
     )
 
     // #com.intellij.platform.searchEverywhere.providers.SeLog
@@ -53,3 +57,22 @@ enum class SeLog {
     private fun String.withSePrefix(category: SeLog): String = "SearchEverywhere2 ($category): $this"
   }
 }
+
+@ApiStatus.Internal
+suspend fun <T> computeCatchingOrNull(catchMessage: (Throwable) -> String, block: suspend () -> T?): T? =
+  computeCatchingOrNull(muteLogExternally = false, catchMessage, block)
+
+@ApiStatus.Internal
+suspend fun <T> computeCatchingOrNull(muteLogExternally: Boolean, catchMessage: (Throwable) -> String, block: suspend () -> T?): T? =
+  try {
+    block()
+  }
+  catch (c: CancellationException) {
+    throw c
+  }
+  catch (e: Throwable) {
+    if (!muteLogExternally || ApplicationManager.getApplication().isInternal) {
+      SeLog.warn(catchMessage(e))
+    }
+    null
+  }

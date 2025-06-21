@@ -6,6 +6,7 @@ import com.intellij.injected.editor.DocumentWindow;
 import com.intellij.lang.ASTNode;
 import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.EditorFactory;
 import com.intellij.openapi.editor.event.DocumentEvent;
@@ -70,14 +71,15 @@ public final class PsiDocumentManagerImpl extends PsiDocumentManagerBase {
                             // and use DefaultProjectFactory.getDefaultProject() because why bother
                             || myProject.isDefault();
       if (!isMyProject) {
-        LOG.error("Trying to get PSI for a file that is not included in the project model of this project.\n" +
-                  "virtualFile=" + virtualFile + ";\n" +
-                  "project=" + myProject + " (" + myProject.getBasePath() + ");\n" +
-                  "The file actually belongs to\n  " + StringUtil.join(projects, p -> p + " (" + p.getBasePath() + ")", "\n  ") + "\n" +
-                  "Note:\n" +
-                  "This error happens if ProjectLocatorImpl#isUnder(project, file) returns false, which means that the file is not included\n" +
-                  "in the project model of the project. And usually, projects should not touch such files.\n" +
-                  "Feel free to reach out to IntelliJ Code Platform team if you have questions or concerns.");
+        Logger.getInstance(getClass()).error(
+          "Trying to get PSI for a file that is not included in the project model of this project.\n" +
+          "virtualFile=" + virtualFile + ";\n" +
+          "project=" + myProject + " (" + myProject.getBasePath() + ");\n" +
+          "The file actually belongs to\n  " + StringUtil.join(projects, p -> p + " (" + p.getBasePath() + ")", "\n  ") + "\n" +
+          "Note:\n" +
+          "This error happens if ProjectLocatorImpl#isUnder(project, file) returns false, which means that the file is not included\n" +
+          "in the project model of the project. And usually, projects should not touch such files.\n" +
+          "Feel free to reach out to IntelliJ Code Platform team if you have questions or concerns.");
       }
     }
   }
@@ -91,9 +93,10 @@ public final class PsiDocumentManagerImpl extends PsiDocumentManagerBase {
         myStopTrackingDocuments = true;
         try {
           //noinspection TestOnlyProblems
-          LOG.error("Too many uncommitted documents for " + myProject + "(" +myUncommittedDocuments.size()+")"+
-                    ":\n" + StringUtil.join(myUncommittedDocuments, "\n") +
-                    (myProject instanceof ProjectEx ? "\n\n Project creation trace: " + ((ProjectEx)myProject).getCreationTrace() : ""));
+          Logger.getInstance(getClass()).error(
+            "Too many uncommitted documents for " + myProject + "(" +myUncommittedDocuments.size()+")"+
+            ":\n" + StringUtil.join(myUncommittedDocuments, "\n") +
+            (myProject instanceof ProjectEx ? "\n\n Project creation trace: " + ((ProjectEx)myProject).getCreationTrace() : ""));
         }
         finally {
           //noinspection TestOnlyProblems
@@ -139,8 +142,8 @@ public final class PsiDocumentManagerImpl extends PsiDocumentManagerBase {
   }
 
   @Override
-  public boolean isDocumentBlockedByPsi(@NotNull Document doc) {
-    final List<FileViewProvider> viewProviders = getCachedViewProviders(doc);
+  public boolean isDocumentBlockedByPsi(@NotNull Document document) {
+    final List<FileViewProvider> viewProviders = getCachedViewProviders(document);
     if (viewProviders.isEmpty()) return false;
 
     PostprocessReformattingAspect aspect = PostprocessReformattingAspect.getInstance(myProject);
@@ -154,24 +157,24 @@ public final class PsiDocumentManagerImpl extends PsiDocumentManagerBase {
   }
 
   @Override
-  public void doPostponedOperationsAndUnblockDocument(@NotNull Document doc) {
+  public void doPostponedOperationsAndUnblockDocument(@NotNull Document document) {
     PostprocessReformattingAspect component = PostprocessReformattingAspect.getInstance(myProject);
     if (component == null) return;
 
     List<FileViewProvider> viewProviders;
-    if (doc instanceof DocumentWindow) {
+    if (document instanceof DocumentWindow) {
       // todo IJPL-339 implement it
-      Document topDoc = ((DocumentWindow)doc).getDelegate();
+      Document topDoc = ((DocumentWindow)document).getDelegate();
       List<FileViewProvider> topViewProviders = getCachedViewProviders(topDoc);
       if (ContainerUtil.exists(topViewProviders, topViewProvider -> InjectionUtils.shouldFormatOnlyInjectedCode(topViewProvider))) { // todo is it correct?
-        viewProviders = getCachedViewProviders(doc);
+        viewProviders = getCachedViewProviders(document);
       }
       else {
         viewProviders = topViewProviders;
       }
     }
     else {
-      viewProviders = getCachedViewProviders(doc);
+      viewProviders = getCachedViewProviders(document);
     }
 
     // todo IJPL-339 is it correct?

@@ -99,6 +99,10 @@ class PluginDependenciesValidator private constructor(
     val jpsModuleToRuntimeDescriptors = LinkedHashMap<String, MutableList<IdeaPluginDescriptorImpl>>()
     for (descriptor in pluginSet.getEnabledModules()) {
       val jarFiles = descriptor.jarFiles ?: continue
+      if (descriptor.pluginClassLoader == null) {
+        //this indicates that actually the module is not enabled, because some of its dependencies were missing in ClassLoaderConfigurator.configureContentModule, so we cannot check it 
+        continue
+      }
       jarFiles.groupByTo(jpsModuleToRuntimeDescriptors, { 
         getModuleName(it) ?: error("Cannot detect module name for $it in $descriptor")  
       }, { descriptor })
@@ -126,7 +130,7 @@ class PluginDependenciesValidator private constructor(
       val moduleDependenciesAtRuntime =
         sourceDescriptors
           .asSequence()
-          .map { it.classLoader }
+          .mapNotNull { it.pluginClassLoader }
           .flatMap { sequenceOf(it) + ((it as? PluginClassLoader)?.getAllParentsClassLoaders() ?: emptyArray()).asSequence() }
           .flatMap { (it as UrlClassLoader).files.asSequence() }
           .mapTo(HashSet()) { getModuleName(it) }

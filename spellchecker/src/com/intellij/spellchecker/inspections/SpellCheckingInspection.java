@@ -11,23 +11,31 @@ import com.intellij.lang.refactoring.NamesValidator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.DumbService;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.profile.codeInspection.InspectionProfileManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiElementVisitor;
 import com.intellij.psi.PsiFile;
+import com.intellij.psi.PsiReference;
+import com.intellij.psi.util.CachedValuesManager;
+import com.intellij.refactoring.rename.RenameUtil;
 import com.intellij.spellchecker.SpellCheckerManager;
+import com.intellij.spellchecker.grazie.diacritic.Diacritics;
 import com.intellij.spellchecker.tokenizer.*;
 import com.intellij.spellchecker.util.SpellCheckerBundle;
 import com.intellij.util.Consumer;
 import com.intellij.util.containers.CollectionFactory;
+import com.intellij.util.text.StringSearcher;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static com.intellij.codeInspection.options.OptPane.checkbox;
 import static com.intellij.codeInspection.options.OptPane.pane;
@@ -240,28 +248,71 @@ public final class SpellCheckingInspection extends LocalInspectionTool implement
       }
 
       boolean keyword = myNamesValidator.isKeyword(word, myElement.getProject());
-      if (keyword) {
+      if (keyword || !hasProblem(word) || hasSameNamedReferenceInFile(word)) {
         return;
       }
 
-      if (myManager.hasProblem(word)) {
-        //Use tokenizer to generate accurate range in element (e.g. in case of escape sequences in element)
-        SpellcheckingStrategy strategy = getSpellcheckingStrategy(myElement, myElement.getLanguage());
+      //Use tokenizer to generate accurate range in element (e.g. in case of escape sequences in element)
+      SpellcheckingStrategy strategy = getSpellcheckingStrategy(myElement, myElement.getLanguage());
 
-        Tokenizer<?> tokenizer = strategy != null ? strategy.getTokenizer(myElement) : null;
-        if (tokenizer != null) {
-          range = tokenizer.getHighlightingRange(myElement, myOffset, range);
-        }
-        assert range.getStartOffset() >= 0;
+      Tokenizer<?> tokenizer = strategy != null ? strategy.getTokenizer(myElement) : null;
+      if (tokenizer != null) {
+        range = tokenizer.getHighlightingRange(myElement, myOffset, range);
+      }
+      assert range.getStartOffset() >= 0;
 
-        if (myHolder.isOnTheFly()) {
-          addRegularDescriptor(myElement, range, myHolder, myUseRename, word);
-        }
-        else {
-          myAlreadyChecked.add(word);
-          addBatchDescriptor(myElement, range, word, myHolder);
+      if (myHolder.isOnTheFly()) {
+        addRegularDescriptor(myElement, range, myHolder, myUseRename, word);
+      }
+      else {
+        myAlreadyChecked.add(word);
+        addBatchDescriptor(myElement, range, word, myHolder);
+      }
+    }
+
+    private boolean hasSameNamedReferenceInFile(String word) {
+      Language language = myElement.getLanguage();
+      SpellcheckingStrategy strategy = getSpellcheckingStrategy(myElement, language);
+      if (strategy == null || !strategy.elementFitsScope(myElement, Set.of(SpellCheckingScope.Comments))) {
+        return false;
+      }
+
+      PsiFile file = myElement.getContainingFile();
+      Map<String, Boolean> references = CachedValuesManager.getProjectPsiDependentCache(file, (psi) -> new ConcurrentHashMap<>());
+      return references.computeIfAbsent(word, key -> hasSameNamedReferencesInFile(file, key));
+    }
+
+    private static boolean hasSameNamedReferencesInFile(PsiFile file, String word) {
+      int[] occurrences = new StringSearcher(word, true, true).findAllOccurrences(file.getText());
+      if (occurrences.length <= 1) {
+        return false;
+      }
+
+      for (int occurrence : occurrences) {
+        PsiReference reference = file.findReferenceAt(occurrence);
+        PsiElement resolvedReference = reference != null ? reference.resolve() : null;
+        if (reference != null && resolvedReference != null && reference.getElement() != resolvedReference) {
+          return true;
         }
       }
+      return false;
+    }
+
+    private boolean hasProblem(String word) {
+      if (!myManager.hasProblem(word)) {
+        return false;
+      }
+      Language language = myElement.getLanguage();
+      SpellcheckingStrategy strategy = getSpellcheckingStrategy(myElement, language);
+      if (strategy == null || !strategy.elementFitsScope(myElement, Set.of(SpellCheckingScope.Code))) {
+        return true;
+      }
+
+      Project project = myElement.getProject();
+      return SpellCheckerManager.getInstance(project).getSuggestions(word)
+        .stream()
+        .filter(suggestion -> RenameUtil.isValidName(project, myElement, suggestion))
+        .noneMatch(suggestion -> Diacritics.equalsIgnoringDiacritics(word, suggestion));
     }
   }
 

@@ -12,7 +12,6 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.SystemInfoRt;
 import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.openapi.util.text.Strings;
-import com.intellij.platform.runtime.repository.RuntimeModuleRepository;
 import com.intellij.tracing.Tracer;
 import com.intellij.uiDesigner.compiler.AlienFormFileException;
 import com.intellij.uiDesigner.core.GridConstraints;
@@ -49,6 +48,8 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.function.Consumer;
+
+import static org.jetbrains.jps.model.serialization.JpsMavenSettings.getMavenRepositoryPath;
 
 @ApiStatus.Internal
 public final class ClasspathBootstrap {
@@ -90,7 +91,6 @@ public final class ClasspathBootstrap {
     "app-client.java"
   };
 
-  private static final String DEFAULT_MAVEN_REPOSITORY_PATH = ".m2/repository";
   @VisibleForTesting
   public static final String NETTY_JPS_VERSION = "4.1.117.Final";
   private static final String NETTY_JPS_DISTRIBUTION_JAR_NAME = "netty-jps.jar";
@@ -108,16 +108,11 @@ public final class ClasspathBootstrap {
     else {
       // running from sources or on the build server
       // take the library from the local maven repository
-      Path artifactRoot = getMavenLocalRepositoryDir().resolve("io").resolve("netty");
+      Path artifactRoot = Path.of(getMavenRepositoryPath()).resolve("io").resolve("netty");
       for (String artifactName : NETTY_ARTIFACT_NAMES) {
         consumer.accept(artifactRoot.resolve(artifactName).resolve(NETTY_JPS_VERSION).resolve(artifactName + "-" + NETTY_JPS_VERSION + ".jar"));
       }
     }
-  }
-
-  private static @NotNull Path getMavenLocalRepositoryDir() {
-    final String userHome = System.getProperty("user.home", null);
-    return userHome != null ? Path.of(userHome, DEFAULT_MAVEN_REPOSITORY_PATH) : Path.of(DEFAULT_MAVEN_REPOSITORY_PATH);
   }
 
   private static void addToClassPath(Set<String> result, Class<?> aClass) {
@@ -174,7 +169,6 @@ public final class ClasspathBootstrap {
 
     addToClassPath(cp, ClassWriter.class);  // asm
     addToClassPath(cp, ClassVisitor.class);  // asm-commons
-    addToClassPath(cp, RuntimeModuleRepository.class); // intellij.platform.runtime.repository
     addToClassPath(cp, JpsModel.class);  // intellij.platform.jps.model
     addToClassPath(cp, JpsModelImpl.class);  // intellij.platform.jps.model.impl
     addToClassPath(cp, JpsProjectLoader.class);  // intellij.platform.jps.model.serialization

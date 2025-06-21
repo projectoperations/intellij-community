@@ -8,6 +8,7 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext
 import com.intellij.openapi.components.serviceIfCreated
+import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.addKeyboardAction
 import com.intellij.openapi.ui.panel.ComponentPanelBuilder
@@ -23,7 +24,9 @@ import com.intellij.openapi.wm.impl.welcomeScreen.cloneableProjects.CloneablePro
 import com.intellij.openapi.wm.impl.welcomeScreen.projectActions.RecentProjectsWelcomeScreenActionBase
 import com.intellij.toolWindow.ToolWindowPane
 import com.intellij.ui.*
+import com.intellij.ui.AnimatedIcon
 import com.intellij.ui.components.TextComponentEmptyText
+import com.intellij.ui.components.panels.HorizontalLayout
 import com.intellij.ui.components.panels.VerticalLayout
 import com.intellij.ui.dsl.gridLayout.GridLayout
 import com.intellij.ui.dsl.gridLayout.HorizontalAlign
@@ -389,6 +392,9 @@ class RecentProjectFilteringTree(
         get() = RecentProjectsManagerBase.getInstanceEx()
 
       private val projectNameLabel = JLabel()
+      private val projectStatusLabel = ComponentPanelBuilder.createNonWrappingCommentComponent("").apply {
+        foreground = NamedColorUtil.getInactiveTextColor()
+      }
       private val providerPathLabel = ComponentPanelBuilder.createNonWrappingCommentComponent("").apply {
         foreground = NamedColorUtil.getInactiveTextColor()
       }
@@ -397,7 +403,7 @@ class RecentProjectFilteringTree(
       }
       private val projectBranchNameLabel = ComponentPanelBuilder.createNonWrappingCommentComponent("").apply {
         foreground = NamedColorUtil.getInactiveTextColor()
-        icon = AllIcons.Vcs.Branch
+        icon = IconUtil.colorize(AllIcons.Vcs.Branch, UIUtil.getInactiveTextColor(), keepGray = false, keepBrightness = false)
       }
       private val projectIconLabel = JLabel()
       private val projectActions = ActionsButton().apply {
@@ -406,12 +412,17 @@ class RecentProjectFilteringTree(
       private val projectNamePanel = JPanel(VerticalLayout(4)).apply {
         isOpaque = false
 
-        add(projectNameLabel)
+        val projectNameRow = JPanel(HorizontalLayout(4)).apply {
+          isOpaque = false
+          add(projectNameLabel)
+          add(projectStatusLabel)
+        }
+        add(projectNameRow)
         add(providerPathLabel)
         add(projectPathLabel)
         add(projectBranchNameLabel)
       }
-      private val projectProgressBar = JProgressBar().apply {
+      private val projectProgressLabel = JLabel().apply {
         isOpaque = false
       }
       private val updateScaleHelper = UpdateScaleHelper()
@@ -423,7 +434,7 @@ class RecentProjectFilteringTree(
                 gaps = if (ExperimentalUI.isNewUI()) UnscaledGaps(6, 6, 0, 8) else UnscaledGaps(top = 8, right = 8),
                 verticalAlign = VerticalAlign.TOP)
           .cell(projectNamePanel, resizableColumn = true, horizontalAlign = HorizontalAlign.FILL, gaps = UnscaledGaps(4, 4, 4, 4))
-          .cell(projectProgressBar, gaps = UnscaledGaps(left = 8, right = 8))
+          .cell(projectProgressLabel, gaps = UnscaledGaps(left = 8, right = 8))
           .cell(projectActions, gaps = UnscaledGaps(right = ActionsButton.RIGHT_GAP))
       }
 
@@ -465,7 +476,7 @@ class RecentProjectFilteringTree(
                            projectPath = item.projectPath,
                            branchName = item.branchName,
                            providerPath = item.providerPath,
-                           tooltip = null,
+                           tooltip = item.projectPath,
                            projectIcon = projectIcon,
                            isProjectValid = isProjectValid,
                            providerIcon = item.providerIcon)
@@ -475,10 +486,14 @@ class RecentProjectFilteringTree(
                                              AllIcons.Ide.Notification.GearHover,
                                              alwaysReserveSpace = true)
 
-        if (item.isProjectOpening) {
-          projectProgressBar.isVisible = true
-          projectProgressBar.isEnabled = true
-          projectProgressBar.isIndeterminate = true
+        if (item.statusText != null) {
+          projectStatusLabel.isVisible = true
+          projectStatusLabel.text = item.statusText
+        }
+        if (item.progressText != null) {
+          projectProgressLabel.isVisible = true
+          projectProgressLabel.icon = AnimatedIcon.Default.INSTANCE
+          projectProgressLabel.text = item.progressText
         }
 
         return this
@@ -505,7 +520,7 @@ class RecentProjectFilteringTree(
         providerPathLabel.apply {
           text = providerPath ?: ""
           isVisible = providerPath != null
-          icon = providerIcon
+          icon = providerIcon ?: AllIcons.Welcome.RecentProjects.RemoteProject
           verticalTextPosition = SwingConstants.CENTER
         }
         projectPathLabel.apply {
@@ -523,7 +538,8 @@ class RecentProjectFilteringTree(
           accessibleContext.accessibleName = IdeBundle.message("welcome.screen.recent.projects.branch.label.accessible.name", text)
         }
 
-        projectProgressBar.isVisible = false
+        projectStatusLabel.isVisible = false
+        projectProgressLabel.isVisible = false
         projectActions.isVisible = false
 
         if (tooltip != toolTipText) {
@@ -534,6 +550,8 @@ class RecentProjectFilteringTree(
         getAccessibleContext().accessibleName = AccessibleContextUtil.getCombinedName(
           ", ",
           projectNameLabel,
+          projectStatusLabel.takeIf { projectStatusLabel.isVisible },
+          projectProgressLabel.takeIf { projectProgressLabel.isVisible },
           providerPathLabel.takeIf { providerPathLabel.isVisible },
           projectPathLabel.takeIf { projectPathLabel.isVisible },
           projectBranchNameLabel.takeIf { projectBranchNameLabel.isVisible },
@@ -670,10 +688,7 @@ class RecentProjectFilteringTree(
           val fraction = progressIndicator.fraction
           if (fraction <= 0.0 || progressIndicator.isIndeterminate) {
             isIndeterminate = true
-            val progressBarUI = projectProgressBar.ui
-            if (progressBarUI is DarculaProgressBarUI) {
-              progressBarUI.updateIndeterminateAnimationIndex(START_MILLIS)
-            }
+            updateIndeterminateProgressBarAnimation(this)
           }
           else {
             isIndeterminate = false
@@ -713,6 +728,13 @@ class RecentProjectFilteringTree(
         )
 
         return this
+      }
+    }
+
+    private fun updateIndeterminateProgressBarAnimation(projectProgressBar: JProgressBar) {
+      val progressBarUI = projectProgressBar.ui
+      if (progressBarUI is DarculaProgressBarUI) {
+        progressBarUI.updateIndeterminateAnimationIndex(START_MILLIS)
       }
     }
 
@@ -890,3 +912,11 @@ private class ActionsButton : SelectablePanel() {
 private val MouseEvent.isMultipleSelectionInProgress: Boolean
   get() =
     UIUtil.isControlKeyDown(this) || isShiftDown
+
+internal class ProviderProjectAdditionalActionsGroup : ActionGroup(), DumbAware {
+  override fun getChildren(e: AnActionEvent?): Array<out AnAction> {
+    val item = e?.getData(RecentProjectsWelcomeScreenActionBase.RECENT_PROJECT_SELECTED_ITEM_KEY) as? ProviderRecentProjectItem
+               ?: return EMPTY_ARRAY
+    return item.additionalActions.toTypedArray()
+  }
+}

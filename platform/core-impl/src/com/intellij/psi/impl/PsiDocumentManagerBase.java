@@ -57,8 +57,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public abstract class PsiDocumentManagerBase extends PsiDocumentManager implements DocumentListener, Disposable {
-  @ApiStatus.Internal
-  public static final Logger LOG = Logger.getInstance(PsiDocumentManagerBase.class);
+  private static final Logger LOG = Logger.getInstance(PsiDocumentManagerBase.class);
   private static final Key<Document> HARD_REF_TO_DOCUMENT = Key.create("HARD_REFERENCE_TO_DOCUMENT");
 
   private boolean isInsideCommitHandler; //accessed from EDT only
@@ -196,17 +195,17 @@ public abstract class PsiDocumentManagerBase extends PsiDocumentManager implemen
   }
 
   @Override
-  public Document getDocument(@NotNull PsiFile file) {
-    Document document = getCachedDocument(file);
+  public Document getDocument(@NotNull PsiFile psiFile) {
+    Document document = getCachedDocument(psiFile);
     if (document != null) {
-      if (!file.getViewProvider().isPhysical()) {
-        PsiUtilCore.ensureValid(file);
-        associatePsi(document, file);
+      if (!psiFile.getViewProvider().isPhysical()) {
+        PsiUtilCore.ensureValid(psiFile);
+        associatePsi(document, psiFile);
       }
       return document;
     }
 
-    FileViewProvider viewProvider = file.getViewProvider();
+    FileViewProvider viewProvider = psiFile.getViewProvider();
     if (!viewProvider.isEventSystemEnabled()) {
       return null;
     }
@@ -214,15 +213,15 @@ public abstract class PsiDocumentManagerBase extends PsiDocumentManager implemen
     VirtualFile virtualFile = viewProvider.getVirtualFile();
     document = FileDocumentManager.getInstance().getDocument(virtualFile, myProject);
     if (document != null) {
-      if (document.getTextLength() != file.getTextLength()) {
+      if (document.getTextLength() != psiFile.getTextLength()) {
         // We have internal state inconsistency, it might be a good idea to contact the core team if you are able to reproduce this error.
-        String message = "Document/PSI mismatch: " + file + " of " + file.getClass() +
+        String message = "Document/PSI mismatch: " + psiFile + " of " + psiFile.getClass() +
                          "; viewProvider=" + viewProvider +
                          "; uncommitted=" + Arrays.toString(getUncommittedDocuments());
         String documentText = document.getText();
         String fileText;
         try {
-          fileText = file.getText();
+          fileText = psiFile.getText();
         }
         catch (AssertionError e) {
           fileText = "file.getText() failed with an error: " + e;
@@ -233,9 +232,9 @@ public abstract class PsiDocumentManagerBase extends PsiDocumentManager implemen
       }
 
       if (!viewProvider.isPhysical()) {
-        PsiUtilCore.ensureValid(file);
-        associatePsi(document, file);
-        file.putUserData(HARD_REF_TO_DOCUMENT, document);
+        PsiUtilCore.ensureValid(psiFile);
+        associatePsi(document, psiFile);
+        psiFile.putUserData(HARD_REF_TO_DOCUMENT, document);
       }
     }
 
@@ -243,9 +242,9 @@ public abstract class PsiDocumentManagerBase extends PsiDocumentManager implemen
   }
 
   @Override
-  public Document getCachedDocument(@NotNull PsiFile file) {
-    if (!file.isPhysical()) return null;
-    VirtualFile vFile = file.getViewProvider().getVirtualFile();
+  public Document getCachedDocument(@NotNull PsiFile psiFile) {
+    if (!psiFile.isPhysical()) return null;
+    VirtualFile vFile = psiFile.getViewProvider().getVirtualFile();
     return FileDocumentManager.getInstance().getCachedDocument(vFile);
   }
 
@@ -411,10 +410,10 @@ public abstract class PsiDocumentManagerBase extends PsiDocumentManager implemen
 
   @ApiStatus.Internal
   public boolean finishCommit(@NotNull Document document,
-                       @NotNull List<? extends BooleanRunnable> finishProcessors,
-                       @NotNull List<? extends BooleanRunnable> reparseInjectedProcessors,
-                       boolean synchronously,
-                       @NotNull Object reason) {
+                              @NotNull List<? extends BooleanRunnable> finishProcessors,
+                              @NotNull List<? extends BooleanRunnable> reparseInjectedProcessors,
+                              boolean synchronously,
+                              @NotNull Object reason) {
     assert !myProject.isDisposed() : "Already disposed";
     if (isEventSystemEnabled(document)) {
       ThreadingAssertions.assertEventDispatchThread();
@@ -514,7 +513,7 @@ public abstract class PsiDocumentManagerBase extends PsiDocumentManager implemen
   }
 
   @ApiStatus.Internal
-  public void forceReload(@Nullable VirtualFile virtualFile, @NotNull List<FileViewProvider> viewProviders) {
+  public void forceReload(@Nullable VirtualFile virtualFile, @NotNull List<? extends FileViewProvider> viewProviders) {
     if (!viewProviders.isEmpty()) {
       DebugUtil.performPsiModification("psi.forceReload", () -> {
         for (FileViewProvider viewProvider : viewProviders) {
@@ -759,7 +758,7 @@ public abstract class PsiDocumentManagerBase extends PsiDocumentManager implemen
     }
   }
 
-  private static void runActions(@NotNull List<Runnable> actions) {
+  private static void runActions(@NotNull List<? extends Runnable> actions) {
     List<Pair<Runnable, Throwable>> exceptions = new ArrayList<>();
     for (Runnable action : actions) {
       //noinspection IncorrectCancellationExceptionHandling
@@ -807,12 +806,12 @@ public abstract class PsiDocumentManagerBase extends PsiDocumentManager implemen
   }
 
   @Override
-  public boolean isDocumentBlockedByPsi(@NotNull Document doc) {
+  public boolean isDocumentBlockedByPsi(@NotNull Document document) {
     return false;
   }
 
   @Override
-  public void doPostponedOperationsAndUnblockDocument(@NotNull Document doc) {
+  public void doPostponedOperationsAndUnblockDocument(@NotNull Document document) {
   }
 
   private void fireDocumentCreated(@NotNull Document document, PsiFile file) {
@@ -840,8 +839,8 @@ public abstract class PsiDocumentManagerBase extends PsiDocumentManager implemen
   }
 
   @Override
-  public @Nullable Document getLastCommittedDocument(@NotNull PsiFile file) {
-    Document document = getDocument(file);
+  public @Nullable Document getLastCommittedDocument(@NotNull PsiFile psiFile) {
+    Document document = getDocument(psiFile);
     return document == null ? null : getLastCommittedDocument(document);
   }
 
@@ -1018,7 +1017,7 @@ public abstract class PsiDocumentManagerBase extends PsiDocumentManager implemen
       !ContainerUtil.exists(files, file -> PsiToDocumentSynchronizer.isInsideAtomicChange(file) || !(file instanceof PsiFileImpl));
 
     Application application = ApplicationManager.getApplication();
-    boolean forceCommit = application.hasWriteAction(ExternalChangeAction.class) &&
+    boolean forceCommit = ExternalChangeActionUtil.isExternalChangeInProgress() &&
                           (SystemProperties.getBooleanProperty("idea.force.commit.on.external.change", false) ||
                            application.isHeadlessEnvironment() && !application.isUnitTestMode());
 
@@ -1104,12 +1103,12 @@ public abstract class PsiDocumentManagerBase extends PsiDocumentManager implemen
       FileViewProvider viewProvider = fileManager.findCachedViewProvider(virtualFile);
       if (viewProvider != null) {
         // we can end up outside write action here if the document has forUseInNonAWTThread=true
-        ApplicationManager.getApplication().runWriteAction((ExternalChangeAction)() ->
-          ((AbstractFileViewProvider)viewProvider).onContentReload());
+        ApplicationManager.getApplication().runWriteAction(ExternalChangeActionUtil.externalChangeAction(() ->
+                                                                                                           ((AbstractFileViewProvider)viewProvider).onContentReload()));
       }
       else if (FileIndexFacade.getInstance(myProject).isInContent(virtualFile)) {
-        ApplicationManager.getApplication().runWriteAction((ExternalChangeAction)() ->
-          ((FileManagerEx)fileManager).firePropertyChangedForUnloadedPsi());
+        ApplicationManager.getApplication().runWriteAction(ExternalChangeActionUtil.externalChangeAction(() ->
+                                                                                                           ((FileManagerEx)fileManager).firePropertyChangedForUnloadedPsi()));
       }
     }
 

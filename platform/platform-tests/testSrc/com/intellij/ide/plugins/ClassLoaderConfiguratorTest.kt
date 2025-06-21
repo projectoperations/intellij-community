@@ -8,7 +8,7 @@ import com.intellij.openapi.util.BuildNumber
 import com.intellij.platform.ide.bootstrap.ZipFilePoolImpl
 import com.intellij.platform.plugins.parser.impl.PluginDescriptorBuilder
 import com.intellij.platform.runtime.product.ProductMode
-import com.intellij.platform.testFramework.PluginBuilder
+import com.intellij.platform.testFramework.plugins.*
 import com.intellij.testFramework.assertions.Assertions.assertThat
 import com.intellij.testFramework.rules.InMemoryFsExtension
 import com.intellij.util.io.directoryStreamIfExists
@@ -94,26 +94,15 @@ internal class ClassLoaderConfiguratorTest {
   @Test
   fun `inject content module if another plugin specifies dependency in old format`() {
     val rootDir = inMemoryFs.fs.getPath("/")
-
-    plugin(rootDir, """
-    <idea-plugin package="com.foo">
-      <id>1-foo</id>
-      <content>
-        <module name="com.example.sub"/>
-      </content>
-    </idea-plugin>
-    """)
-    module(rootDir, "1-foo", "com.example.sub", """
-      <idea-plugin package="com.foo.sub">
-      </idea-plugin>
-    """)
-
-    plugin(rootDir, """
-    <idea-plugin>
-      <id>2-bar</id>
-      <depends>1-foo</depends>
-    </idea-plugin>
-    """)
+    plugin("1-foo") {
+      packagePrefix = "com.foo"
+      content {
+        module("com.example.sub") { packagePrefix="com.foo.sub" }
+      }
+    }.buildDir(rootDir.resolve("1-foo"))
+    plugin("2-bar") {
+      depends("1-foo")
+    }.buildDir(rootDir.resolve("2-bar"))
 
     val plugins = runBlocking { loadDescriptors (rootDir).enabledPlugins }
     assertThat(plugins).hasSize(2)
@@ -128,21 +117,19 @@ internal class ClassLoaderConfiguratorTest {
   }
 
   private fun loadPlugins(modulePackage: String?): PluginLoadingResult {
-    val dependencyId = "p_dependency"
-    PluginBuilder()
-      .id(dependencyId)
-      .packagePrefix("com.bar")
-      .extensionPoints("""<extensionPoint qualifiedName="bar.barExtension" beanClass="com.intellij.util.KeyedLazyInstanceEP" dynamic="true"/>""")
-      .build(rootDir.resolve(dependencyId))
-
-    val dependentPluginId = "p_dependent"
-    PluginBuilder()
-      .id(dependentPluginId)
-      .packagePrefix("com.example")
-      .module("com.example.sub",
-              PluginBuilder().packagePrefix(modulePackage)
-                .extensionPoints("""<extensionPoint qualifiedName="bar.barExtension" beanClass="com.intellij.util.KeyedLazyInstanceEP" dynamic="true"/>"""))
-      .build(rootDir.resolve(dependentPluginId))
+    plugin("p_dependency") {
+      packagePrefix = "com.bar"
+      extensionPoints = """<extensionPoint qualifiedName="bar.barExtension" beanClass="com.intellij.util.KeyedLazyInstanceEP" dynamic="true"/>"""
+    }.buildDir(rootDir.resolve("p_dependency"))
+    plugin("p_dependent") {
+      packagePrefix = "com.example"
+      content {
+        module("com.example.sub") {
+          packagePrefix = modulePackage
+          extensionPoints = """<extensionPoint qualifiedName="bar.barExtension" beanClass="com.intellij.util.KeyedLazyInstanceEP" dynamic="true"/>"""
+        }
+      }
+    }.buildDir(rootDir.resolve("p_dependent"))
 
     val loadResult = runBlocking { loadDescriptors(rootDir) }
     val plugins = loadResult.enabledPlugins

@@ -1,4 +1,5 @@
 ### auto-generated section `build intellij.java.decompiler` start
+load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources", "jvm_test")
 
 jvm_resources(
@@ -14,8 +15,11 @@ jvm_library(
   srcs = glob(["src/**/*.kt", "src/**/*.java"], allow_empty = True),
   deps = [
     "//plugins/java-decompiler/engine",
+    "//platform/analysis-api:analysis",
+    "//platform/code-style-api:codeStyle",
     "//platform/editor-ui-api:editor-ui",
     "//platform/lang-api:lang",
+    "//platform/projectModel-api:projectModel",
     "//java/java-psi-api:psi",
     "//platform/ide-core-impl",
     "//java/java-psi-impl:psi-impl",
@@ -38,8 +42,11 @@ jvm_library(
   deps = [
     "//plugins/java-decompiler/engine",
     "//plugins/java-decompiler/engine:engine_test_lib",
+    "//platform/analysis-api:analysis",
+    "//platform/code-style-api:codeStyle",
     "//platform/editor-ui-api:editor-ui",
     "//platform/lang-api:lang",
+    "//platform/projectModel-api:projectModel",
     "//platform/testFramework",
     "//platform/testFramework:testFramework_test_lib",
     "//java/java-psi-api:psi",
@@ -60,7 +67,7 @@ jvm_library(
   runtime_deps = [":java-decompiler_resources"]
 )
 
-jvm_test(
+jps_test(
   name = "java-decompiler_test",
   runtime_deps = [":java-decompiler_test_lib"]
 )

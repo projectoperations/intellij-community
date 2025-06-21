@@ -432,6 +432,11 @@ abstract class ProductProperties {
   var qodanaProductProperties: QodanaProductProperties? = null
 
   /**
+   * Custom compatible build range for all plugins build together with a product distribution
+   */
+  var customCompatibleBuildRange: CompatibleBuildRange? = null
+
+  /**
    * Additional validation can be performed here for [BuildOptions.VALIDATE_PLUGINS_TO_BE_PUBLISHED] step.
    * Please do not ignore validation failures here, they will fail CI builds anyway.
    * @param pluginId may be null if missing or a plugin descriptor is malformed
@@ -444,7 +449,6 @@ abstract class ProductProperties {
         if (result.plugin.pluginVersion == null) {
           add(PropertyNotSpecified("version"))
         }
-        // workarounds for MP-7501
         val id = result.plugin.pluginId
         if (id == null) {
           add(PropertyNotSpecified("id"))

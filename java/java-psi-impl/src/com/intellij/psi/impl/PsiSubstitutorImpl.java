@@ -1,6 +1,7 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi.impl;
 
+import com.intellij.codeInsight.TypeNullability;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.RecursionManager;
@@ -200,20 +201,23 @@ public final class PsiSubstitutorImpl implements PsiSubstitutor {
       PsiUtilCore.ensureValid(aClass);
       if (aClass instanceof PsiTypeParameter) {
         final PsiTypeParameter typeParameter = (PsiTypeParameter)aClass;
-        final PsiType result = getFromMap(typeParameter);
+        PsiType result = getFromMap(typeParameter);
         if (PsiTypes.voidType().equals(result)) {
           return classType;
         }
         if (result != null) {
           if (result instanceof PsiClassType || result instanceof PsiArrayType || result instanceof PsiWildcardType) {
-            return result.annotate(getMergedProvider(classType, result));
+            // TODO: remove once nullability works better than annotations
+            result = result.annotate(getMergedProvider(classType, result));
           }
+          TypeNullability origNullability = classType.getNullability();
+          result = origNullability.equals(TypeNullability.UNKNOWN) ? result : result.withNullability(origNullability.instantiatedWith(result.getNullability()));
         }
         return result;
       }
       PsiSubstitutor resultSubstitutor = processClass(aClass, resolveResult.getSubstitutor());
       return new PsiImmediateClassType(aClass, resultSubstitutor, classType.getLanguageLevel(),
-                                       classType.getAnnotationProvider(), classType.getPsiContext(), classType.getNullability());
+                                       classType.getAnnotationProvider(), classType.getPsiContext());
     }
 
     private @NotNull PsiSubstitutor processClass(@NotNull PsiClass resolve, @NotNull PsiSubstitutor originalSubstitutor) {

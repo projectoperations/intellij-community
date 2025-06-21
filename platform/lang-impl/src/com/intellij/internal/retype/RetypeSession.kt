@@ -55,7 +55,6 @@ private fun String.toReadable(): String = replace(" ", "<Space>").replace("\n", 
 
 @ApiStatus.Internal
 class RetypeLog {
-  val LOG: Logger = Logger.getInstance(RetypeLog::class.java)
   private val log = arrayListOf<String>()
   private var currentTyping: String? = null
   private var currentCompletion: String? = null
@@ -117,6 +116,8 @@ class RetypeLog {
     }
   }
 }
+
+private val LOG: Logger = Logger.getInstance(RetypeLog::class.java)
 
 class RetypeSession(
   private val project: Project,
@@ -204,7 +205,7 @@ class RetypeSession(
       ADD_UNAMBIGIOUS_IMPORTS_ON_THE_FLY = false
     }
     CodeInsightWorkspaceSettings.getInstance(project).isOptimizeImportsOnTheFly = false
-    EditorNotifications.getInstance(project).updateNotifications(editor.virtualFile)
+    EditorNotifications.getInstance(project).updateNotifications(editor.virtualFile!!)
     retypePaused = false
     startLargeIndexing()
     timerThread.start()
@@ -562,7 +563,7 @@ class RetypeSession(
   private fun startLargeIndexing() {
     if (filesForIndexCount <= 0) return
 
-    val dir = File(editor.virtualFile.parent.path, LARGE_INDEX_DIR_NAME)
+    val dir = File(editor.virtualFile!!.parent.path, LARGE_INDEX_DIR_NAME)
     dir.mkdir()
 
     for (i in 0..filesForIndexCount) {
@@ -575,7 +576,7 @@ class RetypeSession(
   private fun removeLargeIndexing() {
     if (filesForIndexCount <= 0) return
 
-    val dir = File(editor.virtualFile.parent.path, LARGE_INDEX_DIR_NAME)
+    val dir = File(editor.virtualFile!!.parent.path, LARGE_INDEX_DIR_NAME)
     dir.deleteRecursively()
   }
 

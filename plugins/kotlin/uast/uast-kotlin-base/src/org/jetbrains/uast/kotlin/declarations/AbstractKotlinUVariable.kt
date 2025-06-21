@@ -3,9 +3,10 @@ package org.jetbrains.uast.kotlin
 
 import com.intellij.psi.*
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.NotNull
+import org.jetbrains.annotations.Nullable
 import org.jetbrains.kotlin.asJava.elements.KtLightAbstractAnnotation
 import org.jetbrains.kotlin.asJava.elements.KtLightElement
-import org.jetbrains.kotlin.descriptors.annotations.AnnotationUseSiteTarget
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.utils.SmartList
 import org.jetbrains.uast.*
@@ -71,21 +72,31 @@ abstract class AbstractKotlinUVariable(
         }
 
     private fun AbstractKotlinUVariable.buildAnnotations(): List<UAnnotation> {
-        val sourcePsi = sourcePsi ?: return psi.annotations.map { WrappedUAnnotation(it, this) }
         val annotations = SmartList<UAnnotation>()
-        val hasInheritedGenericType = baseResolveProviderService.hasInheritedGenericType(sourcePsi)
-        if (!hasInheritedGenericType) {
-            annotations.add(KotlinNullabilityUAnnotation(baseResolveProviderService, sourcePsi, this))
+        val sourcePsi = sourcePsi
+        if (sourcePsi != null) {
+            val hasInheritedGenericType = baseResolveProviderService.hasInheritedGenericType(sourcePsi)
+            if (!hasInheritedGenericType) {
+                annotations.add(
+                    KotlinNullabilityUAnnotation(baseResolveProviderService, sourcePsi, this)
+                )
+            }
+        } else {
+            javaPsi.annotations.filter { psiAnnotation ->
+                val fqName = psiAnnotation.qualifiedName
+                fqName == NotNull::class.qualifiedName || fqName == Nullable::class.qualifiedName
+            }.forEach { psiAnnotation ->
+                annotations.add(
+                    WrappedUAnnotation(psiAnnotation, this)
+                )
+            }
         }
-        if (sourcePsi is KtModifierListOwner) {
-            sourcePsi.annotationEntries
-                .filter { acceptsAnnotationTarget(it.useSiteTarget?.getAnnotationUseSiteTarget()) }
-                .mapTo(annotations) { baseResolveProviderService.baseKotlinConverter.convertAnnotation(it, this) }
-        }
+        // NB: we can't use sourcePsi.annotationEntries directly due to annotation use-site targets.
+        baseResolveProviderService.getPsiAnnotations(javaPsi).asSequence()
+            .mapNotNull { (it as? KtLightElement<*, *>)?.kotlinOrigin as? KtAnnotationEntry }
+            .mapTo(annotations) { baseResolveProviderService.baseKotlinConverter.convertAnnotation(it, this) }
         return annotations
     }
-
-    protected abstract fun acceptsAnnotationTarget(target: AnnotationUseSiteTarget?): Boolean
 
     override val typeReference: UTypeReferenceExpression?
         get() {

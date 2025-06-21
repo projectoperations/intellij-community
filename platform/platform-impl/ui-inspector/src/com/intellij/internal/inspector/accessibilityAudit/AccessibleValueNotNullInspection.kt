@@ -10,18 +10,21 @@ import javax.accessibility.AccessibleRole
 class AccessibleValueNotNullInspection : UiInspectorAccessibilityInspection {
   override val propertyName: String = "AccessibleValue"
   override val severity: Severity = Severity.WARNING
+  override var accessibleRole: AccessibleRole? = null
 
   override fun passesInspection(accessible: Accessible?): Boolean {
     val context = accessible?.accessibleContext ?: return true
     if (context.accessibleRole in arrayOf(AccessibleRole.PROGRESS_BAR,
                                           AccessibleRole.SPIN_BOX,
                                           AccessibleRole.SLIDER,
+                                          AccessibleRole.CHECK_BOX,
+                                          AccessibleRole.RADIO_BUTTON,
                                           AccessibleRole.SCROLL_BAR)
     ) {
-      return context.accessibleValue != null
+      val result = context.accessibleValue != null
+      if (!result) accessibleRole = context.accessibleRole
+      return result
     }
     return true
   }
 }
-
-// progress bar, spin box, slider, scroll bar

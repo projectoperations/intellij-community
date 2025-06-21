@@ -15,7 +15,10 @@ jvm_library(
   deps = [
     "@lib//:jetbrains-annotations",
     "//platform/editor-ui-api:editor-ui",
+    "//platform/indexing-api:indexing",
     "//jps/model-api:model",
+    "//platform/lang-core",
+    "//platform/projectModel-api:projectModel",
     "//platform/util:util-ui",
     "//platform/core-api:core",
     "//platform/extensions",
@@ -26,6 +29,7 @@ jvm_library(
     "//platform/editor-ui-ex:editor-ex",
     "//platform/platform-impl:ide-impl",
     "//platform/core-ui",
+    "//platform/platform-impl/concurrency",
     "//platform/util/coroutines",
   ],
   runtime_deps = [":psiViewer_resources"]

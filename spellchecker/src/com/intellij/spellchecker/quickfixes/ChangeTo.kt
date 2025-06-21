@@ -37,9 +37,9 @@ internal class ChangeTo(typo: String, element: PsiElement, private val range: Te
 
   override fun getTitle(): ChoiceTitleIntentionAction = ChangeToTitleAction
 
-  private inner class ChangeToVariantAction(
-    override val index: Int
-  ) : ChoiceVariantIntentionAction(), HighPriorityAction, DumbAware {
+  private open inner class ChangeToVariantAction(
+    override val index: Int,
+  ) : ChoiceVariantIntentionAction(), HighPriorityAction {
 
     @NlsSafe
     private var suggestion: String? = null
@@ -65,10 +65,9 @@ internal class ChangeTo(typo: String, element: PsiElement, private val range: Te
       val myRange = getRange(document) ?: return
 
       removeHighlightersWithExactRange(document, project, myRange)
-
       document.replaceString(myRange.startOffset, myRange.endOffset, suggestion)
     }
-    
+
     private fun getRange(document: Document): TextRange? {
       val element = pointer.element ?: return null
       val range = range.shiftRight(element.startOffset)
@@ -107,8 +106,8 @@ internal class ChangeTo(typo: String, element: PsiElement, private val range: Te
     val model = DocumentMarkupModel.forDocument(document, project, false) ?: return
 
     for (highlighter in model.allHighlighters) {
-      if (TextRange.areSegmentsEqual(range, highlighter!!)) {
-        model.removeHighlighter(highlighter!!)
+      if (TextRange.areSegmentsEqual(range, highlighter)) {
+        model.removeHighlighter(highlighter)
       }
     }
   }

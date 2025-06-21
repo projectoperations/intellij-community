@@ -9,7 +9,7 @@ import org.assertj.core.api.ObjectAssert
 fun ObjectAssert<out IdeaPluginDescriptorImpl>.hasDirectParentClassloaders(vararg parentDescriptors: IdeaPluginDescriptorImpl) = apply {
   extracting { (it.classLoader as PluginClassLoader)._getParents() }
     .asInstanceOf(InstanceOfAssertFactories.LIST)
-    .contains(*parentDescriptors)
+    .containsExactlyInAnyOrder(*parentDescriptors)
 }
 
 fun ObjectAssert<out IdeaPluginDescriptorImpl>.doesNotHaveDirectParentClassloaders(vararg parentDescriptors: IdeaPluginDescriptorImpl) = apply {
@@ -60,4 +60,13 @@ fun ObjectAssert<out IdeaPluginDescriptorImpl>.hasExactlyExtensionPointsNames(va
   extracting { it.appContainerDescriptor.extensionPoints.map { it.name } }
     .asList()
     .containsExactly(*names)
+}
+
+internal fun IdeaPluginDescriptorImpl.loadClassInsideSelf(fqn: String): Class<*> {
+  return (classLoader as PluginClassLoader).loadClassInsideSelf(fqn) ?: error("Class '$fqn' not found in $this")
+}
+
+internal inline fun <reified T> IdeaPluginDescriptorImpl.loadClassInsideSelf(): Class<*> {
+  val fqn = T::class.qualifiedName!!
+  return ((classLoader as PluginClassLoader).loadClassInsideSelf(fqn) ?: error("Class '$fqn' not found in $this"))
 }

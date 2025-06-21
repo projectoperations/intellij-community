@@ -15,7 +15,6 @@ import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleUtilCore
-import com.intellij.openapi.progress.Cancellation
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.util.Key
@@ -40,19 +39,21 @@ private class PyStubPackagesAdvertiser : PyInspection() {
     private val FORCED = emptyMap<String, String>() // top-level package to package on PyPI
 
     // notification will be shown for packages below
-    private val CHECKED = mapOf("coincurve" to "coincurve",
-                                "docutils" to "docutils",
-                                "pika" to "pika",
+    private val CHECKED = mapOf("docutils" to "docutils",
                                 "gi" to "PyGObject",
                                 "PyQt5" to "PyQt5",
                                 "pandas" to "pandas",
                                 "celery" to "celery",
-                                "urllib3" to "urllib3",
-                                "pillow" to "Pillow",
                                 "boto3" to "boto3",
+                                "scipy" to "scipy",
                                 "traits" to "traits") // top-level package to package on PyPI, sorted by the latter
 
     private val EXTRAS = mapOf("boto3-stubs" to "[full]")
+
+    private val IGNORE = setOf(
+      "types-boto3", // duplicate of boto3-stubs
+      "celery-stubs", // deprecated
+    )
 
     private val BALLOON_SHOWING = Key.create<Boolean>("showingStubPackagesAdvertiserBalloon")
   }
@@ -61,14 +62,14 @@ private class PyStubPackagesAdvertiser : PyInspection() {
 
   override fun getOptionsPane() =
     pane(stringList("ignoredPackages", PyPsiBundle.message("INSP.stub.packages.compatibility.ignored.packages.label")))
-  
+
   override fun buildVisitor(holder: ProblemsHolder,
                             isOnTheFly: Boolean,
                             session: LocalInspectionToolSession): PsiElementVisitor = Visitor(ignoredPackages, holder, session)
 
   private class Visitor(private val ignoredPackages: MutableList<String>,
                         holder: ProblemsHolder,
-                        session: LocalInspectionToolSession) : PyInspectionVisitor(holder, PyInspectionVisitor.getContext(session)) {
+                        session: LocalInspectionToolSession) : PyInspectionVisitor(holder, getContext(session)) {
 
     private val BALLOON_NOTIFICATIONS
       get() = NotificationGroupManager.getInstance().getNotificationGroup("Python Stub Packages Advertiser")
@@ -109,7 +110,7 @@ private class PyStubPackagesAdvertiser : PyInspection() {
       val availablePackages = packageManagementService.allPackagesCached
       if (availablePackages.isEmpty()) return
 
-      val ignoredStubPackages = ignoredPackages.mapNotNull { packageManager.parseRequirement(it) }
+      val ignoredStubPackages = (IGNORE + ignoredPackages).mapNotNull { PyRequirementParser.fromLine(it) }
       val cache = ApplicationManager.getApplication().getService(PyStubPackagesAdvertiserCache::class.java).forSdk(sdk)
 
       val forcedToLoad = processForcedPackages(file, sources, module, sdk, packageManager, ignoredStubPackages, cache)
@@ -142,7 +143,7 @@ private class PyStubPackagesAdvertiser : PyInspection() {
         registerProblem(file,
                         message,
                         createInstallStubPackagesQuickFix(reqs, args, module, sdk, packageManager),
-                        createIgnorePackagesQuickFix(reqs, packageManager))
+                        createIgnorePackagesQuickFix(reqs))
       }
 
       return sourcesToLoad
@@ -193,7 +194,7 @@ private class PyStubPackagesAdvertiser : PyInspection() {
           )
           .addAction(
             NotificationAction.createSimpleExpiring(PyBundle.message("code.insight.ignore.type.hints")) {
-              createIgnorePackagesQuickFix(reqs, packageManager).applyFix(project, problemDescriptor)
+              createIgnorePackagesQuickFix(reqs).applyFix(project, problemDescriptor)
             }
           )
           .addAction(
@@ -271,7 +272,7 @@ private class PyStubPackagesAdvertiser : PyInspection() {
       val project = module.project
       val stubPkgNamesToInstall = reqs.mapTo(mutableSetOf()) { it.name }
 
-      val installationListener = object : PyPackageManagerUI.Listener {
+      object : PyPackageManagerUI.Listener {
         override fun started() {
           project.getService(PyStubPackagesInstallingStatus::class.java).markAsInstalling(stubPkgNamesToInstall)
         }
@@ -292,7 +293,7 @@ private class PyStubPackagesAdvertiser : PyInspection() {
               override fun finished(exceptions: MutableList<ExecutionException>?) {
                 status.unmarkAsInstalling(stubPkgNamesToUninstall)
                 val reqsToIgnore = stubPkgsToUninstall.map { pyRequirement(it.name, PyRequirementRelation.EQ, it.version) }
-                addStubPackagesToIgnore(reqsToIgnore, stubPkgNamesToUninstall, project, packageManager)
+                addStubPackagesToIgnore(reqsToIgnore, stubPkgNamesToUninstall, project)
               }
             }
 
@@ -310,24 +311,23 @@ private class PyStubPackagesAdvertiser : PyInspection() {
       }
 
       val name = PyBundle.message("code.insight.stub.packages.install.requirements.fix.name", reqs.size)
-      return PyInstallRequirementsFix(name, module, sdk, reqs, args)
+      return PyInstallRequirementsFix(name, sdk, reqs, args)
     }
 
-    private fun createIgnorePackagesQuickFix(reqs: List<PyRequirement>, packageManager: PyPackageManager): LocalQuickFix {
+    private fun createIgnorePackagesQuickFix(reqs: List<PyRequirement>): LocalQuickFix {
       return object : LocalQuickFix {
         override fun getFamilyName() = PyBundle.message("code.insight.ignore.packages.qfix", reqs.size)
 
         override fun applyFix(project: Project, descriptor: ProblemDescriptor) {
-          this@Visitor.addStubPackagesToIgnore(reqs, reqs.mapTo(mutableSetOf()) { it.name }, project, packageManager)
+          this@Visitor.addStubPackagesToIgnore(reqs, reqs.mapTo(mutableSetOf()) { it.name }, project)
         }
       }
     }
 
     private fun addStubPackagesToIgnore(stubPackages: List<PyRequirement>,
                                         stubPackagesNames: Set<String>,
-                                        project: Project,
-                                        packageManager: PyPackageManager) {
-      ignoredPackages.removeIf { packageManager.parseRequirement(it)?.name in stubPackagesNames }
+                                        project: Project) {
+      ignoredPackages.removeIf { PyRequirementParser.fromLine(it)?.name in stubPackagesNames }
       ignoredPackages.addAll(stubPackages.map { it.presentableText })
 
       ProjectInspectionProfileManager.getInstance(project).fireProfileChanged()

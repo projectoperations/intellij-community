@@ -116,6 +116,7 @@ internal class ReworkedTerminalView(
       sessionModel,
       encodingManager,
       terminalInput,
+      typeAhead = null,
       coroutineScope.childScope("TerminalAlternateBufferModel"),
       scrollingModel = null,
       fusCursorPaintingListener,
@@ -131,6 +132,7 @@ internal class ReworkedTerminalView(
     scrollingModel = TerminalOutputScrollingModelImpl(outputEditor, outputModel, sessionModel, coroutineScope.childScope("TerminalOutputScrollingModel"))
     outputEditor.putUserData(TerminalOutputScrollingModel.KEY, scrollingModel)
 
+    val typeAhead = TerminalTypeAhead(outputModel)
     configureOutputEditor(
       project,
       editor = outputEditor,
@@ -139,6 +141,7 @@ internal class ReworkedTerminalView(
       sessionModel,
       encodingManager,
       terminalInput,
+      typeAhead,
       coroutineScope.childScope("TerminalOutputModel"),
       scrollingModel,
       fusCursorPaintingListener,
@@ -146,6 +149,7 @@ internal class ReworkedTerminalView(
       withTopAndBottomInsets = true,
     )
 
+    outputEditor.putUserData(TerminalSessionModel.KEY, sessionModel)
     terminalSearchController = TerminalSearchController(project)
 
     blocksModel = TerminalBlocksModelImpl(outputEditor.document)
@@ -159,6 +163,8 @@ internal class ReworkedTerminalView(
       alternateBufferEditor = alternateBufferEditor as EditorImpl,
     )
 
+    val terminalAliasesStorage = TerminalAliasesStorage()
+
     controller = TerminalSessionController(
       project,
       sessionModel,
@@ -168,7 +174,10 @@ internal class ReworkedTerminalView(
       settings,
       coroutineScope.childScope("TerminalSessionController"),
       fusActivity,
+      terminalAliasesStorage
     )
+    outputEditor.putUserData(TerminalAliasesStorage.KEY, terminalAliasesStorage)
+    controller.addShellIntegrationListener(this, typeAhead)
 
     sessionFuture.thenAccept { session ->
       controller.handleEvents(session)
@@ -194,12 +203,8 @@ internal class ReworkedTerminalView(
     terminalInput.sendBytes(bytes)
   }
 
-  override fun isCommandRunning(): Boolean {
-    // Will work only if there is a shell integration.
-    // If there is no shell integration, then it is always false.
-    val session = sessionFuture.getNow(null) ?: return false
-    return blocksModel.blocks.last().outputStartOffset != -1
-           && !session.isClosed
+  override fun getText(): CharSequence {
+    return getCurEditor().document.immutableCharSequence
   }
 
   override fun getTerminalSize(): TermSize? {
@@ -284,6 +289,7 @@ internal class ReworkedTerminalView(
     sessionModel: TerminalSessionModel,
     encodingManager: TerminalKeyEncodingManager,
     terminalInput: TerminalInput,
+    typeAhead: TerminalTypeAhead?,
     coroutineScope: CoroutineScope,
     scrollingModel: TerminalOutputScrollingModel?,
     fusCursorPainterListener: TerminalFusCursorPainterListener?,
@@ -324,7 +330,7 @@ internal class ReworkedTerminalView(
       addTopAndBottomInsets(editor)
     }
 
-    val eventsHandler = TerminalEventsHandlerImpl(sessionModel, editor, encodingManager, terminalInput, settings, scrollingModel, model)
+    val eventsHandler = TerminalEventsHandlerImpl(sessionModel, editor, encodingManager, terminalInput, settings, scrollingModel, model, typeAhead)
     setupKeyEventDispatcher(editor, settings, eventsHandler, parentDisposable)
     setupMouseListener(editor, sessionModel, settings, eventsHandler, parentDisposable)
 

@@ -31,6 +31,8 @@ com.intellij.analysis.problemsView.ProblemsProvider
 - com.intellij.openapi.Disposable
 - dispose():V
 - a:getProject():com.intellij.openapi.project.Project
+c:com.intellij.analysis.problemsView.toolWindow.ProblemsViewPanel
+- pf:myScrollPane:javax.swing.JScrollPane
 com.intellij.analysis.problemsView.toolWindow.ProblemsViewPanelProvider
 - sf:Companion:com.intellij.analysis.problemsView.toolWindow.ProblemsViewPanelProvider$Companion
 - a:create():com.intellij.analysis.problemsView.toolWindow.ProblemsViewTab
@@ -233,6 +235,28 @@ com.intellij.codeInsight.hints.codeVision.DaemonBoundCodeVisionProvider
 - a:getRelativeOrderings():java.util.List
 - handleClick(com.intellij.openapi.editor.Editor,com.intellij.openapi.util.TextRange,com.intellij.codeInsight.codeVision.CodeVisionEntry):V
 - preparePreview(com.intellij.openapi.editor.Editor,com.intellij.psi.PsiFile):V
+f:com.intellij.codeInsight.intention.impl.IntentionActionWithTextCaching
+- com.intellij.codeInsight.intention.IntentionActionDelegate
+- com.intellij.openapi.actionSystem.ShortcutProvider
+- java.lang.Comparable
+- <init>(com.intellij.codeInsight.intention.IntentionAction):V
+- compareTo(com.intellij.codeInsight.intention.impl.IntentionActionWithTextCaching):I
+- equals(java.lang.Object):Z
+- getAction():com.intellij.codeInsight.intention.IntentionAction
+- getDelegate():com.intellij.codeInsight.intention.IntentionAction
+- getFixOffset():I
+- getFixRange():com.intellij.openapi.util.TextRange
+- getIcon():javax.swing.Icon
+- getOptionActions():java.util.List
+- getShortcut():com.intellij.openapi.actionSystem.ShortcutSet
+- s:getShortcutSet(com.intellij.codeInsight.intention.IntentionAction):com.intellij.openapi.actionSystem.ShortcutSet
+- getText():java.lang.String
+- getToolId():java.lang.String
+- hasSeparatorAbove():Z
+- hashCode():I
+- isSelectable():Z
+- isShowIcon():Z
+- suggestionShown(com.intellij.openapi.project.Project,com.intellij.openapi.editor.Editor,com.intellij.psi.PsiFile):V
 com.intellij.codeInsight.intention.impl.IntentionsOrderProvider
 - sf:EXTENSION:com.intellij.lang.LanguageExtension
 - a:getSortedIntentions(com.intellij.codeInsight.intention.impl.CachedIntentions,java.util.List):java.util.List
@@ -439,12 +463,10 @@ com.intellij.find.actions.ShowUsagesActionHandler
 - a:getSelectedScope():com.intellij.psi.search.SearchScope
 - a:getTargetClass():java.lang.Class
 - a:getTargetLanguage():com.intellij.lang.Language
-- isSaveScope():Z
 - a:isValid():Z
 - a:moreUsages(com.intellij.find.actions.ShowUsagesParameters):com.intellij.find.actions.ShowUsagesParameters
 - a:navigateToSingleUsageImmediately():Z
 - a:showDialog():com.intellij.find.actions.ShowUsagesActionHandler
-- withMaximalScope():com.intellij.find.actions.ShowUsagesActionHandler
 - a:withScope(com.intellij.psi.search.SearchScope):com.intellij.find.actions.ShowUsagesActionHandler
 com.intellij.find.editorHeaderActions.ContextAwareShortcutProvider
 - a:getShortcut(com.intellij.openapi.actionSystem.DataContext):com.intellij.openapi.actionSystem.ShortcutSet
@@ -520,6 +542,9 @@ com.intellij.ide.actions.searcheverywhere.SEResultsEqualityProvider
 - a:compareItems(com.intellij.ide.actions.searcheverywhere.SearchEverywhereFoundElementInfo,java.util.List):com.intellij.ide.actions.searcheverywhere.SEResultsEqualityProvider$SEEqualElementsActionType
 - s:composite(java.util.Collection):com.intellij.ide.actions.searcheverywhere.SEResultsEqualityProvider
 - s:getProviders():java.util.List
+c:com.intellij.ide.actions.searcheverywhere.SearchEverywhereFoundElementInfo
+- <init>(java.lang.Object,I,com.intellij.ide.actions.searcheverywhere.SearchEverywhereContributor,com.intellij.ide.actions.searcheverywhere.SearchEverywhereSpellCheckResult):V
+- <init>(java.lang.String,java.lang.Object,I,com.intellij.ide.actions.searcheverywhere.SearchEverywhereContributor):V
 com.intellij.ide.actions.searcheverywhere.SearchEverywhereManager
 - a:getCurrentlyShownUI():com.intellij.ide.actions.searcheverywhere.SearchEverywhereUI
 - s:getInstance(com.intellij.openapi.project.Project):com.intellij.ide.actions.searcheverywhere.SearchEverywhereManager
@@ -822,6 +847,10 @@ com.intellij.openapi.roots.ui.configuration.UnknownSdkResolver$UnknownSdkLookup
 - a:proposeDownload(com.intellij.openapi.roots.ui.configuration.UnknownSdk,com.intellij.openapi.progress.ProgressIndicator):com.intellij.openapi.roots.ui.configuration.UnknownSdkDownloadableSdkFix
 - proposeDownload(com.intellij.openapi.roots.ui.configuration.UnknownSdk,com.intellij.openapi.progress.ProgressIndicator,java.lang.String):com.intellij.openapi.roots.ui.configuration.UnknownSdkDownloadableSdkFix
 - a:proposeLocalFix(com.intellij.openapi.roots.ui.configuration.UnknownSdk,com.intellij.openapi.progress.ProgressIndicator):com.intellij.openapi.roots.ui.configuration.UnknownSdkLocalSdkFix
+f:com.intellij.openapi.roots.ui.configuration.impl.ModuleConfigurationEditorProviderEp
+- com.intellij.openapi.extensions.PluginAware
+- implementationClass:java.lang.String
+- setPluginDescriptor(com.intellij.openapi.extensions.PluginDescriptor):V
 com.intellij.openapi.roots.ui.configuration.libraryEditor.LibraryEditor
 - a:addExcludedRoot(java.lang.String):V
 - a:addJarDirectory(com.intellij.openapi.vfs.VirtualFile,Z,com.intellij.openapi.roots.OrderRootType):V
@@ -951,7 +980,8 @@ com.intellij.refactoring.safeDelete.SafeDeleteDialog$Callback
 - a:run(com.intellij.refactoring.safeDelete.SafeDeleteDialog):V
 com.intellij.refactoring.safeDelete.SafeDeleteProcessorDelegate
 - sf:EP_NAME:com.intellij.openapi.extensions.ExtensionPointName
-- a:findConflicts(com.intellij.psi.PsiElement,com.intellij.psi.PsiElement[]):java.util.Collection
+- findConflicts(com.intellij.psi.PsiElement,com.intellij.psi.PsiElement[]):java.util.Collection
+- findConflicts(com.intellij.psi.PsiElement,com.intellij.psi.PsiElement[],com.intellij.usageView.UsageInfo[],com.intellij.util.containers.MultiMap):V
 - a:findUsages(com.intellij.psi.PsiElement,com.intellij.psi.PsiElement[],java.util.List):com.intellij.refactoring.safeDelete.NonCodeUsageSearchInfo
 - a:getAdditionalElementsToDelete(com.intellij.psi.PsiElement,java.util.Collection,Z):java.util.Collection
 - a:getElementsToSearch(com.intellij.psi.PsiElement,java.util.Collection):java.util.Collection

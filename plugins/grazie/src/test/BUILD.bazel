@@ -1,4 +1,5 @@
 ### auto-generated section `build intellij.grazie.tests` start
+load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_java//java:defs.bzl", "java_library")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources", "jvm_test")
 
@@ -18,7 +19,11 @@ jvm_library(
   visibility = ["//visibility:public"],
   srcs = glob(["kotlin/**/*.kt", "kotlin/**/*.java"], allow_empty = True),
   deps = [
+    "//platform/analysis-api:analysis",
+    "//platform/core-api:core",
+    "//platform/core-ui",
     "//platform/editor-ui-api:editor-ui",
+    "//platform/projectModel-api:projectModel",
     "//spellchecker",
     "//spellchecker:spellchecker_test_lib",
     "//plugins/grazie",
@@ -28,6 +33,11 @@ jvm_library(
     "@lib//:grazie-tests-org-jetbrains-intellij-deps-languagetool-language-ru",
     "@lib//:grazie-tests-org-jetbrains-intellij-deps-languagetool-language-de",
     "@lib//:grazie-tests-org-jetbrains-intellij-deps-languagetool-language-it",
+    "@lib//:grazie-tests-jetbrains-intellij-deps-languagetool-language-uk",
+    "@lib//:grazie-tests-jetbrains-intellij-deps-languagetool-language-be",
+    "@lib//:grazie-tests-org-jetbrains-intellij-deps-languagetool-language-pt",
+    "//libraries/ai.grazie.spell.gec.engine.local",
+    "@lib//:grazie-tests-org-languagetool-portuguese-pos-dict",
     "@lib//:stream_ex",
     "//RegExpSupport:regexp",
     "//RegExpSupport:regexp_test_lib",
@@ -52,7 +62,7 @@ jvm_library(
   runtime_deps = [":grazie-tests_test_resources"]
 )
 
-jvm_test(
+jps_test(
   name = "grazie-tests_test",
   runtime_deps = [":grazie-tests_test_lib"]
 )

@@ -6,6 +6,7 @@ package org.jetbrains.intellij.build.bazel
 import com.intellij.openapi.util.NlsSafe
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet
 import org.jetbrains.jps.model.JpsProject
+import org.jetbrains.jps.model.java.JavaResourceRootProperties
 import org.jetbrains.jps.model.java.JavaResourceRootType
 import org.jetbrains.jps.model.java.JavaSourceRootProperties
 import org.jetbrains.jps.model.java.JavaSourceRootType
@@ -418,6 +419,9 @@ internal class BazelBuildFileGenerator(
           // https://youtrack.jetbrains.com/issue/IJI-2662/RhizomedbCommandLineProcessor-requires-output-dir-but-we-dont-have-it-for-Bazel-compilation
           //option("exported_compiler_plugins", arrayOf("@lib//:rhizomedb-plugin"))
         //}
+        else if (module.name == "fleet.rpc") {
+          option("exported_compiler_plugins", arrayOf("@lib//:rpc-plugin"))
+        }
 
         var deps = moduleList.deps.get(moduleDescriptor)
         if (deps != null && deps.provided.isNotEmpty()) {
@@ -479,6 +483,7 @@ internal class BazelBuildFileGenerator(
     if (moduleDescriptor.testSources.isNotEmpty()) {
       load("@rules_jvm//:jvm.bzl", "jvm_test")
       load("@rules_jvm//:jvm.bzl", "jvm_library")
+      load("@community//build:tests-options.bzl", "jps_test")
 
       val testLibTargetName = "${moduleDescriptor.targetName}$TEST_LIB_NAME_SUFFIX"
       target("jvm_library") {
@@ -493,7 +498,7 @@ internal class BazelBuildFileGenerator(
         renderDeps(deps = moduleList.testDeps.get(moduleDescriptor), target = this, resourceDependencies = resourceTargets, forTests = true)
       }
 
-      target("jvm_test") {
+      target("jps_test") {
         option("name", "${moduleDescriptor.targetName}_test")
         option("runtime_deps", arrayOf(":$testLibTargetName"))
       }
@@ -603,6 +608,9 @@ internal class BazelBuildFileGenerator(
         if (resource.baseDirectory.isNotEmpty()) {
           option("strip_prefix", resource.baseDirectory)
         }
+        if (resource.relativeOutputPath.isNotEmpty()) {
+          option("add_prefix", resource.relativeOutputPath)
+        }
         if (hasOnlyTestResources(module)) {
           visibility(arrayOf("//visibility:public"))
         }
@@ -691,7 +699,8 @@ private fun computeResources(module: JpsModule, contentRoots: List<Path>, bazelB
     .filter { it.rootType == type }
     .map {
       val prefix = resolveRelativeToBazelBuildFileDirectory(it.path, contentRoots, bazelBuildDir, module = module).invariantSeparatorsPathString
-      ResourceDescriptor(baseDirectory = prefix, files = listOf("${if (prefix.isEmpty()) "" else "$prefix/"}**/*"))
+      val relativeOutputPath = (it.properties as JavaResourceRootProperties).relativeOutputPath
+      ResourceDescriptor(baseDirectory = prefix, files = listOf("${if (prefix.isEmpty()) "" else "$prefix/"}**/*"), relativeOutputPath = relativeOutputPath)
     }
     .toList()
 }
@@ -736,7 +745,7 @@ private fun computeExtraResourceTarget(
       }
 
       val prefix = resolveRelativeToBazelBuildFileDirectory(sourceRootDir, contentRoots, bazelBuildDir, module = module).invariantSeparatorsPathString
-      ResourceDescriptor(baseDirectory = prefix, files = listOf("$metaInfRelative/**/*"))
+      ResourceDescriptor(baseDirectory = prefix, files = listOf("$metaInfRelative/**/*"), relativeOutputPath = "")
     }
 }
 

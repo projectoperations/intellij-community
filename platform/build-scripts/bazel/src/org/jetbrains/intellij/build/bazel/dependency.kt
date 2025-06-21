@@ -86,7 +86,7 @@ internal fun generateDeps(
       }
     }
     else if (element is JpsLibraryDependency) {
-      val untypedLib = element.library!!
+      val untypedLib = element.library ?: error("library dependency '$element' from module ${module.module.name} is not resolved")
       val lib = untypedLib.asTyped(JpsRepositoryLibraryType.INSTANCE)
       if (lib == null) {
         val files = untypedLib.getPaths(JpsOrderRootType.COMPILED)
@@ -102,7 +102,10 @@ internal fun generateDeps(
         )
 
         if (!isCommunityLib) {
-          require(!module.isCommunity)
+          require(!module.isCommunity) {
+            "Module ${module.module.name} must not depend on a non-community libraries because it is a community module" +
+            "(library=${untypedLib.name}, files=$files, bazelTargetName=$targetName)"
+          }
         }
 
         val prefix = when {
@@ -252,11 +255,11 @@ internal fun generateDeps(
 
 private fun getFileMavenFileDescription(lib: JpsTypedLibrary<JpsSimpleElement<JpsMavenRepositoryLibraryDescriptor>>, jar: Path): MavenFileDescription {
   require(jar.isAbsolute) {
-    "jar path must be absolute: $jar"
+    "jar path for jps library ${lib.name} must be absolute: $jar"
   }
 
   require(jar == jar.normalize()) {
-    "jar path must not contain redundant . and .. segments: $jar"
+    "jar path for jps library ${lib.name} must not contain redundant . and .. segments: $jar"
   }
 
   val libraryDescriptor = lib.properties.data

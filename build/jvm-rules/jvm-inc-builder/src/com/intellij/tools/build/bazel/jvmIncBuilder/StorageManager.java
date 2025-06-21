@@ -1,10 +1,10 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.tools.build.bazel.jvmIncBuilder;
 
-import com.intellij.tools.build.bazel.jvmIncBuilder.impl.AbiJarBuilder;
 import com.intellij.tools.build.bazel.jvmIncBuilder.impl.CompositeZipOutputBuilder;
 import com.intellij.tools.build.bazel.jvmIncBuilder.impl.Utils;
 import com.intellij.tools.build.bazel.jvmIncBuilder.impl.ZipOutputBuilderImpl;
+import com.intellij.tools.build.bazel.jvmIncBuilder.impl.forms.FormBinding;
 import com.intellij.tools.build.bazel.jvmIncBuilder.impl.graph.PersistentMVStoreMapletFactory;
 import com.intellij.tools.build.bazel.jvmIncBuilder.instrumentation.InstrumentationClassFinder;
 import com.sun.nio.file.ExtendedOpenOption;
@@ -30,9 +30,11 @@ public class StorageManager implements CloseableExt {
   private final BuildContext myContext;
   private GraphConfiguration myGraphConfig;
   private ZipOutputBuilderImpl myOutputBuilder;
-  private AbiJarBuilder myAbiOutputBuilder;
+  private ZipOutputBuilderImpl myAbiOutputBuilder;
   private CompositeZipOutputBuilder myComposite;
   private InstrumentationClassFinder myInstrumentationClassFinder;
+  private FormBinding myFormBinding;
+
   private final MVStore myDataSwapStore;
 
   public StorageManager(BuildContext context) {
@@ -72,7 +74,7 @@ public class StorageManager implements CloseableExt {
   }
 
   public void cleanTrashDir() throws IOException {
-    Utils.deleteIfExists(cleanDir(DataPaths.getTrashDir(myContext)));
+    deleteRecursively(DataPaths.getTrashDir(myContext));
   }
 
   public static Path cleanDir(Path dir) throws IOException {
@@ -88,6 +90,18 @@ public class StorageManager implements CloseableExt {
 
   public <K, V> Map<K, V> createOffHeapMap(String name) {
     return myDataSwapStore.openMap(name);
+  }
+
+  public FormBinding getFormsBinding() throws Exception {
+    FormBinding binding = myFormBinding;
+    if (binding == null) {
+      myFormBinding = binding = FormBinding.create(myContext);
+    }
+    return binding;
+  }
+
+  public BuildContext getContext() {
+    return myContext;
   }
 
   @NotNull
@@ -114,13 +128,13 @@ public class StorageManager implements CloseableExt {
   }
 
   @Nullable
-  public AbiJarBuilder getAbiOutputBuilder() throws IOException {
-    AbiJarBuilder builder = myAbiOutputBuilder;
+  public ZipOutputBuilderImpl getAbiOutputBuilder() throws IOException {
+    ZipOutputBuilderImpl builder = myAbiOutputBuilder;
     if (builder == null) {
       Path abiOutputPath = myContext.getAbiOutputZip();
       if (abiOutputPath != null) {
         Path previousAbiOutput = DataPaths.getJarBackupStoreFile(myContext, abiOutputPath);
-        myAbiOutputBuilder = builder = new AbiJarBuilder(createOffHeapMap(abiOutputPath.getFileName().toString()), previousAbiOutput, abiOutputPath, getInstrumentationClassFinder());
+        myAbiOutputBuilder = builder = new ZipOutputBuilderImpl(createOffHeapMap(abiOutputPath.getFileName().toString()), previousAbiOutput, abiOutputPath);
       }
     }
     return builder;
@@ -137,9 +151,9 @@ public class StorageManager implements CloseableExt {
   public @NotNull InstrumentationClassFinder getInstrumentationClassFinder() throws MalformedURLException {
     InstrumentationClassFinder finder = myInstrumentationClassFinder;
     if (finder == null) {
-      myInstrumentationClassFinder = finder = createInstrumentationClassFinder(path -> {
+      myInstrumentationClassFinder = finder = createInstrumentationClassFinder(jvmClassName -> {
         try {
-          return getOutputBuilder().getContent(path);
+          return getOutputBuilder().getContent(jvmClassName + ".class");
         }
         catch (IOException e) {
           throw new RuntimeException(e);
@@ -155,7 +169,7 @@ public class StorageManager implements CloseableExt {
 
   @Override
   public final void close() {
-    close(true);
+    close(!myContext.hasErrors());
   }
 
   @Override
@@ -346,5 +360,30 @@ public class StorageManager implements CloseableExt {
         return FileVisitResult.CONTINUE;
       }
     });
+  }
+
+  private static void deleteRecursively(Path dataDir) throws IOException {
+    if (Files.exists(dataDir)) {
+      Files.walkFileTree(dataDir, new SimpleFileVisitor<>() {
+        @Override
+        public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+          Utils.deleteIfExists(file);
+          return FileVisitResult.CONTINUE;
+        }
+
+        @Override
+        public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+          if (exc != null) {
+            throw exc;
+          }
+          try {
+            Utils.deleteIfExists(dir);
+          }
+          catch (DirectoryNotEmptyException ignore) {
+          }
+          return FileVisitResult.CONTINUE;
+        }
+      });
+    }
   }
 }

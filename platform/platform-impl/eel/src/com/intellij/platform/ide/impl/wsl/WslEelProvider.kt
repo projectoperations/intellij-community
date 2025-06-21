@@ -9,7 +9,7 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.platform.eel.EelApi
 import com.intellij.platform.eel.EelDescriptor
-import com.intellij.platform.eel.EelPlatform
+import com.intellij.platform.eel.EelOsFamily
 import com.intellij.platform.eel.provider.EelNioBridgeService
 import com.intellij.platform.eel.provider.EelProvider
 import com.intellij.platform.eel.provider.LocalEelDescriptor
@@ -23,6 +23,7 @@ import com.intellij.util.containers.forEachGuaranteed
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.job
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.NonNls
 import java.net.URI
 import java.nio.file.FileSystemAlreadyExistsException
 import java.nio.file.Path
@@ -52,7 +53,7 @@ class WslEelProvider(private val coroutineScope: CoroutineScope) : EelProvider {
   }
 
   override suspend fun tryInitialize(path: String) {
-    if (!WslIjentAvailabilityService.getInstance().useIjentForWslNioFileSystem()) {
+    if (!serviceAsync<WslIjentAvailabilityService>().useIjentForWslNioFileSystem()) {
       return
     }
 
@@ -67,7 +68,7 @@ class WslEelProvider(private val coroutineScope: CoroutineScope) : EelProvider {
     val allWslDistributions = serviceAsync<WslDistributionManager>().installedDistributions
 
     val path = Path.of(path)
-    val service = EelNioBridgeService.getInstanceSync()
+    val service = serviceAsync<EelNioBridgeService>()
     val descriptor = service.tryGetEelDescriptor(path)
 
     if (descriptor != null && descriptor !== LocalEelDescriptor) {
@@ -151,7 +152,10 @@ class WslEelProvider(private val coroutineScope: CoroutineScope) : EelProvider {
   }
 }
 
-data class WslEelDescriptor(val distribution: WSLDistribution, override val platform: EelPlatform) : EelDescriptor {
+data class WslEelDescriptor(val distribution: WSLDistribution) : EelDescriptor {
+  override val osFamily: EelOsFamily = EelOsFamily.Posix
+
+  override val userReadableDescription: @NonNls String = "WSL: ${distribution.presentableName}"
 
   override suspend fun toEelApi(): EelApi {
     return distribution.getIjent()

@@ -15,6 +15,8 @@ jvm_library(
   deps = [
     "//java/java-frontback-psi-api:frontback-psi",
     "//java/java-frontback-psi-impl:frontback-psi-impl",
+    "//platform/analysis-api:analysis",
+    "//platform/code-style-api:codeStyle",
     "//platform/core-impl",
     "//platform/editor-ui-api:editor-ui",
     "//platform/ide-core-impl",
@@ -22,6 +24,7 @@ jvm_library(
     "//platform/platform-impl:ide-impl",
     "//platform/analysis-impl",
     "//platform/core-ui",
+    "//platform/projectModel-api:projectModel",
     "//platform/refactoring",
     "//xml/xml-parser:parser",
     "//platform/core-api:core",

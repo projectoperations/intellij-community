@@ -15,7 +15,7 @@ import org.jetbrains.annotations.ApiStatus
 @ApiStatus.Internal
 object InlineCompletionLogs : CounterUsagesCollector() {
   // TODO use ML_RECORDER_ID
-  val GROUP: EventLogGroup = EventLogGroup("inline.completion.v2", 43, recorder = "ML")
+  val GROUP: EventLogGroup = EventLogGroup("inline.completion.v2", 46, recorder = "ML")
 
   val INSERTED_STATE_EVENT: VarargEventId = GROUP.registerVarargEvent(
     "inserted_state",
@@ -117,4 +117,5 @@ object InlineCompletionLogs : CounterUsagesCollector() {
     val phase: Phase,
     val isBasic: Boolean,
   )
+
 }

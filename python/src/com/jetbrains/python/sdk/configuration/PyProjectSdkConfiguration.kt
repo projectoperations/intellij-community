@@ -10,47 +10,63 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.runInEdt
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.module.Module
-import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
-import com.intellij.openapi.progress.Task.Backgroundable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.isNotificationSilentMode
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.use
-import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
+import com.intellij.platform.ide.progress.withBackgroundProgress
 import com.jetbrains.python.PyBundle
 import com.jetbrains.python.PySdkBundle
 import com.jetbrains.python.PythonPluginDisposable
 import com.jetbrains.python.inspections.PyInspectionExtension
 import com.jetbrains.python.inspections.requirement.RunningPackagingTasksListener
+import com.jetbrains.python.packaging.utils.PyPackageCoroutine
+import com.jetbrains.python.projectModel.uv.UvProjectModelService
 import com.jetbrains.python.psi.PyFile
 import com.jetbrains.python.sdk.PySdkPopupFactory
 import com.jetbrains.python.sdk.configurePythonSdk
+import com.jetbrains.python.sdk.uv.isUv
 
 object PyProjectSdkConfiguration {
 
   private val LOGGER = Logger.getInstance(PyProjectSdkConfiguration::class.java)
 
-  fun configureSdkUsingExtension(module: Module, extension: PyProjectSdkConfigurationExtension, supplier: () -> Sdk?) {
+  fun configureSdkUsingExtension(module: Module, extension: PyProjectSdkConfigurationExtension) {
     val lifetime = suppressTipAndInspectionsFor(module, extension)
 
-    ProgressManager.getInstance().run(
-      object : Backgroundable(module.project, PySdkBundle.message("python.configuring.interpreter.progress"), false) {
-        override fun run(indicator: ProgressIndicator) {
-          indicator.isIndeterminate = true
-          lifetime.use { setSdkUsingExtension(module, extension, supplier) }
+    val project = module.project
+    PyPackageCoroutine.launch(project) {
+      withBackgroundProgress(project, PySdkBundle.message("python.configuring.interpreter.progress"), false) {
+        lifetime.use {
+          setSdkUsingExtension(module, extension) {
+            extension.createAndAddSdkForInspection(module)
+          }
         }
       }
-    )
+    }
   }
 
-  @RequiresBackgroundThread
-  fun setSdkUsingExtension(module: Module, extension: PyProjectSdkConfigurationExtension, supplier: () -> Sdk?) {
+  suspend fun setSdkUsingExtension(module: Module, extension: PyProjectSdkConfigurationExtension, supplier: suspend () -> Sdk?) {
     ProgressManager.progress("")
     LOGGER.debug("Configuring sdk with ${extension.javaClass.canonicalName} extension")
 
-    supplier()?.let { setReadyToUseSdk(module.project, module, it) }
+    val sdk = supplier()
+    if (sdk != null) {
+      // TODO Move this to PyUvSdkConfiguration, show better notification
+      if (sdk.isUv && Registry.`is`("python.project.model.uv", false)) {
+        val ws = UvProjectModelService.findWorkspace(module)
+        if (ws != null) {
+          for (wsModule in ws.members + ws.root) {
+            setReadyToUseSdk(wsModule.project, wsModule, sdk)
+          }
+          return
+        }
+      }
+      setReadyToUseSdk(module.project, module, sdk)
+    }
   }
 
   fun setReadyToUseSdk(project: Project, module: Module, sdk: Sdk) {
@@ -76,6 +92,7 @@ object PyProjectSdkConfiguration {
     PyInterpreterInspectionSuppressor.suppress(project)?.let { Disposer.register(lifetime, it) }
     Disposer.register(lifetime, PyPackageRequirementsInspectionSuppressor(module))
 
+    PythonSdkCreationWaiter.register(module, lifetime)
     return lifetime
   }
 
@@ -156,7 +173,7 @@ private class PyInterpreterInspectionSuppressor : PyInspectionExtension() {
   }
 }
 
-private class PyPackageRequirementsInspectionSuppressor(module: Module): Disposable {
+private class PyPackageRequirementsInspectionSuppressor(module: Module) : Disposable {
 
   private val listener = RunningPackagingTasksListener(module)
 

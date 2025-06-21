@@ -91,6 +91,7 @@ class EelLocalExecApiTest {
     return testCases.map { (exitType, ptyManagement) ->
       DynamicTest.dynamicTest("$exitType $ptyManagement") {
         timeoutRunBlocking(1.minutes) {
+          Assumptions.assumeFalse(exitType == ExitType.KILL && ptyManagement == PTYManagement.PTY_SIZE_FROM_START, "IJPL-192895")
           testOutputImpl(ptyManagement, exitType)
         }
       }
@@ -176,6 +177,12 @@ class EelLocalExecApiTest {
       }
       launch {
         process.stderr.readAllBytesAsync(this)
+      }
+
+      if (ptyManagement == PTYManagement.PTY_RESIZE_LATER &&
+          (exitType == ExitType.INTERRUPT || exitType == ExitType.EXIT_WITH_COMMAND) &&
+          process.isWinConPtyProcess) {
+        delay(1.seconds) // workaround: wait a bit to let ConPTY apply the resize
       }
 
       // Test kill api
@@ -277,4 +284,7 @@ class EelLocalExecApiTest {
   private suspend fun EelProcess.sendCommand(command: Command) {
     stdin.sendWholeText(command.name + "\r\n") // terminal needs \r\n
   }
+
+  private val EelProcess.isWinConPtyProcess: Boolean
+    get() = this is EelWindowsProcess && convertToJavaProcess()::class.java.name == "com.pty4j.windows.conpty.WinConPtyProcess"
 }

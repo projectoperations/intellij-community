@@ -2,18 +2,8 @@
 package com.intellij.platform.syntax.tree
 
 import com.intellij.platform.syntax.SyntaxElementType
+import com.intellij.platform.syntax.SyntaxLanguage
 import org.jetbrains.annotations.ApiStatus
-
-/**
- * API for a Syntax Tree.
- *
- * The tree is passed to [com.intellij.platform.syntax.LazyParser] as the context for parsing.
- */
-@ApiStatus.Experimental
-interface SyntaxTree {
-  val text: CharSequence
-  val root: SyntaxNode
-}
 
 /**
  * API for a Syntax Node.
@@ -37,4 +27,6 @@ interface SyntaxNode {
   val lastChild: SyntaxNode?
 
   val errorMessage: String?
+
+  val language: SyntaxLanguage?
 }

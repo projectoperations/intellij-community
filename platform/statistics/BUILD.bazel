@@ -1,4 +1,5 @@
 ### auto-generated section `build intellij.platform.statistics` start
+load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources", "jvm_test")
 
 jvm_resources(
@@ -13,6 +14,7 @@ jvm_library(
   visibility = ["//visibility:public"],
   srcs = glob(["src/**/*.kt", "src/**/*.java"], allow_empty = True),
   deps = [
+    "//platform/core-api:core",
     "//platform/core-impl",
     "@lib//:kotlin-stdlib",
     "@lib//:jetbrains-annotations",
@@ -23,7 +25,6 @@ jvm_library(
     "//platform/core-ui",
     "@lib//:jna",
     "//platform/util",
-    "@lib//:ap-validation",
     "//platform/runtime/product",
     "//platform/platform-util-io:ide-util-io",
     "//platform/util-ex",
@@ -37,8 +38,18 @@ jvm_library(
     "@lib//:jackson-module-kotlin",
     "@lib//:kotlin-reflect",
     "@lib//:kotlinx-coroutines-core",
+    "@lib//:kotlinx-serialization-json",
+    "@lib//:kotlinx-serialization-core",
+    "@lib//:com-jetbrains-fus-reporting-model",
+    "@lib//:com-jetbrains-fus-reporting-serialization-kotlin",
+    "@lib//:com-jetbrains-fus-reporting-connection-client",
+    "@lib//:com-jetbrains-fus-reporting-configuration",
+    "@lib//:com-jetbrains-fus-reporting-ap-validation",
   ],
-  exports = ["@lib//:ap-validation"],
+  exports = [
+    "@lib//:com-jetbrains-fus-reporting-model",
+    "@lib//:com-jetbrains-fus-reporting-ap-validation",
+  ],
   runtime_deps = [":statistics_resources"]
 )
 
@@ -48,6 +59,7 @@ jvm_library(
   srcs = glob(["test/**/*.kt", "test/**/*.java"], allow_empty = True),
   associates = [":statistics"],
   deps = [
+    "//platform/core-api:core",
     "//platform/core-impl",
     "@lib//:kotlin-stdlib",
     "@lib//:jetbrains-annotations",
@@ -59,7 +71,6 @@ jvm_library(
     "//platform/core-ui",
     "@lib//:jna",
     "//platform/util",
-    "@lib//:ap-validation",
     "//platform/runtime/product",
     "//platform/platform-util-io:ide-util-io",
     "//platform/util-ex",
@@ -75,11 +86,18 @@ jvm_library(
     "@lib//:kotlinx-coroutines-core",
     "@lib//:junit5",
     "@lib//:assert_j",
+    "@lib//:kotlinx-serialization-json",
+    "@lib//:kotlinx-serialization-core",
+    "@lib//:com-jetbrains-fus-reporting-model",
+    "@lib//:com-jetbrains-fus-reporting-serialization-kotlin",
+    "@lib//:com-jetbrains-fus-reporting-connection-client",
+    "@lib//:com-jetbrains-fus-reporting-configuration",
+    "@lib//:com-jetbrains-fus-reporting-ap-validation",
   ],
   runtime_deps = [":statistics_resources"]
 )
 
-jvm_test(
+jps_test(
   name = "statistics_test",
   runtime_deps = [":statistics_test_lib"]
 )

@@ -1,5 +1,6 @@
 ### auto-generated section `build kotlin.base.fir.analysis-api-platform` start
 load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources", "jvm_test")
 
 create_kotlinc_options(
@@ -24,7 +25,11 @@ jvm_library(
   srcs = glob(["src/**/*.kt", "src/**/*.java"], allow_empty = True),
   kotlinc_opts = ":custom",
   deps = [
+    "//platform/analysis-api:analysis",
+    "//platform/core-api:core",
+    "//platform/indexing-api:indexing",
     "//jps/model-api:model",
+    "//platform/projectModel-api:projectModel",
     "//platform/workspace/storage",
     "@lib//:kotlin-stdlib",
     "@lib//:kotlinc-kotlin-compiler-common",
@@ -61,8 +66,14 @@ jvm_library(
   kotlinc_opts = ":custom",
   associates = [":analysis-api-platform"],
   deps = [
+    "//platform/analysis-api:analysis",
+    "//platform/core-api:core",
+    "//platform/core-ui",
     "//platform/editor-ui-api:editor-ui",
+    "//platform/indexing-api:indexing",
     "//jps/model-api:model",
+    "//platform/lang-core",
+    "//platform/projectModel-api:projectModel",
     "//platform/workspace/storage",
     "//plugins/kotlin/plugin/k2",
     "@lib//:kotlin-stdlib",
@@ -109,7 +120,7 @@ jvm_library(
   runtime_deps = [":analysis-api-platform_resources"]
 )
 
-jvm_test(
+jps_test(
   name = "analysis-api-platform_test",
   runtime_deps = [":analysis-api-platform_test_lib"]
 )

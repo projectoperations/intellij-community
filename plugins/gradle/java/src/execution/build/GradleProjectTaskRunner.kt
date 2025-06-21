@@ -140,7 +140,7 @@ class GradleProjectTaskRunner : ProjectTaskRunner() {
 
   private suspend fun createTaskOutputFile(project: Project): EelPath? {
     try {
-      val eel = project.getEelDescriptor().upgrade()
+      val eel = project.getEelDescriptor().toEelApi()
       return eel.fs.createTemporaryFile()
         .prefix("output")
         .suffix(".paths")
@@ -182,7 +182,7 @@ class GradleProjectTaskRunner : ProjectTaskRunner() {
     if (projectTask is ExecuteRunConfigurationTask) {
       val runProfile = projectTask.runProfile
       if (runProfile is ModuleBasedConfiguration<*, *>) {
-        val module = runProfile.configurationModule.module
+        val module = runProfile.configurationModule.module ?: return false
         if (!isDelegatedRunEnabled(module)) {
           return false
         }
@@ -192,18 +192,18 @@ class GradleProjectTaskRunner : ProjectTaskRunner() {
     return false
   }
 
-  private fun isDelegatedBuildEnabled(module: Module?): Boolean {
+  private fun isDelegatedBuildEnabled(module: Module): Boolean {
     val externalProjectPath = ExternalSystemApiUtil.getExternalRootProjectPath(module)
     return externalProjectPath != null &&
            ExternalSystemApiUtil.isExternalSystemAwareModule(SYSTEM_ID, module) &&
-           GradleProjectSettings.isDelegatedBuildEnabled(module!!.getProject(), externalProjectPath)
+           GradleProjectSettings.isDelegatedBuildEnabled(module.project, externalProjectPath)
   }
 
-  private fun isDelegatedRunEnabled(module: Module?): Boolean {
+  private fun isDelegatedRunEnabled(module: Module): Boolean {
     val externalProjectPath = ExternalSystemApiUtil.getExternalRootProjectPath(module)
     return externalProjectPath != null &&
            ExternalSystemApiUtil.isExternalSystemAwareModule(SYSTEM_ID, module) &&
-           GradleProjectSettings.isDelegatedRunEnabled(module!!.getProject(), externalProjectPath)
+           GradleProjectSettings.isDelegatedRunEnabled(module.project, externalProjectPath)
   }
 
   override fun createExecutionEnvironment(project: Project, task: ExecuteRunConfigurationTask, executor: Executor?): ExecutionEnvironment? {

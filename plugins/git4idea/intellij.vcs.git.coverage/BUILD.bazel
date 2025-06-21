@@ -1,4 +1,5 @@
 ### auto-generated section `build intellij.vcs.git.coverage` start
+load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources", "jvm_test")
 
 jvm_resources(
@@ -14,9 +15,11 @@ jvm_library(
   srcs = glob(["src/**/*.kt", "src/**/*.java"], allow_empty = True),
   deps = [
     "@lib//:kotlin-stdlib",
+    "//platform/core-api:core",
     "//platform/platform-api:ide",
     "//platform/ide-core",
     "//plugins/coverage-common:coverage",
+    "//platform/projectModel-api:projectModel",
     "//plugins/git4idea:vcs-git",
     "//plugins/git4idea/shared",
     "//platform/vcs-api/vcs-api-core:vcs-core",
@@ -35,14 +38,17 @@ jvm_library(
   deps = [
     "@lib//:junit5",
     "@lib//:kotlin-stdlib",
+    "//platform/core-api:core",
     "//platform/platform-api:ide",
     "//platform/ide-core",
     "//plugins/coverage-common:coverage",
     "//plugins/coverage-common:coverage_test_lib",
+    "//platform/projectModel-api:projectModel",
     "//plugins/git4idea:vcs-git",
     "//plugins/git4idea:vcs-git_test_lib",
     "//plugins/git4idea/shared",
     "//platform/vcs-api/vcs-api-core:vcs-core",
+    "//platform/vcs-api/vcs-api-core:vcs-core_test_lib",
     "//platform/vcs-log/api:vcs-log",
     "//platform/vcs-log/impl",
     "//platform/vcs-log/impl:impl_test_lib",
@@ -52,7 +58,7 @@ jvm_library(
   runtime_deps = [":vcs-git-coverage_resources"]
 )
 
-jvm_test(
+jps_test(
   name = "vcs-git-coverage_test",
   runtime_deps = [":vcs-git-coverage_test_lib"]
 )

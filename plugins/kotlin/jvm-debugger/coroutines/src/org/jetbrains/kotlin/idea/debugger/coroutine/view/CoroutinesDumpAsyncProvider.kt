@@ -7,14 +7,13 @@ import com.intellij.debugger.engine.SuspendContextImpl
 import com.intellij.debugger.impl.DebuggerContextImpl
 import com.intellij.debugger.impl.ThreadDumpItemsProvider
 import com.intellij.debugger.impl.ThreadDumpItemsProviderFactory
+import com.intellij.debugger.statistics.DebuggerStatistics
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.ui.SimpleTextAttributes
-import com.intellij.unscramble.DumpItem
-import com.intellij.unscramble.IconsCache
-import com.intellij.unscramble.MergeableDumpItem
-import com.intellij.unscramble.MergeableToken
+import com.intellij.unscramble.*
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.kotlin.idea.debugger.coroutine.KotlinDebuggerCoroutinesBundle
 import org.jetbrains.kotlin.idea.debugger.coroutine.data.CoroutineInfoData
 import org.jetbrains.kotlin.idea.debugger.coroutine.data.State
 import org.jetbrains.kotlin.idea.debugger.coroutine.proxy.CoroutineDebugProbesProxy
@@ -38,10 +37,15 @@ class CoroutinesDumpAsyncProvider : ThreadDumpItemsProviderFactory() {
         override val requiresEvaluation get() = enabled
 
         override fun getItems(suspendContext: SuspendContextImpl?): List<MergeableDumpItem> {
-            if (!enabled) return emptyList()
-
-            val coroutinesCache = CoroutineDebugProbesProxy(suspendContext!!).dumpCoroutines()
-            return if (coroutinesCache.isOk()) coroutinesCache.cache.map { CoroutineDumpItem(it) } else emptyList()
+            return (
+              if (!enabled) emptyList()
+              else {
+                val coroutinesCache = CoroutineDebugProbesProxy(suspendContext!!).dumpCoroutines()
+                if (coroutinesCache.isOk()) coroutinesCache.cache.map { CoroutineDumpItem(it) } else emptyList()
+              })
+              .also {
+                DebuggerStatistics.logCoroutineDump(context.project, it.size)
+              }
         }
     }
 }
@@ -52,14 +56,17 @@ private class CoroutineDumpItem(info: CoroutineInfoData) : MergeableDumpItem {
 
     override val stateDesc: String = " (${info.state.name.lowercase()})"
 
+    override val iconToolTip: String
+        get() = KotlinDebuggerCoroutinesBundle.message("dump.item.coroutine.tooltip")
+
     private val dispatcher = info.dispatcher
 
     override val stackTrace: String =
         info.coroutineDescriptor + "\n" +
-                info.continuationStackFrames.map { it.location }.joinToString(prefix = "\t", separator = "\n") { ThreadDumpAction.renderLocation(it) }
+                info.lastObservedStackTrace.joinToString(prefix = "\t", separator = "\n\t") { ThreadDumpAction.renderLocation(it) }
 
     override val interestLevel: Int = when {
-        info.continuationStackFrames.isEmpty() -> -10
+        info.lastObservedStackTrace.isEmpty() -> -10
         else -> stackTrace.count { it == '\n' }
     }
 

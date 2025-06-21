@@ -29,6 +29,7 @@ import com.intellij.openapi.progress.EmptyProgressIndicator;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.ex.ProjectManagerEx;
+import com.intellij.openapi.project.impl.P3SupportKt;
 import com.intellij.openapi.project.impl.shared.P3DynamicPluginSynchronizerKt;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.updateSettings.impl.PluginDownloader;
@@ -176,9 +177,14 @@ public final class ConfigImportHelper {
                 vmOptionsLines = Files.readAllLines(newConfigDir.resolve(VMOptions.getFileName()), VMOptions.getFileCharset());
                 vmOptionFileChanged = false;
               }
-             if (Files.isRegularFile(newConfigDir.resolve(DisabledPluginsState.DISABLED_PLUGINS_FILENAME))){
-               currentlyDisabledPlugins = Files.readAllLines(newConfigDir.resolve(DisabledPluginsState.DISABLED_PLUGINS_FILENAME));
-             }
+              String disabledPluginsFileName = P3SupportKt.processPerProjectSupport().getDisabledPluginsFileName();
+              if (Files.isRegularFile(newConfigDir.resolve(disabledPluginsFileName))) {
+                currentlyDisabledPlugins = Files.readAllLines(newConfigDir.resolve(disabledPluginsFileName));
+              }
+              else if (!DisabledPluginsState.DISABLED_PLUGINS_FILENAME.equals(disabledPluginsFileName) &&
+                       Files.isRegularFile(newConfigDir.resolve(DisabledPluginsState.DISABLED_PLUGINS_FILENAME))){
+                currentlyDisabledPlugins = Files.readAllLines(newConfigDir.resolve(DisabledPluginsState.DISABLED_PLUGINS_FILENAME));
+              }
             }
             tempBackup = backupCurrentConfigToTempAndDelete(newConfigDir, log, true, settings);
             importScenarioStatistics = IMPORT_SETTINGS_ACTION;
@@ -255,7 +261,7 @@ public final class ConfigImportHelper {
         setConfigImportedInThisSession();
         if (currentlyDisabledPlugins != null) {
           try {
-            Path newDisablePluginsFile = newConfigDir.resolve(DisabledPluginsState.DISABLED_PLUGINS_FILENAME);
+            Path newDisablePluginsFile = newConfigDir.resolve(P3SupportKt.processPerProjectSupport().getDisabledPluginsFileName());
             Set<String> newDisabledPlugins = new LinkedHashSet<>();
             if (Files.isRegularFile(newDisablePluginsFile)) {
               newDisabledPlugins.addAll(Files.readAllLines(newDisablePluginsFile, CharsetToolkit.getPlatformCharset()));
@@ -609,10 +615,25 @@ public final class ConfigImportHelper {
     return findConfigDirectories(newConfigDir, null, List.of());
   }
 
+  @ApiStatus.Internal
+  public static @Nullable FileTime getConfigLastModifiedTime(@NotNull Path configDir) {
+    FileTime max = null;
+    for (String name : OPTIONS) {
+      try {
+        FileTime cur = Files.getLastModifiedTime(configDir.resolve(name));
+        if (max == null || cur.compareTo(max) > 0) {
+          max = cur;
+        }
+      }
+      catch (IOException ignore) { }
+    }
+    return max;
+  }
+
   @VisibleForTesting
   public static @NotNull ConfigDirsSearchResult findConfigDirectories(@NotNull Path newConfigDir,
-                                                               @Nullable ConfigImportSettings settings,
-                                                               @NotNull List<String> otherProductPrefixes) {
+                                                                      @Nullable ConfigImportSettings settings,
+                                                                      @NotNull List<String> otherProductPrefixes) {
     // looking for existing config directories ...
     Set<Path> homes = new HashSet<>();
     homes.add(newConfigDir.getParent());  // ... in the vicinity of the new config directory
@@ -686,17 +707,7 @@ public final class ConfigImportHelper {
       Path candidate = child, config = child.resolve(CONFIG);
       if (Files.isDirectory(config)) candidate = config;
 
-      FileTime max = null;
-      for (String name : OPTIONS) {
-        try {
-          FileTime cur = Files.getLastModifiedTime(candidate.resolve(name));
-          if (max == null || cur.compareTo(max) > 0) {
-            max = cur;
-          }
-        }
-        catch (IOException ignore) { }
-      }
-
+      FileTime max = getConfigLastModifiedTime(candidate);
       lastModified.add(new Pair<>(candidate, max != null ? max : FileTime.fromMillis(0)));
     }
 
@@ -1032,6 +1043,11 @@ public final class ConfigImportHelper {
         return FileVisitResult.CONTINUE;
       }
     });
+    String disabledPluginsFileName = P3SupportKt.processPerProjectSupport().getDisabledPluginsFileName();
+    if (!disabledPluginsFileName.equals(DisabledPluginsState.DISABLED_PLUGINS_FILENAME) && 
+        Files.exists(oldConfigDir.resolve(DisabledPluginsState.DISABLED_PLUGINS_FILENAME)) && !Files.exists(newConfigDir.resolve(disabledPluginsFileName))) {
+      Files.copy(oldConfigDir.resolve(DisabledPluginsState.DISABLED_PLUGINS_FILENAME), newConfigDir.resolve(disabledPluginsFileName));
+    }
 
     List<ActionCommand> actionCommands = loadStartupActionScript(oldConfigDir, oldIdeHome, oldPluginsDir);
 

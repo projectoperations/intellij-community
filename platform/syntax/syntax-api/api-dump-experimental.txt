@@ -1,17 +1,29 @@
 *:com.intellij.platform.syntax.CancellationProvider
 - a:checkCancelled():V
-*:com.intellij.platform.syntax.LazyParser
-- a:parse(com.intellij.platform.syntax.LazyParsingContext):com.intellij.platform.syntax.parser.ProductionResult
-- tryReparse(com.intellij.platform.syntax.LazyParsingContext):com.intellij.platform.syntax.parser.ProductionResult
-*f:com.intellij.platform.syntax.LazyParserKt
-- *sf:parseLazyNode(com.intellij.platform.syntax.LazyParsingContext):com.intellij.platform.syntax.parser.ProductionResult
-- *sf:tryReparseLazyNode(com.intellij.platform.syntax.LazyParsingContext):com.intellij.platform.syntax.parser.ProductionResult
-*f:com.intellij.platform.syntax.LazyParsingContext
-- <init>(com.intellij.platform.syntax.tree.SyntaxTree,com.intellij.platform.syntax.tree.SyntaxNode,java.lang.CharSequence,com.intellij.platform.syntax.lexer.TokenList):V
+*:com.intellij.platform.syntax.LanguageSyntaxDefinition
+- a:getCommentTokens():com.intellij.platform.syntax.SyntaxElementTypeSet
+- a:getLexer():com.intellij.platform.syntax.lexer.Lexer
+- getOpaqueElementPolicy():com.intellij.platform.syntax.parser.OpaqueElementPolicy
+- getWhitespaceOrCommentBindingPolicy():com.intellij.platform.syntax.parser.WhitespaceOrCommentBindingPolicy
+- getWhitespaceTokens():com.intellij.platform.syntax.SyntaxElementTypeSet
+*f:com.intellij.platform.syntax.LazyLexingContext
+- <init>(com.intellij.platform.syntax.tree.SyntaxNode,com.intellij.platform.syntax.CancellationProvider):V
+- f:getCancellationProvider():com.intellij.platform.syntax.CancellationProvider
 - f:getNode():com.intellij.platform.syntax.tree.SyntaxNode
+*:com.intellij.platform.syntax.LazyParser
+- canBeReparsedIncrementally(com.intellij.platform.syntax.LazyParsingContext):Z
+- createLexer(com.intellij.platform.syntax.LazyLexingContext):com.intellij.platform.syntax.lexer.Lexer
+- a:parse(com.intellij.platform.syntax.LazyParsingContext):com.intellij.platform.syntax.parser.ProductionResult
+*f:com.intellij.platform.syntax.LazyParserKt
+- *sf:canLazyNodeBeReparsedIncrementally(com.intellij.platform.syntax.LazyParsingContext):Z
+- *sf:parseLazyNode(com.intellij.platform.syntax.LazyParsingContext):com.intellij.platform.syntax.parser.ProductionResult
+*f:com.intellij.platform.syntax.LazyParsingContext
+- <init>(com.intellij.platform.syntax.tree.SyntaxNode,com.intellij.platform.syntax.lexer.TokenList,com.intellij.platform.syntax.parser.SyntaxTreeBuilder,com.intellij.platform.syntax.CancellationProvider):V
+- f:getCancellationProvider():com.intellij.platform.syntax.CancellationProvider
+- f:getNode():com.intellij.platform.syntax.tree.SyntaxNode
+- f:getSyntaxTreeBuilder():com.intellij.platform.syntax.parser.SyntaxTreeBuilder
 - f:getText():java.lang.CharSequence
 - f:getTokenList():com.intellij.platform.syntax.lexer.TokenList
-- f:getTree():com.intellij.platform.syntax.tree.SyntaxTree
 *:com.intellij.platform.syntax.Logger
 - a:debug(java.lang.String,java.lang.Throwable):V
 - bs:debug$default(com.intellij.platform.syntax.Logger,java.lang.String,java.lang.Throwable,I,java.lang.Object):V
@@ -66,6 +78,12 @@
 - *sf:emptySyntaxElementTypeSet():com.intellij.platform.syntax.SyntaxElementTypeSet
 - sf:flattenSyntaxElementTypeSets(com.intellij.platform.syntax.SyntaxElementTypeSet[]):com.intellij.platform.syntax.SyntaxElementTypeSet
 - *sf:syntaxElementTypeSetOf(com.intellij.platform.syntax.SyntaxElementType[]):com.intellij.platform.syntax.SyntaxElementTypeSet
+*f:com.intellij.platform.syntax.SyntaxLanguage
+- equals(java.lang.Object):Z
+- f:getId():java.lang.String
+- hashCode():I
+*f:com.intellij.platform.syntax.SyntaxLanguageKt
+- sf:SyntaxLanguage(java.lang.String):com.intellij.platform.syntax.SyntaxLanguage
 *f:com.intellij.platform.syntax.element.SyntaxTokenTypes
 - sf:INSTANCE:com.intellij.platform.syntax.element.SyntaxTokenTypes
 - sf:getBAD_CHARACTER():com.intellij.platform.syntax.SyntaxElementType
@@ -210,6 +228,7 @@
 - a:getEndOffset():I
 - a:getErrorMessage():java.lang.String
 - a:getFirstChild():com.intellij.platform.syntax.tree.SyntaxNode
+- a:getLanguage():com.intellij.platform.syntax.SyntaxLanguage
 - a:getLastChild():com.intellij.platform.syntax.tree.SyntaxNode
 - a:getNextSibling():com.intellij.platform.syntax.tree.SyntaxNode
 - a:getParent():com.intellij.platform.syntax.tree.SyntaxNode
@@ -217,6 +236,3 @@
 - a:getStartOffset():I
 - a:getText():java.lang.CharSequence
 - a:getType():com.intellij.platform.syntax.SyntaxElementType
-*:com.intellij.platform.syntax.tree.SyntaxTree
-- a:getRoot():com.intellij.platform.syntax.tree.SyntaxNode
-- a:getText():java.lang.CharSequence

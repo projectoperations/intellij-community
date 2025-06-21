@@ -38,17 +38,21 @@ def _java_info(target):
 def _partitioned_srcs(srcs):
     kt_srcs = []
     java_srcs = []
+    form_srcs = []
 
     for f in srcs:
         if f.path.endswith(".kt"):
             kt_srcs.append(f)
         elif f.path.endswith(".java"):
             java_srcs.append(f)
+        elif f.path.endswith(".form"):
+            form_srcs.append(f)
 
     return struct(
         kt = kt_srcs,
         java = java_srcs,
-        all_srcs = kt_srcs + java_srcs,
+        forms = form_srcs,
+        all_srcs = kt_srcs + java_srcs + form_srcs,
         src_jars = [],
     )
 
@@ -295,7 +299,6 @@ def _run_jvm_builder(
     ctx.actions.run(
         mnemonic = "JvmCompile",
         env = {
-            "LC_CTYPE": "en_US.UTF-8",
             "MALLOC_ARENA_MAX": "2",
         },
         inputs = depset(srcs.all_srcs, transitive = transitiveInputs),

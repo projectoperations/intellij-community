@@ -10,6 +10,7 @@
   <module value="com.intellij.platform.ide.impl.wsl"/>
 
   <xi:include href="PlatformLangComponents.xml"/>
+  <xi:include href="/META-INF/ide-concurrency.xml"/>
   <xi:include href="/idea/PriorityEditorLangActions.xml"/>
   <xi:include href="/idea/PlatformActions.xml"/>
   <xi:include href="/META-INF/PlatformExecutionActions.xml"/>
@@ -33,19 +34,6 @@
   <xi:include href="/META-INF/EditorEx.xml"/>
 
   <xi:include href="/META-INF/Inspect.xml">
-    <xi:fallback/>
-  </xi:include>
-  <xi:include href="/META-INF/WebSymbols.xml">
-    <xi:fallback/>
-  </xi:include>
-  <xi:include href="/META-INF/WebSymbolsExtensionPoints.xml">
-    <xi:fallback/>
-  </xi:include>
-  <xi:include href="/META-INF/xml.xml">
-    <xi:fallback/>
-  </xi:include>
-
-  <xi:include href="/META-INF/PlatformWarmup.xml">
     <xi:fallback/>
   </xi:include>
 
@@ -162,10 +150,6 @@
     <xi:fallback/>
   </xi:include>
 
-  <xi:include href="/META-INF/ml.xml">
-    <xi:fallback/>
-  </xi:include>
-
   <xi:include href="/META-INF/xdebugger.xml">
     <xi:fallback/>
   </xi:include>
@@ -180,9 +164,6 @@
     <xi:fallback/>
   </xi:include>
   <xi:include href="/META-INF/duplicates-analysis.xml">
-    <xi:fallback/>
-  </xi:include>
-  <xi:include href="/META-INF/tasks.xml">
     <xi:fallback/>
   </xi:include>
 

@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.roots.impl
 
 import com.intellij.configurationStore.BatchUpdateListener
@@ -181,8 +181,8 @@ open class ProjectRootManagerComponent(
         }
       }
     }
-    AdditionalLibraryRootsProvider.EP_NAME.addChangeListener(rootsExtensionPointListener, this)
-    OrderEnumerationHandler.EP_NAME.addChangeListener(rootsExtensionPointListener, this)
+    AdditionalLibraryRootsProvider.EP_NAME.addChangeListener(coroutineScope, rootsExtensionPointListener)
+    OrderEnumerationHandler.EP_NAME.addChangeListener(coroutineScope, rootsExtensionPointListener)
   }
 
   protected open fun projectClosed() {
@@ -274,8 +274,8 @@ open class ProjectRootManagerComponent(
     val projectFilePath = store.projectFilePath
     val directoryStorePath = store.directoryStorePath
     if (directoryStorePath == null || !projectFilePath.startsWith(directoryStorePath)) {
-      flatPaths += projectFilePath.invariantSeparatorsPathString
-      flatPaths += store.workspacePath.invariantSeparatorsPathString
+      flatPaths.add(projectFilePath.invariantSeparatorsPathString)
+      flatPaths.add(store.workspacePath.invariantSeparatorsPathString)
       WATCH_ROOTS_LOG.trace { "  project store: ${flatPaths}" }
     }
 
@@ -313,7 +313,7 @@ open class ProjectRootManagerComponent(
     }
 
     // module roots already fire validity change events, see usages of ProjectRootManagerComponent.getRootsValidityChangedListener
-    collectModuleWatchRoots(recursivePaths, flatPaths, true)
+    collectModuleWatchRoots(recursivePaths = recursivePaths, flatPaths = flatPaths, logAllowed = true)
 
     collectCustomWorkspaceWatchRoots(recursivePaths)
 
@@ -334,14 +334,17 @@ open class ProjectRootManagerComponent(
       }
 
       if (logRoots) {
-        WATCH_ROOTS_LOG.trace { "    ${logDescriptor()}: ${recursive}, ${flat}" }
+        WATCH_ROOTS_LOG.trace { "    ${logDescriptor()}: $recursive, $flat" }
         recursivePaths += recursive
-        flatPaths += flat
+        flatPaths.addAll(flat)
       }
     }
 
     for (module in ModuleManager.getInstance(project).modules) {
-      if (logRoots) WATCH_ROOTS_LOG.trace { "  module ${module}" }
+      if (logRoots) {
+        WATCH_ROOTS_LOG.trace { "  module ${module}" }
+      }
+
       val rootManager = ModuleRootManager.getInstance(module)
       collectUrls(rootManager.contentRootUrls) { "content" }
       rootManager.orderEntries().withoutModuleSourceEntries().withoutDepModules().forEach { entry ->

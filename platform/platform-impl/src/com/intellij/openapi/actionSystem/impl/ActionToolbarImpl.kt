@@ -22,10 +22,7 @@ import com.intellij.openapi.actionSystem.impl.Utils.operationName
 import com.intellij.openapi.actionSystem.toolbarLayout.RIGHT_ALIGN_KEY
 import com.intellij.openapi.actionSystem.toolbarLayout.ToolbarLayoutStrategy
 import com.intellij.openapi.actionSystem.toolbarLayout.autoLayoutStrategy
-import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.EDT
-import com.intellij.openapi.application.ModalityState
-import com.intellij.openapi.application.asContextElement
+import com.intellij.openapi.application.*
 import com.intellij.openapi.application.impl.InternalUICustomization
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
@@ -38,7 +35,7 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.Pair
-import com.intellij.openapi.util.registry.Registry.Companion.intValue
+import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.wm.ToolWindowAnchor
 import com.intellij.platform.ide.CoreUiCoroutineScopeHolder
 import com.intellij.ui.*
@@ -295,10 +292,17 @@ open class ActionToolbarImpl @JvmOverloads constructor(
       updateActionsImmediately()
     }
     else {
-      if (myUpdateOnFirstShowJob != null) return
+      if (myUpdateOnFirstShowJob != null) {
+        return
+      }
+
       launchOnceOnShow("ActionToolbarImpl.updateActionsOnAdd") {
-        withContext(Dispatchers.EDT) {
-          updateActionsFirstTime()
+        withContext(Dispatchers.ui(UiDispatcherKind.RELAX)) {
+          // a first update really
+          if (myForcedUpdateRequested && myLastUpdate == null) {
+            @Suppress("DEPRECATION")
+            (updateActionsImmediately())
+          }
         }
       }.apply {
         myUpdateOnFirstShowJob = this
@@ -306,13 +310,6 @@ open class ActionToolbarImpl @JvmOverloads constructor(
           myUpdateOnFirstShowJob = null
         }
       }
-    }
-  }
-
-  fun updateActionsFirstTime() {
-    if (myForcedUpdateRequested && myLastUpdate == null) { // a first update really
-      @Suppress("DEPRECATION")
-      updateActionsImmediately()
     }
   }
 
@@ -940,8 +937,7 @@ open class ActionToolbarImpl @JvmOverloads constructor(
 
     cancelCurrentUpdate()
 
-    val firstTimeFastTrack = !hasVisibleActions() && componentCount == 1 && getClientProperty(SUPPRESS_FAST_TRACK) == null
-    if (firstTimeFastTrack) putClientProperty(SUPPRESS_FAST_TRACK, true)
+    val firstTimeFastTrack = !hasVisibleActions() && componentCount == 1 && !ClientProperty.isTrue(this, SUPPRESS_FAST_TRACK)
 
     val cs = service<CoreUiCoroutineScopeHolder>().coroutineScope
     val job = cs.launch(
@@ -954,6 +950,7 @@ open class ActionToolbarImpl @JvmOverloads constructor(
           firstTimeFastTrack || isUnitTestMode)
         myLastNewButtonActionClass = null
         actionsUpdated(forcedActual, actions)
+        if (firstTimeFastTrack) ClientProperty.put(this@ActionToolbarImpl, SUPPRESS_FAST_TRACK, true)
         reportActionButtonChangedEveryTimeIfNeeded()
       }
       catch (ex: CancellationException) {
@@ -1007,7 +1004,7 @@ open class ActionToolbarImpl @JvmOverloads constructor(
       else {
         val icon = AnimatedIcon.Default.INSTANCE
         label.setIcon(EmptyIcon.create(icon.iconWidth, icon.iconHeight))
-        EdtScheduler.getInstance().schedule(intValue("actionSystem.toolbar.progress.icon.delay", 500)) {
+        EdtScheduler.getInstance().schedule(Registry.intValue("actionSystem.toolbar.progress.icon.delay", 500), UiDispatcherKind.STRICT) {
           label.setIcon(icon)
         }
       }
@@ -1096,9 +1093,21 @@ open class ActionToolbarImpl @JvmOverloads constructor(
     return true
   }
 
-  // don't call getPreferredSize for "best parent" if it isn't popup or lightweight hint
+  /**
+   * Automatic container window size adjustment is performed only if:
+   * 
+   * - the window is a popup or a lightweight hint;
+   * - and fast track actions update is not suppressed.
+   * 
+   * Fast track action update is normally enabled for regular toolbars inside popups
+   * but it's usually suppressed for toolbars of a "floating" nature,
+   * and for such toolbars size adjustment can create UI bugs like IJPL-187340,
+   * when the popup is resized over and over again every time the toolbar is shown.
+   */
   private fun skipSizeAdjustments(): Boolean {
-    return PopupUtil.getPopupContainerFor(this) == null && getParentLightweightHintComponent(this) == null
+    return (PopupUtil.getPopupContainerFor(this) == null &&
+            getParentLightweightHintComponent(this) == null) ||
+           ClientProperty.isTrue(this, SUPPRESS_FAST_TRACK)
   }
 
   private fun adjustContainerWindowSize(
@@ -1587,7 +1596,7 @@ open class ActionToolbarImpl @JvmOverloads constructor(
 
   companion object {
     const val DO_NOT_ADD_CUSTOMIZATION_HANDLER: String = "ActionToolbarImpl.suppressTargetComponentWarning"
-    const val SUPPRESS_FAST_TRACK: String = "ActionToolbarImpl.suppressFastTrack"
+    val SUPPRESS_FAST_TRACK: Key<Boolean> = Key.create("ActionToolbarImpl.suppressFastTrack")
 
     /**
      * Put `TRUE` into [.putClientProperty] to mark that toolbar

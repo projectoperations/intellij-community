@@ -46,7 +46,7 @@ private class UvLowLevelImpl(val cwd: Path, private val uvCli: UvCli) : UvLowLev
       initArgs.add("--no-project")
 
       uvCli.runUv(cwd, *initArgs.toTypedArray())
-        .onFailure { return PyResult.failure(it) }
+        .getOr { return it }
 
       // TODO: ask for an uv option not to create
       val hello = cwd.resolve("hello.py").takeIf { it.exists() }
@@ -60,11 +60,11 @@ private class UvLowLevelImpl(val cwd: Path, private val uvCli: UvCli) : UvLowLev
     val venvArgs = mutableListOf("venv")
     addPythonArg(venvArgs)
     uvCli.runUv(cwd, *venvArgs.toTypedArray())
-      .onFailure { return PyResult.failure(it) }
+      .getOr { return it }
 
     if (!init) {
       uvCli.runUv(cwd, "sync")
-        .onFailure { return PyResult.failure(it) }
+        .getOr { return it }
     }
 
     val path = VirtualEnvReader.Instance.findPythonInPythonRoot(cwd.resolve(VirtualEnvReader.DEFAULT_VIRTUALENV_DIRNAME))
@@ -141,9 +141,16 @@ private class UvLowLevelImpl(val cwd: Path, private val uvCli: UvCli) : UvLowLev
     return PyExecResult.success(parsePackageRequirements(out))
   }
 
+  override suspend fun listPackageRequirementsTree(name: PythonPackage): PyResult<String> {
+    val out = uvCli.runUv(cwd, "tree", "--package", name.name)
+      .getOr { return it }
+
+    return PyExecResult.success(out)
+  }
+
   override suspend fun installPackage(name: PythonPackageInstallRequest, options: List<String>): PyExecResult<Unit> {
     uvCli.runUv(cwd, "pip", "install", *name.formatPackageName(), *options.toTypedArray())
-      .onFailure { return PyResult.failure(it) }
+      .getOr { return it }
 
     return PyExecResult.success(Unit)
   }
@@ -151,21 +158,21 @@ private class UvLowLevelImpl(val cwd: Path, private val uvCli: UvCli) : UvLowLev
   override suspend fun uninstallPackages(pyPackages: Array<out String>): PyExecResult<Unit> {
     // TODO: check if package is in dependencies and reject it
     uvCli.runUv(cwd, "pip", "uninstall", *pyPackages)
-      .onFailure { return PyResult.failure(it) }
+      .getOr { return it }
 
     return PyExecResult.success(Unit)
   }
 
   override suspend fun addDependency(pyPackages: PythonPackageInstallRequest, options: List<String>): PyExecResult<Unit> {
     uvCli.runUv(cwd, "add", *pyPackages.formatPackageName(), *options.toTypedArray())
-      .onFailure { return PyResult.failure(it) }
+      .getOr { return it }
 
     return PyExecResult.success(Unit)
   }
 
   override suspend fun removeDependencies(pyPackages: Array<out String>): PyExecResult<Unit> {
     uvCli.runUv(cwd, "remove", *pyPackages)
-      .onFailure { return PyResult.failure(it) }
+      .getOr { return it }
 
     return PyExecResult.success(Unit)
   }
@@ -220,7 +227,6 @@ private class UvLowLevelImpl(val cwd: Path, private val uvCli: UvCli) : UvLowLev
 
   fun PythonPackageInstallRequest.formatPackageName(): Array<String> = when (this) {
     is PythonPackageInstallRequest.ByRepositoryPythonPackageSpecifications -> specifications.map { it.nameWithVersionSpec }.toTypedArray()
-    is PythonPackageInstallRequest.AllRequirements -> error("UV supports only single requirement installation")
     is PythonPackageInstallRequest.ByLocation -> error("UV does not support installing from location uri")
   }
 

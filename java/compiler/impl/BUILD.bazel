@@ -8,9 +8,19 @@ jvm_library(
   srcs = glob(["src/**/*.kt", "src/**/*.java", "src/**/*.form"], allow_empty = True),
   deps = [
     "//java/compiler/openapi:java-compiler",
+    "//java/java-indexing-api:indexing",
+    "//platform/analysis-api:analysis",
+    "//platform/code-style-api:codeStyle",
+    "//platform/util/concurrency",
+    "//platform/core-api:core",
     "//platform/editor-ui-api:editor-ui",
+    "//platform/execution-impl",
     "//jps/model-api:model",
+    "//jps/model-serialization",
+    "//platform/lang-core",
     "//platform/lvcs-api:lvcs",
+    "//platform/macro",
+    "//platform/projectModel-api:projectModel",
     "//platform/refactoring",
     "//platform/util/jdom",
     "//platform/util",
@@ -65,6 +75,7 @@ jvm_library(
     "@lib//:kotlinx-collections-immutable",
     "@lib//:netty-codec-protobuf",
     "//platform/eel-provider",
+    "//xml/xml-psi-api:psi",
   ],
   exports = ["//java/compiler/openapi:java-compiler"]
 )

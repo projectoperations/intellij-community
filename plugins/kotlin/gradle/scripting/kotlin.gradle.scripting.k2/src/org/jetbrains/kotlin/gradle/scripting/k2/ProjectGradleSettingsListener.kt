@@ -11,12 +11,12 @@ import com.intellij.psi.PsiManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.jetbrains.kotlin.gradle.scripting.shared.GradleScriptModel
-import org.jetbrains.kotlin.gradle.scripting.shared.GradleScriptRefinedConfigurationProvider
+import org.jetbrains.kotlin.gradle.scripting.shared.GradleScriptModelData
 import org.jetbrains.kotlin.gradle.scripting.shared.getGradleVersion
 import org.jetbrains.kotlin.gradle.scripting.shared.roots.GradleBuildRootData
 import org.jetbrains.kotlin.gradle.scripting.shared.roots.GradleBuildRootsLocator
 import org.jetbrains.kotlin.gradle.scripting.shared.roots.Imported
-import org.jetbrains.kotlin.idea.core.script.k2.DefaultScriptResolutionStrategy
+import org.jetbrains.kotlin.idea.core.script.k2.highlighting.DefaultScriptResolutionStrategy
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.plugins.gradle.service.GradleInstallationManager
 import org.jetbrains.plugins.gradle.settings.DistributionType
@@ -90,20 +90,19 @@ class ProjectGradleSettingsListener(
     private suspend fun loadScriptConfigurations(data: GradleBuildRootData) {
         if (data.models.isEmpty()) return
 
-        val gradleScripts = data.models.mapNotNullTo(mutableSetOf()) {
+        val scripts = data.models.mapNotNullTo(mutableSetOf()) {
             val virtualFile = VirtualFileManager.getInstance().findFileByNioPath(Path.of(it.file)) ?: return@mapNotNullTo null
             GradleScriptModel(
                 virtualFile,
                 it.classPath,
                 it.sourcePath,
                 it.imports,
-                data.javaHome
             )
         }
 
-        GradleScriptRefinedConfigurationProvider.getInstance(project).processScripts(gradleScripts)
+        GradleScriptRefinedConfigurationProvider.getInstance(project).processScripts(GradleScriptModelData(scripts, data.javaHome))
 
-        val ktFiles = gradleScripts.mapNotNull {
+        val ktFiles = scripts.mapNotNull {
             readAction { PsiManager.getInstance(project).findFile(it.virtualFile) as? KtFile }
         }.toTypedArray()
 

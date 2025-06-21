@@ -1,4 +1,5 @@
 ### auto-generated section `build intellij.devkit.kotlin.tests` start
+load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_java//java:defs.bzl", "java_library")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources", "jvm_test")
 
@@ -22,8 +23,13 @@ jvm_library(
     "//plugins/devkit/devkit-tests:testFramework",
     "//plugins/devkit/devkit-tests:testFramework_test_lib",
     "@lib//:kotlin-stdlib",
+    "//platform/analysis-api:analysis",
+    "//platform/core-api:core",
+    "//platform/lang-core",
+    "//platform/core-ui",
     "//platform/editor-ui-api:editor-ui",
     "//jps/model-api:model",
+    "//platform/projectModel-api:projectModel",
     "//platform/refactoring",
     "//platform/testFramework",
     "//platform/testFramework:testFramework_test_lib",
@@ -41,6 +47,7 @@ jvm_library(
     "//platform/testRunner:testRunner_test_lib",
     "@lib//:kotlin-test",
     "//plugins/devkit/devkit-core:core",
+    "//xml/xml-psi-api:psi",
     "//plugins/kotlin/base/test:test_test_lib",
     "//plugins/kotlin/test-framework:test-framework_test_lib",
     "//plugins/kotlin/base/plugin",
@@ -52,7 +59,7 @@ jvm_library(
   ]
 )
 
-jvm_test(
+jps_test(
   name = "kotlin-tests_test",
   runtime_deps = [":kotlin-tests_test_lib"]
 )

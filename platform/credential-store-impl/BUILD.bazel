@@ -1,4 +1,5 @@
 ### auto-generated section `build intellij.platform.credentialStore.impl` start
+load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources", "jvm_test")
 
 jvm_resources(
@@ -13,9 +14,12 @@ jvm_library(
   visibility = ["//visibility:public"],
   srcs = glob(["src/**/*.kt", "src/**/*.java"], allow_empty = True),
   deps = [
+    "//platform/util/concurrency",
     "//platform/credential-store",
     "//platform/ide-core",
     "//platform/ide-core-impl",
+    "//jps/model-serialization",
+    "//platform/projectModel-api:projectModel",
     "//platform/util/jdom",
     "//platform/projectModel-impl",
     "//platform/core-ui",
@@ -24,6 +28,7 @@ jvm_library(
     "//platform/remote-core",
     "//platform/editor-ui-api:editor-ui",
     "//platform/util:util-ui",
+    "//platform/core-api:core",
     "@lib//:kotlin-stdlib",
     "@lib//:kotlinx-coroutines-core",
     "@lib//:jna",
@@ -43,9 +48,13 @@ jvm_library(
   srcs = glob(["test/**/*.kt", "test/**/*.java"], allow_empty = True),
   associates = [":credentialStore-impl"],
   deps = [
+    "//platform/util/concurrency",
+    "//platform/util/concurrency:concurrency_test_lib",
     "//platform/credential-store",
     "//platform/ide-core",
     "//platform/ide-core-impl",
+    "//jps/model-serialization",
+    "//platform/projectModel-api:projectModel",
     "//platform/util/jdom",
     "//platform/projectModel-impl",
     "//platform/core-ui",
@@ -54,6 +63,7 @@ jvm_library(
     "//platform/remote-core",
     "//platform/editor-ui-api:editor-ui",
     "//platform/util:util-ui",
+    "//platform/core-api:core",
     "@lib//:kotlin-stdlib",
     "@lib//:kotlinx-coroutines-core",
     "@lib//:jna",
@@ -72,7 +82,7 @@ jvm_library(
   runtime_deps = [":credentialStore-impl_resources"]
 )
 
-jvm_test(
+jps_test(
   name = "credentialStore-impl_test",
   runtime_deps = [":credentialStore-impl_test_lib"]
 )

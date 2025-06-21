@@ -1,9 +1,13 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight;
 
+import com.intellij.psi.PsiType;
+import com.intellij.psi.PsiTypeParameter;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Set;
@@ -53,14 +57,81 @@ public final class TypeNullability {
   }
 
   /**
+   * @return the same nullability but marked as inherited from a bound.
+   * @see NullabilitySource.ExtendsBound
+   */
+  public @NotNull TypeNullability inherited() {
+    NullabilitySource inherited = mySource.inherited();
+    return inherited.equals(mySource) ? this : new TypeNullability(myNullability, inherited);
+  }
+
+  public @NotNull TypeNullability instantiatedWith(@NotNull TypeNullability nullability) {
+    if (this.nullability() == nullability.nullability()) {
+      return intersect(Arrays.asList(this, nullability));
+    }
+    if (this.nullability() == Nullability.NOT_NULL) {
+      return this;
+    }
+    if (nullability.nullability() == Nullability.NOT_NULL && this.source() instanceof NullabilitySource.ExtendsBound) {
+      return nullability;
+    }
+    if (this.source() == NullabilitySource.Standard.NONE) {
+      return nullability;
+    }
+    return this;
+  }
+
+  public @NotNull TypeNullability join(@NotNull TypeNullability other) {
+    if (this.nullability() == other.nullability()) {
+      if (this.source().equals(other.source())) return this;
+      return new TypeNullability(this.nullability(), NullabilitySource.multiSource(Arrays.asList(this.source(), other.source())));
+    }
+    if (this.nullability() == Nullability.NULLABLE) {
+      return this;
+    }
+    if (other.nullability() == Nullability.NULLABLE) {
+      return other;
+    }
+    return this.nullability() == Nullability.UNKNOWN ? this : other;
+  }
+  
+  public @NotNull TypeNullability meet(@NotNull TypeNullability other) {
+    if (this.nullability() == other.nullability()) {
+      if (this.source().equals(other.source())) return this;
+      return new TypeNullability(Nullability.NOT_NULL, NullabilitySource.multiSource(Arrays.asList(this.source(), other.source())));
+    }
+    if (this.nullability() == Nullability.NOT_NULL) {
+      return this;
+    }
+    if (other.nullability() == Nullability.NOT_NULL) {
+      return other;
+    }
+    return this.nullability() == Nullability.NULLABLE ? this : other;
+  }
+  
+  public static @NotNull TypeNullability ofTypeParameter(@NotNull PsiTypeParameter parameter) {
+    NullableNotNullManager manager = NullableNotNullManager.getInstance(parameter.getProject());
+    if (manager != null) {
+      NullabilityAnnotationInfo typeUseNullability = manager.findDefaultTypeUseNullability(parameter);
+      if (typeUseNullability != null) {
+        return typeUseNullability.toTypeNullability();
+      }
+    }
+    return intersect(ContainerUtil.map(parameter.getSuperTypes(), PsiType::getNullability)).inherited();
+  }
+
+  /**
    * @param collection type nullabilities to intersect
    * @return the intersection of the type nullabilities in the collection
    */
   public static @NotNull TypeNullability intersect(@NotNull Collection<@NotNull TypeNullability> collection) {
+    if (collection.isEmpty()) return UNKNOWN;
+    if (collection.size() == 1) return collection.iterator().next();
     Map<Nullability, Set<NullabilitySource>> map = collection.stream().collect(Collectors.groupingBy(
       TypeNullability::nullability, Collectors.mapping(TypeNullability::source, Collectors.toSet())));
     Set<NullabilitySource> sources = map.get(Nullability.NOT_NULL);
     if (sources != null) {
+      //todo?
       return new TypeNullability(Nullability.NOT_NULL, NullabilitySource.multiSource(sources));
     }
     sources = map.get(Nullability.NULLABLE);

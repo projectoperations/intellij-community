@@ -331,7 +331,6 @@ f:com.intellij.lang.LanguageUtil
 - sf:LANGUAGE_COMPARATOR:java.util.Comparator
 - s:canStickTokensTogetherByLexer(com.intellij.lang.ASTNode,com.intellij.lang.ASTNode,com.intellij.lexer.Lexer):com.intellij.lang.ParserDefinition$SpaceRequirements
 - s:findRegisteredLanguage(java.lang.String):com.intellij.lang.Language
-- s:getAllDerivedLanguages(com.intellij.lang.Language):java.util.Set
 - s:getBaseLanguages(com.intellij.lang.Language):com.intellij.util.containers.JBIterable
 - s:getFileLanguage(com.intellij.openapi.vfs.VirtualFile):com.intellij.lang.Language
 - s:getFileLanguages():java.util.List
@@ -3204,6 +3203,7 @@ f:com.intellij.psi.search.GlobalSearchScopeUtil
 - s:flattenIntersectionScope(com.intellij.psi.search.GlobalSearchScope):java.util.List
 - s:flattenUnionScope(com.intellij.psi.search.GlobalSearchScope):java.util.List
 - s:getLocalScopeFiles(com.intellij.psi.search.LocalSearchScope):java.util.Set
+- s:includeContainingFile(com.intellij.psi.search.GlobalSearchScope,com.intellij.psi.PsiElement):com.intellij.psi.search.GlobalSearchScope
 - s:isIntersectionScope(com.intellij.psi.search.GlobalSearchScope):Z
 - s:toGlobalSearchScope(com.intellij.psi.search.SearchScope,com.intellij.openapi.project.Project):com.intellij.psi.search.GlobalSearchScope
 c:com.intellij.psi.search.LocalSearchScope

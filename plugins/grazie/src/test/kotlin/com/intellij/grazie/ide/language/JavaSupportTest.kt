@@ -2,6 +2,7 @@
 package com.intellij.grazie.ide.language
 
 import com.intellij.grazie.GrazieTestBase
+import com.intellij.grazie.jlanguage.Lang
 import com.intellij.testFramework.LightProjectDescriptor
 import com.intellij.tools.ide.metrics.benchmark.Benchmark
 import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase
@@ -27,6 +28,7 @@ class JavaSupportTest : GrazieTestBase() {
   }
 
   fun `test grammar check in comments`() {
+    configureGrazieSettings(setOf(Lang.AMERICAN_ENGLISH, Lang.GERMANY_GERMAN, Lang.UKRAINIAN, Lang.BELARUSIAN))
     runHighlightTestForFile("ide/language/java/Comments.java")
   }
 
@@ -54,5 +56,13 @@ class JavaSupportTest : GrazieTestBase() {
     Benchmark.newBenchmark("highlighting") {
       myFixture.checkHighlighting()
     }.setup { psiManager.dropPsiCaches() }.start()
+  }
+
+  fun testCommentIsNotHighlightedIfThereIsReference() {
+    runHighlightTestForFile("ide/language/java/VectorablexxClass.java")
+  }
+
+  fun `test spellchecking normalization`() {
+    runHighlightTestForFile("ide/language/java/Normalization.java")
   }
 }

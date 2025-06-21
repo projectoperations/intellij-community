@@ -1,4 +1,5 @@
 ### auto-generated section `build intellij.xml.dom.tests` start
+load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_java//java:defs.bzl", "java_library")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_test")
 
@@ -13,7 +14,12 @@ jvm_library(
   srcs = glob(["tests/**/*.kt", "tests/**/*.java"], allow_empty = True),
   associates = ["//xml/dom-impl"],
   deps = [
+    "//platform/analysis-api:analysis",
+    "//platform/core-api:core",
+    "//platform/lang-core",
+    "//platform/core-ui",
     "//platform/editor-ui-api:editor-ui",
+    "//platform/indexing-api:indexing",
     "//xml/impl",
     "//java/testFramework",
     "//java/java-psi-impl:psi-impl",
@@ -24,11 +30,12 @@ jvm_library(
     "//java/openapi:java",
     "//tools/intellij.tools.ide.metrics.benchmark:ide-metrics-benchmark",
     "//tools/intellij.tools.ide.metrics.benchmark:ide-metrics-benchmark_test_lib",
+    "//xml/xml-psi-api:psi",
     "//platform/libraries/cglib",
   ]
 )
 
-jvm_test(
+jps_test(
   name = "dom-tests_test",
   runtime_deps = [":dom-tests_test_lib"]
 )

@@ -29,6 +29,16 @@ data class MirrorOfCoroutineInfo(
     val creationStackTraceProvider: StackTraceMirrorProvider
 )
 
+data class MirrorOfDebugCoroutineInfo(
+    val context: MirrorOfCoroutineContext?,
+    val sequenceNumber: Long?,
+    val state: String?,
+    val lastObservedThread: ThreadReference?,
+    val lastObservedFrame: ObjectReference?,
+    val creationStackTrace: List<MirrorOfStackTraceElement>,
+    val lastObservedStackTrace: List<MirrorOfStackTraceElement>
+)
+
 data class MirrorOfJob(
     val details: String,
     val parent: JobMirrorProvider
@@ -53,7 +63,8 @@ data class MirrorOfStackFrame(val baseContinuationImpl: MirrorOfBaseContinuation
     fun toCoroutineStackFrameItem(context: DefaultExecutionContext): CoroutineStackFrameItem? {
         return CoroutineStackFrameItem.create(
             stackTraceElement = baseContinuationImpl.stackTraceElement,
-            fieldVariables = baseContinuationImpl.spilledValues(context),
+            fieldVariables = baseContinuationImpl.fieldVariables,
+            continuation = baseContinuationImpl.that,
             context = context
         )
     }

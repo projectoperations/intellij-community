@@ -87,7 +87,6 @@ import com.intellij.util.ref.GCWatcher
 import com.intellij.util.xmlb.clearPropertyCollectorCache
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.Nls
-import org.jetbrains.annotations.TestOnly
 import java.awt.KeyboardFocusManager
 import java.awt.Window
 import java.nio.channels.FileChannel
@@ -344,7 +343,7 @@ object DynamicPlugins {
 
     var dependencyMessage: String? = null
     processOptionalDependenciesOnPlugin(module, pluginSet, isLoaded = true) { mainDescriptor, subDescriptor ->
-      if (subDescriptor.packagePrefix == null
+      if ((subDescriptor.pluginClassLoader === module.pluginClassLoader)
           || mainDescriptor.pluginId.idString == "org.jetbrains.kotlin" || mainDescriptor.pluginId == PluginManagerCore.JAVA_PLUGIN_ID) {
         dependencyMessage = "Plugin ${subDescriptor.pluginId} that optionally depends on ${module.pluginId}" +
                             " does not have a separate classloader for the dependency"
@@ -905,15 +904,7 @@ object DynamicPlugins {
     }
   }
 
-  @TestOnly
-  @ApiStatus.Internal
-  fun loadPluginInTest(pluginDescriptor: PluginMainDescriptor, coreLoader: ClassLoader): Boolean {
-    return runProcess {
-      doLoadPlugin(pluginDescriptor = pluginDescriptor, project = null, coreLoader = coreLoader)
-    }
-  }
-
-  private fun doLoadPlugin(pluginDescriptor: IdeaPluginDescriptorImpl, project: Project? = null, coreLoader: ClassLoader? = null): Boolean {
+  private fun doLoadPlugin(pluginDescriptor: IdeaPluginDescriptorImpl, project: Project? = null): Boolean {
     var result = false
 
     val isVetoed = VETOER_EP_NAME.findFirstSafe {
@@ -929,12 +920,12 @@ object DynamicPlugins {
                                      null,
                                      null)
     indicator.runInSwingThread {
-      result = loadPluginWithoutProgress(pluginDescriptor, checkImplementationDetailDependencies = true, coreLoader = coreLoader)
+      result = loadPluginWithoutProgress(pluginDescriptor, checkImplementationDetailDependencies = true)
     }
     return result
   }
 
-  private fun loadPluginWithoutProgress(pluginDescriptor: IdeaPluginDescriptorImpl, checkImplementationDetailDependencies: Boolean = true, coreLoader: ClassLoader? = null): Boolean {
+  private fun loadPluginWithoutProgress(pluginDescriptor: IdeaPluginDescriptorImpl, checkImplementationDetailDependencies: Boolean = true): Boolean {
     pluginDescriptor as PluginMainDescriptor
     if (classloadersFromUnloadedPlugins[pluginDescriptor.pluginId]?.isEmpty() == false) {
       LOG.info("Requiring restart for loading plugin ${pluginDescriptor.pluginId}" +
@@ -948,7 +939,7 @@ object DynamicPlugins {
       .withPlugin(pluginDescriptor)
       .createPluginSetWithEnabledModulesMap()
 
-    val classLoaderConfigurator = ClassLoaderConfigurator(pluginSet, coreLoader)
+    val classLoaderConfigurator = ClassLoaderConfigurator(pluginSet)
 
     // todo loadPluginWithoutProgress should be called per each module, temporary solution
     val pluginWithContentModules = pluginSet.getEnabledModules()
@@ -960,8 +951,6 @@ object DynamicPlugins {
     app.messageBus.syncPublisher(DynamicPluginListener.TOPIC).beforePluginLoaded(pluginDescriptor)
     app.runWriteAction {
       try {
-        PluginManagerCore.setPluginSet(pluginSet)
-
         val listenerCallbacks = mutableListOf<Runnable>()
 
         // 4. load into service container
@@ -977,9 +966,12 @@ object DynamicPlugins {
         clearPluginClassLoaderParentListCache(pluginSet)
         clearCachedValues()
 
+        PluginManagerCore.setPluginSet(pluginSet)
+
         listenerCallbacks.forEach(Runnable::run)
 
         DynamicPluginsUsagesCollector.logDescriptorLoad(pluginDescriptor)
+        PluginManagerCore.clearLoadingErrorsFor(pluginDescriptor.pluginId)
         LOG.info("Plugin ${pluginDescriptor.pluginId} loaded without restart in ${System.currentTimeMillis() - loadStartTime} ms")
       }
       finally {
@@ -1376,13 +1368,20 @@ private fun doCheckExtensionsCanUnloadWithoutRestart(
 }
 
 private fun findPluginExtensionPoint(pluginDescriptor: IdeaPluginDescriptorImpl, epName: String): ExtensionPointDescriptor? {
-  fun findContainerExtensionPoint(containerDescriptor: ContainerDescriptor): ExtensionPointDescriptor? {
+  fun findInContainer(containerDescriptor: ContainerDescriptor): ExtensionPointDescriptor? {
     return containerDescriptor.extensionPoints.find { it.nameEquals(epName, pluginDescriptor) }
   }
-
-  return findContainerExtensionPoint(pluginDescriptor.appContainerDescriptor)
-         ?: findContainerExtensionPoint(pluginDescriptor.projectContainerDescriptor)
-         ?: findContainerExtensionPoint(pluginDescriptor.moduleContainerDescriptor)
+  fun IdeaPluginDescriptorImpl.findInAnyScope() = findInContainer(appContainerDescriptor)
+                                                  ?: findInContainer(projectContainerDescriptor)
+                                                  ?: findInContainer(moduleContainerDescriptor)
+  pluginDescriptor.findInAnyScope()?.let { return it }
+  pluginDescriptor.contentModules.forEach { contentModule ->
+    // FIXME incomplete fix for IJPL-190703
+    if (contentModule.moduleLoadingRule == ModuleLoadingRule.EMBEDDED) {
+      contentModule.findInAnyScope()?.let { return it }
+    }
+  }
+  return null
 }
 
 private fun findLoadedPluginExtensionPointRecursive(pluginDescriptor: IdeaPluginDescriptorImpl,

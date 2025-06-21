@@ -1,4 +1,5 @@
 ### auto-generated section `build kotlin.onboarding.gradle` start
+load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources", "jvm_test")
 
 jvm_resources(
@@ -15,7 +16,9 @@ jvm_library(
   deps = [
     "@lib//:kotlin-stdlib",
     "@lib//:kotlinc-kotlin-compiler-common",
+    "//platform/core-api:core",
     "//platform/editor-ui-api:editor-ui",
+    "//platform/projectModel-api:projectModel",
     "//platform/statistics",
     "//platform/analysis-api:analysis",
     "//platform/feedback",
@@ -44,7 +47,9 @@ jvm_library(
   deps = [
     "@lib//:kotlin-stdlib",
     "@lib//:kotlinc-kotlin-compiler-common",
+    "//platform/core-api:core",
     "//platform/editor-ui-api:editor-ui",
+    "//platform/projectModel-api:projectModel",
     "//platform/statistics",
     "//platform/statistics:statistics_test_lib",
     "//platform/analysis-api:analysis",
@@ -78,7 +83,7 @@ jvm_library(
   runtime_deps = [":onboarding-gradle_resources"]
 )
 
-jvm_test(
+jps_test(
   name = "onboarding-gradle_test",
   runtime_deps = [":onboarding-gradle_test_lib"]
 )

@@ -7,14 +7,13 @@ import com.intellij.execution.target.value.targetPath
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.progress.EmptyProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
-import com.intellij.openapi.progress.blockingContext
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.guessProjectDir
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.util.registry.Registry
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.util.io.IdeUtilIoBundle
 import com.intellij.util.net.HttpConfigurable
-import com.jetbrains.python.PyBundle
 import com.jetbrains.python.PySdkBundle
 import com.jetbrains.python.PythonHelper
 import com.jetbrains.python.errorProcessing.PyResult
@@ -35,8 +34,6 @@ import com.jetbrains.python.run.prepareHelperScriptExecution
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
-import org.jetbrains.annotations.Nls
-import org.jetbrains.annotations.TestOnly
 import kotlin.math.min
 
 internal class PipPackageManagerEngine(
@@ -48,28 +45,15 @@ internal class PipPackageManagerEngine(
     PipManagementInstaller(sdk, manager).installManagementIfNeeded()
     val result = runPackagingTool(
       operation = "install",
-      arguments = installRequest.indexUrlIfApplicable() + options,
-      text = PyBundle.message("python.packaging.install.progress", installRequest.title),
-      withBackgroundProgress = false
+      arguments = installRequest.indexUrlIfApplicable() + options
     )
 
     return result.mapSuccess { }
   }
 
   override suspend fun loadOutdatedPackagesCommand(): PyResult<List<PythonOutdatedPackage>> {
-    val output = runPackagingTool("list_outdated", listOf(), PyBundle.message("python.packaging.list.outdated.progress"),
-                                  withBackgroundProgress = false).getOr { return it }
-    val packages = output.lineSequence()
-      .drop(2) // skip header and separator line
-      .filter { it.isNotBlank() }
-      .mapNotNull { line ->
-        val blocks = line.split("\t", " ").filter { it.isNotBlank() }
-        blocks.takeIf { it.size >= 3 }?.let {
-          PythonOutdatedPackage(blocks[0], blocks[1], latestVersion = blocks[2])
-        }
-      }
-      .toList()
-
+    val output = runPackagingTool("list_outdated", listOf()).getOr { return it }
+    val packages = PipParseUtils.parseOutdatedOutputs(output)
     return PyResult.success(packages)
   }
 
@@ -78,18 +62,30 @@ internal class PipPackageManagerEngine(
     val packages = specifications.map { it.name }
     val result = runPackagingTool(
       operation = "install",
-      arguments = packages + listOf("--upgrade") + indexUrlIfApplicable,
-      text = PyBundle.message("python.packaging.update.progress", packages.joinToString(", "))
+      arguments = packages + listOf("--upgrade") + indexUrlIfApplicable
     )
     return result.mapSuccess { }
   }
 
+  suspend fun syncProject(): PyResult<Unit> {
+    return runPackagingTool(
+      operation = "install",
+      arguments = listOf(".")
+    ).mapSuccess { }
+  }
+
+  suspend fun syncRequirementsTxt(file: VirtualFile): PyResult<Unit> {
+    return runPackagingTool(
+      operation = "install",
+      arguments = listOf("-r", file.path)
+    ).mapSuccess { }
+  }
+
+
   override suspend fun uninstallPackageCommand(vararg pythonPackages: String): PyResult<Unit> {
     val result = runPackagingTool(
       operation = "uninstall",
-      arguments = pythonPackages.toList(),
-      text = PyBundle.message("python.packaging.uninstall.progress", pythonPackages.joinToString(", ")),
-      withBackgroundProgress = false
+      arguments = pythonPackages.toList()
     )
     return result.mapSuccess { }
   }
@@ -97,31 +93,19 @@ internal class PipPackageManagerEngine(
   override suspend fun loadPackagesCommand(): PyResult<List<PythonPackage>> {
     val output = runPackagingTool(
       operation = "list",
-      arguments = emptyList(),
-      text = PyBundle.message("python.packaging.list.progress")
+      arguments = emptyList()
     ).getOr { return it }
 
-    val packages = output.lineSequence()
-      .filter { it.isNotBlank() }
-      .map {
-        val line = it.split("\t")
-        PythonPackage(line[0], line[1], isEditableMode = false)
-      }
-      .sortedWith(compareBy(PythonPackage::name))
-      .toList()
-
+    val packages = PipParseUtils.parseListResult(output)
     return PyResult.success(packages)
   }
 
   @ApiStatus.Internal
-  suspend fun runPackagingTool(
-    operation: String, arguments: List<String>, @Nls text: String,
-    withBackgroundProgress: Boolean = true,
-  ): PyResult<String> = withContext(Dispatchers.IO) {
+  suspend fun runPackagingTool(operation: String, arguments: List<String>): PyResult<String> = withContext(Dispatchers.IO) {
     // todo[akniazev]: check for package management tools
     val helpersAwareTargetRequest = PythonInterpreterTargetEnvironmentFactory.findPythonTargetInterpreter(sdk, project)
     val targetEnvironmentRequest = helpersAwareTargetRequest.targetEnvironmentRequest
-    val pythonExecution = blockingContext { prepareHelperScriptExecution(PythonHelper.PACKAGING_TOOL, helpersAwareTargetRequest) }
+    val pythonExecution = prepareHelperScriptExecution(PythonHelper.PACKAGING_TOOL, helpersAwareTargetRequest)
 
     if (targetEnvironmentRequest is LocalTargetEnvironmentRequest) {
       if (Registry.`is`("python.packaging.tool.use.project.location.as.working.dir")) {
@@ -166,7 +150,7 @@ internal class PipPackageManagerEngine(
     // TODO [targets] Apply flavor from PythonSdkFlavor.getFlavor(mySdk)
     // TODO [targets] check askForSudo
 
-    val process = blockingContext { targetEnvironment.createProcess(targetedCommandLine, indicator) }
+    val process = targetEnvironment.createProcess(targetedCommandLine, indicator)
 
     val commandLine = targetedCommandLine.collectCommandsSynchronously()
     val commandLineString = commandLine.joinToString(" ")
@@ -174,11 +158,9 @@ internal class PipPackageManagerEngine(
     thisLogger().debug("Running python packaging tool. Operation: $operation")
 
     val result = PythonPackageManagerRunner.runProcess(
-      project,
       process,
-      commandLineString,
-      text,
-      withBackgroundProgress)
+      commandLineString
+    )
     if (result.isCancelled) {
       return@withContext PyResult.localizedError(IdeUtilIoBundle.message("run.canceled.by.user.message"))
     }
@@ -191,7 +173,7 @@ internal class PipPackageManagerEngine(
       val message = if (result.stdout.isBlank() && result.stderr.isBlank()) PySdkBundle.message(
         "python.conda.permission.denied")
       else PySdkBundle.message("python.sdk.packaging.non.zero.exit.code", exitCode)
-      PyExecutionException(message, helperPath, args, result).let {
+      PyExecutionException(message, commandLineString, args, result).let {
         return@withContext PyResult.failure(it.pyError)
       }
     }
@@ -217,7 +199,6 @@ internal class PipPackageManagerEngine(
 
   private fun PythonPackageInstallRequest.indexUrlIfApplicable(): List<String> = when (this) {
     is PythonPackageInstallRequest.ByLocation -> listOf(location.toString())
-    is PythonPackageInstallRequest.AllRequirements -> emptyList()
     is PythonPackageInstallRequest.ByRepositoryPythonPackageSpecifications -> {
       val pypiSpecs = specifications.filter { it.repository is PyPIPackageRepository }
       val index = pypiSpecs.firstNotNullOfOrNull { spec -> spec.indexUrlIfApplicable() } ?: emptyList()
@@ -231,10 +212,4 @@ internal class PipPackageManagerEngine(
       return null
     return listOf("--index-url", urlForInstallation)
   }
-}
-
-@ApiStatus.Internal
-@TestOnly
-suspend fun runPackagingTool(project: Project, sdk: Sdk, operation: String, arguments: List<String>, @Nls text: String): PyResult<String> {
-  return PipPackageManagerEngine(project, sdk).runPackagingTool(operation, arguments, text)
 }

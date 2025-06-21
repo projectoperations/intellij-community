@@ -72,7 +72,8 @@ private fun shouldWriteExternalFilesDirectly(): Boolean {
 }
 
 @ApiStatus.Internal
-open class ProjectWithModuleStoreImpl(project: Project) : ProjectStoreImpl(project), ProjectStoreWithJpsContentReader {
+open
+class ProjectWithModuleStoreImpl(project: Project) : ProjectStoreImpl(project), ProjectStoreWithJpsContentReader {
   private val persistentModules = CachedValue<List<Module>> { storage ->
     val moduleMap = storage.moduleMap
     storage.entities(ModuleEntity::class.java)
@@ -427,7 +428,7 @@ internal class StorageJpsConfigurationReader(private val project: Project, priva
       return@addMeasuredTime component
     }
     if (filePath.endsWith(".iml") || isExternalModuleFile(filePath)) {
-      //todo fetch data from ModuleStore (https://jetbrains.team/p/wm/issues/51)
+      //todo fetch data from ModuleStore (IJPL-15992)
       val component = getCachingReader().loadComponent(fileUrl, componentName, customModuleFilePath)
       return@addMeasuredTime component
     }

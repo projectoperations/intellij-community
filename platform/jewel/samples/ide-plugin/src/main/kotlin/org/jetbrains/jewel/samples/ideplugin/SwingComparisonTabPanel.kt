@@ -25,9 +25,13 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import com.intellij.icons.AllIcons
 import com.intellij.ide.ui.laf.darcula.ui.DarculaButtonUI
+import com.intellij.openapi.editor.colors.EditorFontType
 import com.intellij.openapi.ui.ComboBox
+import com.intellij.openapi.util.IconLoader
 import com.intellij.ui.JBColor
+import com.intellij.ui.components.BrowserLink
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.dsl.builder.AlignY
@@ -47,14 +51,20 @@ import javax.swing.JLabel
 import javax.swing.JPanel
 import org.jetbrains.jewel.bridge.JewelComposePanel
 import org.jetbrains.jewel.bridge.medium
+import org.jetbrains.jewel.bridge.retrieveEditorColorScheme
 import org.jetbrains.jewel.foundation.theme.JewelTheme
 import org.jetbrains.jewel.ui.component.DefaultButton
+import org.jetbrains.jewel.ui.component.EditableListComboBox
+import org.jetbrains.jewel.ui.component.ExternalLink
 import org.jetbrains.jewel.ui.component.Icon
+import org.jetbrains.jewel.ui.component.ListComboBox
 import org.jetbrains.jewel.ui.component.OutlinedButton
 import org.jetbrains.jewel.ui.component.Text
 import org.jetbrains.jewel.ui.component.TextArea
 import org.jetbrains.jewel.ui.component.TextField
 import org.jetbrains.jewel.ui.component.Typography
+import org.jetbrains.jewel.ui.disabledAppearance
+import org.jetbrains.jewel.ui.icons.AllIconsKeys
 import org.jetbrains.jewel.ui.theme.textAreaStyle
 
 internal class SwingComparisonTabPanel : BorderLayoutPanel() {
@@ -67,6 +77,8 @@ internal class SwingComparisonTabPanel : BorderLayoutPanel() {
                 separator()
                 iconsRow()
                 separator()
+                linksRow()
+                separator()
                 textFieldsRow()
                 separator()
                 textAreasRow()
@@ -78,6 +90,31 @@ internal class SwingComparisonTabPanel : BorderLayoutPanel() {
                 border = JBUI.Borders.empty(0, 10)
                 isOpaque = false
             }
+
+    private fun Panel.linksRow() {
+        row("Links:") {
+                browserLink("Enabled link", "")
+
+                compose { ExternalLink(text = "Enabled link", enabled = true, onClick = {}) }
+
+                cell(
+                        component =
+                            BrowserLink(
+                                icon = IconLoader.getDisabledIcon(AllIcons.Ide.External_link_arrow),
+                                text = "Disabled link",
+                                tooltip = null,
+                                url = "",
+                            )
+                    )
+                    .applyToComponent {
+                        enabled(false)
+                        autoHideOnDisable = false
+                    }
+
+                compose { ExternalLink(text = "Disabled link", enabled = false, onClick = {}) }
+            }
+            .layout(RowLayout.PARENT_GRID)
+    }
 
     private val scrollingContainer =
         JBScrollPane(
@@ -141,6 +178,30 @@ internal class SwingComparisonTabPanel : BorderLayoutPanel() {
             }
         }
 
+        row("Long editor text (Swing)") {
+            text(longText, maxLineLength = 100).applyToComponent {
+                font = retrieveEditorColorScheme().getFont(EditorFontType.PLAIN)
+            }
+        }
+        row("Long editor text (Compose)") {
+            compose {
+                Box {
+                    Text(
+                        longText,
+                        style = JewelTheme.editorTextStyle,
+                        modifier =
+                            Modifier.width(
+                                with(LocalDensity.current) {
+                                    // Guesstimate how wide this should be ? we can't tell it to be
+                                    // "fill", as it crashes natively
+                                    JewelTheme.defaultTextStyle.fontSize.toDp() * 60
+                                }
+                            ),
+                    )
+                }
+            }
+        }
+
         row("Titles (Swing)") {
             text("This will wrap over a couple rows", maxLineLength = 30).component.font = JBFont.h1()
         }
@@ -176,6 +237,59 @@ internal class SwingComparisonTabPanel : BorderLayoutPanel() {
                         contentDescription = "Jewel Tool Window Icon",
                         modifier = Modifier.border(1.dp, Color.Red),
                     )
+                }
+
+                panel {
+                    row {
+                        label("Swing").widthGroup("swing disabled")
+                        label("Compose").widthGroup("compose disabled")
+                        label("Swing").widthGroup("swing enabled")
+                        label("Compose").widthGroup("compose enabled")
+
+                        label("Swing").widthGroup("swing disabled")
+                        label("Compose").widthGroup("compose disabled")
+                        label("Swing").widthGroup("swing enabled")
+                        label("Compose").widthGroup("compose enabled")
+                    }
+                    row {
+                        icon(icon = IconLoader.getDisabledIcon(AllIcons.Actions.CheckOut)).widthGroup("swing disabled")
+                        compose {
+                                Icon(
+                                    modifier = Modifier.disabledAppearance(),
+                                    key = AllIconsKeys.Actions.CheckOut,
+                                    contentDescription = null,
+                                )
+                            }
+                            .widthGroup("compose disabled")
+                        icon(icon = AllIcons.Actions.CheckOut).widthGroup("swing enabled")
+                        compose {
+                                Icon(
+                                    key = AllIconsKeys.Actions.CheckOut,
+                                    contentDescription = null,
+                                    colorFilter = null, // Not disabled
+                                )
+                            }
+                            .widthGroup("compose enabled")
+
+                        icon(icon = IconLoader.getDisabledIcon(AllIcons.Actions.Close)).widthGroup("swing disabled")
+                        compose {
+                                Icon(
+                                    modifier = Modifier.disabledAppearance(),
+                                    key = AllIconsKeys.Actions.Close,
+                                    contentDescription = null,
+                                )
+                            }
+                            .widthGroup("compose disabled")
+                        icon(icon = AllIcons.Actions.Close).widthGroup("swing enabled")
+                        compose {
+                                Icon(
+                                    key = AllIconsKeys.Actions.Close,
+                                    contentDescription = null,
+                                    colorFilter = null, // Not disabled
+                                )
+                            }
+                            .widthGroup("compose enabled")
+                    }
                 }
             }
             .layout(RowLayout.PARENT_GRID)
@@ -276,12 +390,12 @@ internal class SwingComparisonTabPanel : BorderLayoutPanel() {
                             Text("Not editable")
                             Text(text = "Selected item: $selectedText")
 
-                            //                            ListComboBox(
-                            //                                items = comboBoxItems,
-                            //                                selectedIndex = selectedIndex,
-                            //                                onSelectedItemChange = { selectedIndex = it },
-                            //                                modifier = Modifier.width(200.dp),
-                            //                            )
+                            ListComboBox(
+                                items = comboBoxItems,
+                                selectedIndex = selectedIndex,
+                                onSelectedItemChange = { selectedIndex = it },
+                                modifier = Modifier.width(200.dp),
+                            )
                         }
 
                         Column {
@@ -291,13 +405,13 @@ internal class SwingComparisonTabPanel : BorderLayoutPanel() {
                             Text("Not editable + disabled")
                             Text(text = "Selected item: $selectedText")
 
-                            //                            ListComboBox(
-                            //                                items = comboBoxItems,
-                            //                                selectedIndex = selectedIndex,
-                            //                                onSelectedItemChange = { selectedIndex = it },
-                            //                                modifier = Modifier.width(200.dp),
-                            //                                enabled = false,
-                            //                            )
+                            ListComboBox(
+                                items = comboBoxItems,
+                                selectedIndex = selectedIndex,
+                                onSelectedItemChange = { selectedIndex = it },
+                                modifier = Modifier.width(200.dp),
+                                enabled = false,
+                            )
                         }
 
                         Column {
@@ -307,13 +421,13 @@ internal class SwingComparisonTabPanel : BorderLayoutPanel() {
                             Text("Editable")
                             Text(text = "Selected item: $selectedText")
 
-                            //                            EditableListComboBox(
-                            //                                items = comboBoxItems,
-                            //                                selectedIndex = selectedIndex,
-                            //                                onSelectedItemChange = { selectedIndex = it },
-                            //                                modifier = Modifier.width(200.dp),
-                            //                                maxPopupHeight = 150.dp,
-                            //                            )
+                            EditableListComboBox(
+                                items = comboBoxItems,
+                                selectedIndex = selectedIndex,
+                                onSelectedItemChange = { selectedIndex = it },
+                                modifier = Modifier.width(200.dp),
+                                maxPopupHeight = 150.dp,
+                            )
                         }
 
                         Column {
@@ -323,13 +437,13 @@ internal class SwingComparisonTabPanel : BorderLayoutPanel() {
                             Text("Editable + disabled")
                             Text(text = "Selected item: $selectedText")
 
-                            //                            EditableListComboBox(
-                            //                                items = comboBoxItems,
-                            //                                selectedIndex = selectedIndex,
-                            //                                onSelectedItemChange = { selectedIndex = it },
-                            //                                modifier = Modifier.width(200.dp),
-                            //                                enabled = false,
-                            //                            )
+                            EditableListComboBox(
+                                items = comboBoxItems,
+                                selectedIndex = selectedIndex,
+                                onSelectedItemChange = { selectedIndex = it },
+                                modifier = Modifier.width(200.dp),
+                                enabled = false,
+                            )
                         }
                     }
                 }

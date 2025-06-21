@@ -1,23 +1,24 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.searchEverywhere.frontend.vm
 
-import com.intellij.ide.SearchTopHitProvider
+import com.intellij.ide.IdeBundle
 import com.intellij.ide.actions.searcheverywhere.HistoryIterator
 import com.intellij.ide.actions.searcheverywhere.SearchEverywhereManagerImpl
 import com.intellij.ide.actions.searcheverywhere.SearchHistoryList
+import com.intellij.openapi.actionSystem.ActionUpdateThread
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.registry.Registry
+import com.intellij.openapi.wm.ToolWindowManager.Companion.getInstance
 import com.intellij.platform.searchEverywhere.SeItemData
 import com.intellij.platform.searchEverywhere.SeSessionEntity
-import com.intellij.platform.searchEverywhere.SeUsageEventsLogger
 import com.intellij.platform.searchEverywhere.frontend.SeTab
+import com.intellij.platform.searchEverywhere.utils.SuspendLazyProperty
 import com.intellij.util.SystemProperties
 import fleet.kernel.DurableRef
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.*
 import org.jetbrains.annotations.ApiStatus
 
 @ApiStatus.Internal
@@ -27,6 +28,7 @@ class SePopupVm(
   private val project: Project?,
   private val sessionRef: DurableRef<SeSessionEntity>,
   tabs: List<SeTab>,
+  deferredTabs: List<SuspendLazyProperty<SeTab?>>,
   initialSearchPattern: String?,
   initialTabIndex: String,
   private val historyList: SearchHistoryList,
@@ -34,13 +36,17 @@ class SePopupVm(
 ) {
   val searchPattern: MutableStateFlow<String> = MutableStateFlow("")
 
-  val tabVms: List<SeTabVm> = tabs.map {
-    SeTabVm(project, coroutineScope, it, searchPattern)
-  }
+  private val _deferredTabVms = MutableSharedFlow<SeTabVm>(replay = 100)
+  val deferredTabVms: SharedFlow<SeTabVm> = _deferredTabVms.asSharedFlow()
+  private val tabVmsSateFlow = MutableStateFlow(tabs.map { SeTabVm(project, coroutineScope, it, searchPattern) })
+  val tabVms: List<SeTabVm> get() = tabVmsSateFlow.value
 
   val currentTabIndex: MutableStateFlow<Int> = MutableStateFlow(tabVms.indexOfFirst { it.tabId == initialTabIndex }.takeIf { it >= 0 } ?: 0)
   val currentTab: SeTabVm get() = tabVms[currentTabIndex.value.coerceIn(tabVms.indices)]
   val currentTabFlow: Flow<SeTabVm>
+
+  private val canBeShownInFindResultsFlow = MutableStateFlow(false)
+  val canBeShownInFindResults: Boolean get() = canBeShownInFindResultsFlow.value
 
   private var historyIterator: HistoryIterator = historyList.getIterator(currentTab.tabId)
     get() {
@@ -50,8 +56,6 @@ class SePopupVm(
       }
       return field
     }
-
-  val usageLogger: SeUsageEventsLogger = SeUsageEventsLogger()
 
   init {
     check(tabVms.isNotEmpty()) { "Search Everywhere tabs must not be empty" }
@@ -74,53 +78,60 @@ class SePopupVm(
                              Registry.`is`("search.everywhere.disable.history.for.all"))
       if (!suppressHistory) historyIterator.next() else ""
     }
+
+    coroutineScope.launch {
+      deferredTabVms.collect { tabVm ->
+        tabVmsSateFlow.update { it + tabVm }
+      }
+    }
+
+    coroutineScope.launch {
+      currentTabFlow.collect { tabVm ->
+        canBeShownInFindResultsFlow.update { tabVm.canBeShownInFindResults() }
+      }
+    }
+
+    deferredTabs.forEach {
+      coroutineScope.launch {
+        it.getValue()?.let { tab ->
+          _deferredTabVms.emit(SeTabVm(project, coroutineScope, tab, searchPattern))
+        }
+      }
+    }
   }
 
-  suspend fun itemSelected(item: SeItemData, modifiers: Int): Boolean {
-    logItemSelected()
-    return currentTab.itemSelected(item, modifiers, searchPattern.value)
-  }
-
-  suspend fun itemsSelected(items: List<SeItemData>, modifiers: Int): Boolean {
-    logItemSelected()
+  suspend fun itemsSelected(indexedItems: List<Pair<Int, SeItemData>>, areIndexesOriginal: Boolean, modifiers: Int): Boolean {
     val currentTab = currentTab
 
     return coroutineScope {
-      items.map { item ->
+      indexedItems.map { item ->
         async {
-          currentTab.itemSelected(item, modifiers, searchPattern.value)
+          currentTab.itemSelected(item, areIndexesOriginal, modifiers, searchPattern.value)
         }
       }.awaitAll().any { it }
     }
   }
 
-  fun selectNextTab() {
-    val oldIndex = currentTabIndex.value
-    currentTabIndex.value = (currentTabIndex.value + 1) % tabVms.size
+  suspend fun openInFindWindow(sessionRef: DurableRef<SeSessionEntity>, initEvent: AnActionEvent): Boolean {
+    return currentTab.openInFindWindow(sessionRef, initEvent)
+  }
 
-    if (oldIndex != currentTabIndex.value) usageLogger.tabSwitched()
+  fun selectNextTab() {
+    currentTabIndex.value = (currentTabIndex.value + 1) % tabVms.size
   }
 
   fun selectPreviousTab() {
-    val oldIndex = currentTabIndex.value
     currentTabIndex.value = (currentTabIndex.value - 1 + tabVms.size) % tabVms.size
+  }
 
-    if (oldIndex != currentTabIndex.value) usageLogger.tabSwitched()
+  suspend fun canBeShownInFindResults(): Boolean {
+    return currentTab.canBeShownInFindResults()
   }
 
   fun showTab(tabId: String) {
     tabVms.indexOfFirst { it.tabId == tabId }.takeIf { it >= 0 }?.let {
       currentTabIndex.value = it
     }
-  }
-
-  private fun logItemSelected() {
-    val searchText = searchPattern.value
-    if (searchText.startsWith(SearchTopHitProvider.getTopHitAccelerator()) && searchText.contains(" ")) {
-      usageLogger.commandUsed()
-    }
-
-    usageLogger.contributorItemSelected()
   }
 
   fun closePopup() {
@@ -135,13 +146,34 @@ class SePopupVm(
     }
   }
 
-  fun getHistoryItem(next: Boolean) : String? {
+  fun getHistoryItem(next: Boolean) : String {
     val searchText = if (next) historyIterator.next() else historyIterator.prev()
     return searchText
   }
 
   fun getHistoryItems(): List<String> {
     return historyIterator.getList()
+  }
+
+  inner class ShowInFindToolWindowAction(private val onShowFindToolWindow: () -> Unit) : DumbAwareAction(IdeBundle.messagePointer("show.in.find.window.button.name"),
+                                                                   IdeBundle.messagePointer("show.in.find.window.button.description")) {
+    override fun actionPerformed(e: AnActionEvent) {
+      onShowFindToolWindow()
+      closePopup()
+    }
+
+    override fun update(e: AnActionEvent) {
+      if (project == null) {
+        e.presentation.isEnabled = false
+        return
+      }
+      e.presentation.isEnabled = canBeShownInFindResults
+      e.presentation.icon = getInstance(project).getShowInFindToolWindowIcon()
+    }
+
+    override fun getActionUpdateThread(): ActionUpdateThread {
+      return ActionUpdateThread.BGT
+    }
   }
 }
 

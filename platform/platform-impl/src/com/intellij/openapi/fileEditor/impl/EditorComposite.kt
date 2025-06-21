@@ -9,7 +9,6 @@ import com.intellij.codeWithMe.asContextElement
 import com.intellij.concurrency.ContextAwareRunnable
 import com.intellij.diagnostic.ActivityCategory
 import com.intellij.diagnostic.StartUpMeasurer
-import com.intellij.idea.AppMode
 import com.intellij.internal.statistic.collectors.fus.fileTypes.FileTypeUsageCounterCollector
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.*
@@ -23,10 +22,10 @@ import com.intellij.openapi.fileEditor.ClientFileEditorManager.Companion.assignC
 import com.intellij.openapi.fileEditor.ex.FileEditorProviderManager
 import com.intellij.openapi.fileEditor.ex.FileEditorWithProvider
 import com.intellij.openapi.fileEditor.impl.HistoryEntry.Companion.FILE_ATTRIBUTE
+import com.intellij.openapi.fileEditor.impl.HistoryEntry.Companion.FILE_ID_ATTRIBUTE
 import com.intellij.openapi.fileEditor.impl.HistoryEntry.Companion.TAG
 import com.intellij.openapi.fileEditor.impl.text.AsyncEditorLoader
 import com.intellij.openapi.fileEditor.impl.text.TextEditorImpl
-import com.intellij.openapi.progress.blockingContext
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.PossiblyDumbAware
 import com.intellij.openapi.project.Project
@@ -34,12 +33,15 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.Pair
 import com.intellij.openapi.util.Weighted
+import com.intellij.openapi.util.registry.Registry
+import com.intellij.openapi.vfs.FileIdAdapter
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.FocusWatcher
 import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.platform.diagnostic.telemetry.impl.span
 import com.intellij.platform.fileEditor.FileEntry
 import com.intellij.platform.fileEditor.FileEntryTab
+import com.intellij.platform.util.coroutines.childScope
 import com.intellij.ui.*
 import com.intellij.ui.components.panels.NonOpaquePanel
 import com.intellij.ui.components.panels.Wrapper
@@ -179,6 +181,9 @@ open class EditorComposite internal constructor(
   }
 
   @Internal
+  fun isAvailable(): Boolean = fileEditorWithProviders.value !== INITIAL_EMPTY
+
+  @Internal
   protected open suspend fun beforeFileOpen(scope: CoroutineScope, model: EditorCompositeModel) {}
   @Internal
   protected open suspend fun afterFileOpen(scope: CoroutineScope, model: EditorCompositeModel) {}
@@ -205,8 +210,7 @@ open class EditorComposite internal constructor(
       }
       val beforePublisher = project.messageBus.syncAndPreloadPublisher(FileEditorManagerListener.Before.FILE_EDITOR_MANAGER)
 
-      // There is no selected editor on the backend: they should be managed by `GuestFileEditorManager`
-      val selectedFileEditor = if (!AppMode.isRemoteDevHost()) getSelectedEditor(fileEditorWithProviders, model.state) else null
+      val selectedFileEditor = getSelectedEditor(fileEditorWithProviders, model.state)
 
       // read not in EDT
       val states = fileEditorWithProviders.map { (_, provider) ->
@@ -220,12 +224,10 @@ open class EditorComposite internal constructor(
       val (goodPublisher, deprecatedPublisher) = deferredPublishers.await()
       span("file opening in EDT and repaint", Dispatchers.ui(UiDispatcherKind.RELAX)) {
         span("beforeFileOpened event executing") {
-          blockingContext {
-            computeOrLogException(
-              lambda = { beforePublisher!!.beforeFileOpened(fileEditorManager, file) },
-              errorMessage = { "exception during beforeFileOpened notification" },
-            )
-          }
+          computeOrLogException(
+            lambda = { beforePublisher!!.beforeFileOpened(fileEditorManager, file) },
+            errorMessage = { "exception during beforeFileOpened notification" },
+          )
         }
 
         applyFileEditorsInEdt(
@@ -765,6 +767,7 @@ open class EditorComposite internal constructor(
     }
     return FileEntry(
       url = file.url,
+      id = FileIdAdapter.getInstance().getId(file),
       selectedProvider = (selectedEditorWithProvider.value ?: fileEditorWithProviderList.first()).provider.editorTypeId,
       isPreview = isPreview,
       providers = stateMap,
@@ -779,6 +782,7 @@ open class EditorComposite internal constructor(
     val selectedEditorWithProvider = selectedEditorWithProvider.value
     val element = Element(TAG)
     element.setAttribute(FILE_ATTRIBUTE, file.url)
+    FileIdAdapter.getInstance().getId(file)?.let { element.setAttribute(FILE_ID_ATTRIBUTE, it.toString()) }
     for (fileEditorWithProvider in fileEditorWithProviders.value) {
       val providerElement = Element(PROVIDER_ELEMENT)
       val provider = fileEditorWithProvider.provider
@@ -804,6 +808,7 @@ open class EditorComposite internal constructor(
   internal fun writeDelayedStateAsHistoryEntry(entry: FileEntry): Element {
     val element = Element(TAG)
     element.setAttribute(FILE_ATTRIBUTE, entry.url)
+    entry.id?.let { element.setAttribute(FILE_ID_ATTRIBUTE, it.toString()) }
     for ((typeId, stateElement) in entry.providers) {
       val providerElement = Element(PROVIDER_ELEMENT)
       providerElement.setAttribute(EDITOR_TYPE_ID_ATTRIBUTE, typeId)
@@ -844,6 +849,8 @@ internal class EditorCompositePanel(@JvmField val composite: EditorComposite) : 
   var focusComponent: () -> JComponent? = { null }
     private set
 
+  private val skeletonScope = composite.coroutineScope.childScope("Editor Skeleton")
+
   init {
     addFocusListener(object : FocusAdapter() {
       override fun focusGained(e: FocusEvent) {
@@ -870,6 +877,19 @@ internal class EditorCompositePanel(@JvmField val composite: EditorComposite) : 
       override fun getDefaultComponent(aContainer: Container) = composite.focusComponent
     }
     isFocusCycleRoot = true
+
+    if (EditorSkeletonPolicy.shouldShowSkeleton(composite)) {
+      skeletonScope.launch(Dispatchers.UI) {
+        delay(SKELETON_DELAY)
+        // show skeleton if editor is not added after [SKELETON_DELAY]
+        if (components.isEmpty()) {
+          add(EditorSkeleton(skeletonScope), BorderLayout.CENTER)
+        }
+      }
+    }
+    else {
+      skeletonScope.cancel()
+    }
   }
 
   override fun updateUI() {
@@ -880,14 +900,15 @@ internal class EditorCompositePanel(@JvmField val composite: EditorComposite) : 
   }
 
   fun setComponent(newComponent: JComponent, focusComponent: () -> JComponent?) {
+    skeletonScope.cancel()
     removeAll()
 
-    val scrollPanes = UIUtil.uiTraverser(newComponent)
-      .expand { o -> o === newComponent || o is JPanel || o is JLayeredPane }
-      .filter(JScrollPane::class.java)
-    for (scrollPane in scrollPanes) {
-      scrollPane.border = SideBorder(JBColor.border(), SideBorder.NONE)
-    }
+      val scrollPanes = UIUtil.uiTraverser(newComponent)
+        .expand { o -> o === newComponent || o is JPanel || o is JLayeredPane }
+        .filter(JScrollPane::class.java)
+      for (scrollPane in scrollPanes) {
+        scrollPane.border = SideBorder(JBColor.border(), SideBorder.NONE)
+      }
 
     add(newComponent, BorderLayout.CENTER)
     this.focusComponent = focusComponent
@@ -911,6 +932,11 @@ internal class EditorCompositePanel(@JvmField val composite: EditorComposite) : 
     sink[PlatformCoreDataKeys.FILE_EDITOR] = composite.selectedEditor
     sink[CommonDataKeys.VIRTUAL_FILE] = composite.file
     sink[CommonDataKeys.VIRTUAL_FILE_ARRAY] = arrayOf(composite.file)
+  }
+
+  companion object {
+    private val SKELETON_DELAY
+      get() = Registry.intValue("editor.skeleton.delay.ms", 300).toLong()
   }
 }
 

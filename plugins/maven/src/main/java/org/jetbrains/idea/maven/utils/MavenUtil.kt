@@ -41,6 +41,7 @@ import com.intellij.openapi.startup.StartupManager
 import com.intellij.openapi.util.*
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.io.FileUtilRt
+import com.intellij.openapi.util.io.toNioPathOrNull
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.registry.Registry.Companion.`is`
 import com.intellij.openapi.util.text.StringUtil
@@ -78,11 +79,8 @@ import org.jetbrains.idea.maven.model.MavenConstants.MODEL_VERSION_4_0_0
 import org.jetbrains.idea.maven.model.MavenId
 import org.jetbrains.idea.maven.model.MavenProjectProblem
 import org.jetbrains.idea.maven.project.*
-import org.jetbrains.idea.maven.server.MavenDistributionsCache
-import org.jetbrains.idea.maven.server.MavenServerConnector
-import org.jetbrains.idea.maven.server.MavenServerEmbedder
+import org.jetbrains.idea.maven.server.*
 import org.jetbrains.idea.maven.server.MavenServerManager.Companion.getInstance
-import org.jetbrains.idea.maven.server.MavenServerUtil
 import org.jetbrains.idea.maven.utils.MavenArtifactUtil.readPluginInfo
 import org.jetbrains.idea.maven.utils.MavenEelUtil.resolveLocalRepositoryBlocking
 import org.jetbrains.idea.maven.utils.MavenEelUtil.resolveM2Dir
@@ -1463,18 +1461,17 @@ object MavenUtil {
   }
 
   /**
-   * @param project   Project required to restart connectors
-   * @param wait      if true, then maven server(s) restarted synchronously
-   * @param condition only connectors satisfied for this predicate will be restarted
+   * closes connectors and removes them out of maven server manager. Connector processes will be close asynchronouly
+   * @param project   Project required to shut down connectors
+   * @param condition only connectors satisfied for this predicate will be shut down
    */
   @JvmOverloads
   @JvmStatic
-  fun restartMavenConnectors(
+  fun shutdownMavenConnectors(
     project: Project,
-    wait: Boolean,
     condition: Predicate<MavenServerConnector> = Predicate { c: MavenServerConnector -> java.lang.Boolean.TRUE },
   ) {
-    getInstance().restartMavenConnectors(project, wait, condition)
+    getInstance().shutdownMavenConnectors(project, condition)
   }
 
   @JvmStatic
@@ -1957,5 +1954,33 @@ object MavenUtil {
       result.add(Path.of(PathUtil.getJarPathForClass(c)))
     }
     return result
+  }
+
+
+  /**
+   * Static state to calculate module output when running IDEA from sources
+   */
+  private val archivedClassesLocation = PathManager.getArchivedCompliedClassesLocation()
+  private val mapping = PathManager.getArchivedCompiledClassesMapping()
+  private val path = PathManager.getJarForClass(MavenServerManager::class.java)?.parent
+
+  /**
+   * Locate output of an IDEA module if running from sources.
+   * @return path to the module output: can point to a directory or a jar file.
+   * `null` if not running from sources or if module cannot be located
+   */
+  @JvmStatic
+  fun locateModuleOutput(moduleName: String): Path? {
+    if (!isRunningFromSources()) return null
+    if (archivedClassesLocation != null && mapping != null) {
+      return mapping["production/$moduleName"]?.toNioPathOrNull()
+    } else {
+      return path?.resolve(moduleName)
+    }
+  }
+
+  @JvmStatic
+  fun isRunningFromSources(): Boolean {
+    return path != null && (path.endsWith("production") || path.parent.endsWith("production"))
   }
 }

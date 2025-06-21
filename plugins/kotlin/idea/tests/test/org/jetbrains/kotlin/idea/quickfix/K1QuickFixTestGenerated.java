@@ -6986,6 +6986,11 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
                     runTest("testData/quickfix/createFromUsage/createVariable/parameter/dataClassPropertyByNamedArgument.kt");
                 }
 
+                @TestMetadata("fromDelegateConstructorCall.kt")
+                public void testFromDelegateConstructorCall() throws Exception {
+                    runTest("testData/quickfix/createFromUsage/createVariable/parameter/fromDelegateConstructorCall.kt");
+                }
+
                 @TestMetadata("inAccessorInClass.kt")
                 public void testInAccessorInClass() throws Exception {
                     runTest("testData/quickfix/createFromUsage/createVariable/parameter/inAccessorInClass.kt");
@@ -9681,6 +9686,30 @@ public abstract class K1QuickFixTestGenerated extends AbstractK1QuickFixTest {
             public void testRight() throws Exception {
                 runTest("testData/quickfix/equalityNotApplicable/numberConversion/right.kt");
             }
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners.class)
+    @TestMetadata("testData/quickfix/explicitlyIgnoreReturnValue")
+    public static class ExplicitlyIgnoreReturnValue extends AbstractK1QuickFixTest {
+        @java.lang.Override
+        @org.jetbrains.annotations.NotNull
+        public final KotlinPluginMode getPluginMode() {
+            return KotlinPluginMode.K1;
+        }
+
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("ignoredWithAnnotation.kt")
+        public void testIgnoredWithAnnotation() throws Exception {
+            runTest("testData/quickfix/explicitlyIgnoreReturnValue/ignoredWithAnnotation.kt");
+        }
+
+        @TestMetadata("simple.kt")
+        public void testSimple() throws Exception {
+            runTest("testData/quickfix/explicitlyIgnoreReturnValue/simple.kt");
         }
     }
 

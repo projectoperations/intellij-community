@@ -6,12 +6,12 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.reflect.KClass
 
 interface KLoggerFactory {
-    fun logger(owner: KClass<*>): KLogger
-    fun logger(owner: Any): KLogger
-    fun logger(name: String): KLogger
+  fun logger(owner: KClass<*>): KLogger
+  fun logger(owner: Any): KLogger
+  fun logger(name: String): KLogger
 
-    fun setLoggingContext(map: Map<String, String>?)
-    fun getLoggingContext(): Map<String, String>?
+  fun setLoggingContext(map: Map<String, String>?)
+  fun getLoggingContext(): Map<String, String>?
 }
 
 class LoggingContextContextElement(val contextMap: Map<String, String>?) : ThreadContextElement<Map<String, String>?> {
@@ -29,3 +29,4 @@ class LoggingContextContextElement(val contextMap: Map<String, String>?) : Threa
 
   companion object : CoroutineContext.Key<LoggingContextContextElement>
 }
+

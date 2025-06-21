@@ -35,6 +35,7 @@ import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Conditions;
+import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.*;
@@ -49,17 +50,11 @@ import com.intellij.usages.ConfigurableUsageTarget;
 import com.intellij.usages.FindUsagesProcessPresentation;
 import com.intellij.usages.UsageView;
 import com.intellij.usages.UsageViewPresentation;
-import com.intellij.util.PathUtil;
 import com.intellij.util.PatternUtil;
 import com.intellij.util.Processor;
-import org.jetbrains.annotations.Nls;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.PropertyKey;
+import org.jetbrains.annotations.*;
 
 import javax.swing.*;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.*;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
@@ -69,6 +64,9 @@ import static org.jetbrains.annotations.Nls.Capitalization.Title;
 
 public final class FindInProjectUtil {
   private static final int USAGES_PER_READ_ACTION = 100;
+
+  @ApiStatus.Experimental
+  public static final Key<Boolean> FIND_IN_FILES_SEARCH_IN_NON_INDEXABLE = Key.create("find.in.files.non.indexable");
 
   private FindInProjectUtil() {}
 
@@ -101,6 +99,7 @@ public final class FindInProjectUtil {
 
     if (psiElement instanceof PsiDirectory) {
       directoryName = ((PsiDirectory)psiElement).getVirtualFile().getPresentableUrl();
+      if (directoryName.isEmpty()) directoryName = null;
     }
 
     if (directoryName == null && psiElement instanceof PsiDirectoryContainer) {
@@ -111,19 +110,17 @@ public final class FindInProjectUtil {
     if (directoryName == null) {
       VirtualFile virtualFile = CommonDataKeys.VIRTUAL_FILE.getData(dataContext);
       if (virtualFile != null) {
-        Path filePath = Path.of(virtualFile.getPath());
-        if (Files.isDirectory(filePath)) {
+        if (virtualFile.isDirectory()) {
           directoryName = virtualFile.getPresentableUrl();
         }
         else {
-          Path parentPath = filePath.getParent();
-          if (parentPath != null && Files.isDirectory(parentPath)) {
-            String presentablePath = PathUtil.toPresentableUrl(parentPath.toString());
+          VirtualFile parent = virtualFile.getParent();
+          if (parent != null && parent.isDirectory()) {
             if (editor == null) {
-              directoryName = presentablePath;
+              directoryName = parent.getPresentableUrl();
             }
             else if (project != null) {
-              FindInProjectSettings.getInstance(project).addDirectory(presentablePath);
+              FindInProjectSettings.getInstance(project).addDirectory(parent.getPresentableUrl());
             }
           }
         }

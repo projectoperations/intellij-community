@@ -1,10 +1,17 @@
 ### auto-generated section `build kotlin.base.plugin` start
+load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_resources", "jvm_test")
 
 jvm_resources(
   name = "plugin_resources",
   files = glob(["resources/**/*"]),
   strip_prefix = "resources"
+)
+
+jvm_resources(
+  name = "plugin_test_resources",
+  files = glob(["testResources/**/*"]),
+  strip_prefix = "testResources"
 )
 
 jvm_library(
@@ -14,6 +21,8 @@ jvm_library(
   srcs = glob(["src/**/*.kt", "src/**/*.java"], allow_empty = True),
   deps = [
     "@lib//:jetbrains-annotations",
+    "//platform/analysis-api:analysis",
+    "//platform/core-api:core",
     "//platform/editor-ui-api:editor-ui",
     "//platform/platform-impl:ide-impl",
     "@lib//:kotlin-stdlib",
@@ -21,6 +30,7 @@ jvm_library(
     "@lib//:kotlinc-kotlin-jps-common",
     "@lib//:guava",
     "//jps/model-api:model",
+    "//platform/projectModel-api:projectModel",
     "//plugins/kotlin/base/frontend-agnostic",
     "//plugins/kotlin/base/util",
     "//plugins/kotlin/base/compiler-configuration",
@@ -52,6 +62,8 @@ jvm_library(
   deps = [
     "@lib//:jetbrains-annotations",
     "@lib//:commons-compress",
+    "//platform/analysis-api:analysis",
+    "//platform/core-api:core",
     "//platform/editor-ui-api:editor-ui",
     "//platform/platform-impl:ide-impl",
     "//platform/platform-impl:ide-impl_test_lib",
@@ -61,6 +73,7 @@ jvm_library(
     "@lib//:guava",
     "@lib//:junit4",
     "//jps/model-api:model",
+    "//platform/projectModel-api:projectModel",
     "//plugins/kotlin/base/frontend-agnostic",
     "//plugins/kotlin/base/util",
     "//plugins/kotlin/base/util:util_test_lib",
@@ -83,11 +96,15 @@ jvm_library(
     "//platform/core-ui",
     "@lib//:maven-resolver-provider",
     "//platform/util",
+    "//platform/build-scripts/downloader",
   ],
-  runtime_deps = [":plugin_resources"]
+  runtime_deps = [
+    ":plugin_resources",
+    ":plugin_test_resources",
+  ]
 )
 
-jvm_test(
+jps_test(
   name = "plugin_test",
   runtime_deps = [":plugin_test_lib"]
 )

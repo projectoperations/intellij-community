@@ -1116,9 +1116,6 @@ a:com.intellij.openapi.command.CommandProcessorEx
 - a:startCommand(com.intellij.openapi.project.Project,java.lang.String,java.lang.Object,com.intellij.openapi.command.UndoConfirmationPolicy):com.intellij.openapi.command.CommandToken
 com.intellij.openapi.command.CommandToken
 - a:getProject():com.intellij.openapi.project.Project
-f:com.intellij.openapi.command.impl.CommandLog
-- sf:LOG:com.intellij.openapi.diagnostic.Logger
-- <init>():V
 c:com.intellij.openapi.command.impl.CoreCommandProcessor
 - com.intellij.openapi.command.CommandProcessorEx
 - p:myCurrentCommand:com.intellij.openapi.command.impl.CoreCommandProcessor$CommandDescriptor
@@ -1585,35 +1582,6 @@ c:com.intellij.openapi.vfs.impl.LightFilePointer
 - getUrl():java.lang.String
 - hashCode():I
 - isValid():Z
-c:com.intellij.openapi.vfs.impl.VirtualFileManagerImpl
-- com.intellij.openapi.vfs.VirtualFileManager
-- com.intellij.openapi.Disposable
-- psf:LOG:com.intellij.openapi.diagnostic.Logger
-- <init>(java.util.List):V
-- <init>(java.util.List,com.intellij.util.messages.MessageBus):V
-- addAsyncFileListener(com.intellij.openapi.vfs.AsyncFileListener,com.intellij.openapi.Disposable):V
-- addVirtualFileListener(com.intellij.openapi.vfs.VirtualFileListener):V
-- addVirtualFileListener(com.intellij.openapi.vfs.VirtualFileListener,com.intellij.openapi.Disposable):V
-- addVirtualFileManagerListener(com.intellij.openapi.vfs.VirtualFileManagerListener,com.intellij.openapi.Disposable):V
-- asyncRefresh(java.lang.Runnable):J
-- dispose():V
-- p:doRefresh(Z,java.lang.Runnable):J
-- findFileByNioPath(java.nio.file.Path):com.intellij.openapi.vfs.VirtualFile
-- findFileByUrl(java.lang.String):com.intellij.openapi.vfs.VirtualFile
-- getFileSystem(java.lang.String):com.intellij.openapi.vfs.VirtualFileSystem
-- p:getFileSystemsForProtocol(java.lang.String):java.util.List
-- getModificationCount():J
-- getPhysicalFileSystems():java.util.List
-- getStructureModificationCount():J
-- getVFileName(I):java.lang.CharSequence
-- notifyPropertyChanged(com.intellij.openapi.vfs.VirtualFile,java.lang.String,java.lang.Object,java.lang.Object):V
-- refreshAndFindFileByNioPath(java.nio.file.Path):com.intellij.openapi.vfs.VirtualFile
-- refreshAndFindFileByUrl(java.lang.String):com.intellij.openapi.vfs.VirtualFile
-- refreshWithoutFileWatcher(Z):V
-- removeVirtualFileListener(com.intellij.openapi.vfs.VirtualFileListener):V
-- removeVirtualFileManagerListener(com.intellij.openapi.vfs.VirtualFileManagerListener):V
-- storeName(java.lang.String):I
-- syncRefresh():J
 c:com.intellij.openapi.vfs.impl.ZipHandler
 - com.intellij.openapi.vfs.impl.ZipHandlerBase
 - <init>(java.lang.String):V
@@ -2399,6 +2367,7 @@ c:com.intellij.psi.impl.file.PsiBinaryFileImpl
 - com.intellij.psi.impl.PsiFileEx
 - java.lang.Cloneable
 - <init>(com.intellij.psi.impl.PsiManagerEx,com.intellij.psi.FileViewProvider):V
+- <init>(com.intellij.psi.impl.PsiManagerImpl,com.intellij.psi.FileViewProvider):V
 - accept(com.intellij.psi.PsiElementVisitor):V
 - add(com.intellij.psi.PsiElement):com.intellij.psi.PsiElement
 - addAfter(com.intellij.psi.PsiElement,com.intellij.psi.PsiElement):com.intellij.psi.PsiElement
@@ -2458,6 +2427,7 @@ c:com.intellij.psi.impl.file.PsiDirectoryImpl
 - com.intellij.openapi.ui.Queryable
 - com.intellij.psi.PsiDirectory
 - <init>(com.intellij.psi.impl.PsiManagerEx,com.intellij.openapi.vfs.VirtualFile):V
+- <init>(com.intellij.psi.impl.PsiManagerImpl,com.intellij.openapi.vfs.VirtualFile):V
 - accept(com.intellij.psi.PsiElementVisitor):V
 - add(com.intellij.psi.PsiElement):com.intellij.psi.PsiElement
 - addAfter(com.intellij.psi.PsiElement,com.intellij.psi.PsiElement):com.intellij.psi.PsiElement

@@ -67,6 +67,7 @@ import java.nio.file.Files
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.nio.file.attribute.BasicFileAttributes
+import java.util.stream.Stream
 import kotlin.io.path.invariantSeparatorsPathString
 import kotlin.io.path.relativeToOrNull
 
@@ -310,10 +311,9 @@ class CompilationContextImpl private constructor(
     val override = options.classOutDir
     when {
       !override.isNullOrEmpty() -> classesOutputDirectory = Path.of(override)
-      options.useCompiledClassesFromProjectOutput -> check(Files.exists(classesOutputDirectory)) {
-        "${BuildOptions.USE_COMPILED_CLASSES_PROPERTY} is enabled but the classes output directory $classesOutputDirectory doesn't exist"
+      !options.useCompiledClassesFromProjectOutput || isBazelTestRun() -> {
+        classesOutputDirectory = paths.buildOutputDir.resolve("classes")
       }
-      else -> classesOutputDirectory = paths.buildOutputDir.resolve("classes")
     }
     Span.current().addEvent("set class output directory", Attributes.of(AttributeKey.stringKey("classOutputDirectory"), classesOutputDirectory.toString()))
   }
@@ -328,20 +328,12 @@ class CompilationContextImpl private constructor(
 
   override fun findModule(name: String): JpsModule? = nameToModule[name.removeSuffix("._test")]
 
-  override suspend fun getModuleOutputDir(module: JpsModule, forTests: Boolean): Path {
+  override suspend fun getModuleOutputRoots(module: JpsModule, forTests: Boolean): List<Path> {
     val url = JpsJavaExtensionService.getInstance().getOutputUrl(/* module = */ module, /* forTests = */ forTests)
     requireNotNull(url) {
       "Output directory for ${module.name} isn't set"
     }
-    return Path.of(JpsPathUtil.urlToPath(url))
-  }
-
-  override suspend fun getModuleTestsOutputDir(module: JpsModule): Path {
-    val url = JpsJavaExtensionService.getInstance().getOutputUrl(module, true)
-    requireNotNull(url) {
-      "Output directory for ${module.name} isn't set"
-    }
-    return Path.of(JpsPathUtil.urlToPath(url))
+    return listOf(Path.of(JpsPathUtil.urlToPath(url)))
   }
 
   override suspend fun getModuleRuntimeClasspath(module: JpsModule, forTests: Boolean): List<String> {
@@ -360,8 +352,9 @@ class CompilationContextImpl private constructor(
     return org.jetbrains.intellij.build.impl.findFileInModuleSources(module, relativePath)
   }
 
-  override suspend fun readFileContentFromModuleOutput(module: JpsModule, relativePath: String): ByteArray? {
-    val file = getModuleOutputDir(module).resolve(relativePath)
+  override suspend fun readFileContentFromModuleOutput(module: JpsModule, relativePath: String, forTests: Boolean): ByteArray? {
+    @Suppress("DEPRECATION")
+    val file = getModuleOutputDir(module, forTests).resolve(relativePath)
     try {
       return Files.readAllBytes(file)
     }
@@ -460,8 +453,8 @@ private suspend fun defineJavaSdk(context: CompilationContext) {
   for ((sdkRef, module) in sdkReferenceToFirstModule) {
     val sdkName = sdkRef.sdkName
     val vendorPrefixEnd = sdkName.indexOf('-')
-    val sdkNameWithoutVendor = (if (vendorPrefixEnd == -1) sdkName else sdkName.substring(vendorPrefixEnd + 1)).removeSuffix(" (WSL)")
-    check(sdkNameWithoutVendor == "17") {
+    val sdkNameWithoutVendor = (if (vendorPrefixEnd == -1) sdkName else sdkName.substring(vendorPrefixEnd + 1))
+    check(sdkNameWithoutVendor.startsWith("17")) {
       "Project model at ${context.paths.projectHome} [module ${module.name}] requested SDK $sdkNameWithoutVendor, " +
       "but only '17' is supported as SDK in intellij project"
     }
@@ -567,72 +560,40 @@ internal suspend fun resolveProjectDependencies(context: CompilationContext) {
 
 @Internal
 suspend fun CompilationContext.hasModuleOutputPath(module: JpsModule, relativePath: String): Boolean {
-  val output = getModuleOutputDir(module)
-
-  val attributes = try {
-    Files.readAttributes(output, BasicFileAttributes::class.java)
-  }
-  catch (_: FileSystemException) {
-    return false
-  }
-
-  if (attributes.isDirectory) {
-    return Files.exists(output.resolve(relativePath))
-  }
-  else if (attributes.isRegularFile && output.toString().endsWith(".jar")) {
-    var found = false
-    readZipFile(output) { name, _ ->
-      if (name == relativePath) {
-        found = true
-        ZipEntryProcessorResult.STOP
-      }
-      else {
-        ZipEntryProcessorResult.CONTINUE
-      }
+  return getModuleOutputRoots(module).any { output ->
+    val attributes = try {
+      Files.readAttributes(output, BasicFileAttributes::class.java)
     }
-    return found
-  }
-  else {
-    throw IllegalStateException("Module '${module.name}' output is neither directory, nor jar $output")
+    catch (_: FileSystemException) {
+      return@any false
+    }
+
+    if (attributes.isDirectory) {
+      return@any Files.exists(output.resolve(relativePath))
+    }
+    else if (attributes.isRegularFile && output.toString().endsWith(".jar")) {
+      var found = false
+      readZipFile(output) { name, _ ->
+        if (name == relativePath) {
+          found = true
+          ZipEntryProcessorResult.STOP
+        }
+        else {
+          ZipEntryProcessorResult.CONTINUE
+        }
+      }
+      return@any found
+    }
+    else {
+      throw IllegalStateException("Module '${module.name}' output is neither directory, nor jar $output")
+    }
   }
 }
 
-@Internal
-suspend fun CompilationContext.getModuleOutputFileContent(module: JpsModule, relativePath: String, forTests: Boolean = false): ByteArray? {
-  val output = getModuleOutputDir(module = module, forTests = forTests)
-  val attributes = try {
-    Files.readAttributes(output, BasicFileAttributes::class.java)
-  }
-  catch (_: FileSystemException) {
-    return null
-  }
-
-  if (attributes.isDirectory) {
-    val file = output.resolve(relativePath)
-    try {
-      return Files.readAllBytes(file)
-    }
-    catch (_: NoSuchFileException) {
-      return null
-    }
-  }
-  else if (attributes.isRegularFile && output.toString().endsWith("jar")) {
-    var content: ByteArray? = null
-    readZipFile(output) { name, dataSupplier ->
-      if (name == relativePath) {
-        val buffer = dataSupplier()
-        val array = ByteArray(buffer.remaining())
-        buffer.get(array)
-        content = array
-        ZipEntryProcessorResult.STOP
-      }
-      else {
-        ZipEntryProcessorResult.CONTINUE
-      }
-    }
-    return content
-  }
-  else {
-    throw IllegalStateException("Module '${module.name}' output is neither directory, nor jar $output")
-  }
+/**
+ * TODO: need to use bazel path, but options.useCompiledClassesFromProjectOutput is true even if intellij.build.use.compiled.classes == false
+ *  see com.intellij.platform.buildScripts.testFramework.BuildScriptTestUtilsKt.createBuildOptionsForTest(org.jetbrains.intellij.build.ProductProperties, java.nio.file.Path, boolean, org.junit.jupiter.api.TestInfo)
+ */
+internal fun isBazelTestRun(): Boolean {
+  return Stream.of("TEST_TMPDIR", "RUNFILES_DIR", "JAVA_RUNFILES").allMatch { bazelTestEnv: String? -> System.getenv(bazelTestEnv) != null }
 }

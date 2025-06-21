@@ -5,7 +5,6 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.platform.searchEverywhere.SeFilterState
 import kotlinx.coroutines.flow.StateFlow
 import org.jetbrains.annotations.ApiStatus
-import javax.swing.JComponent
 
 /**
  * Represents a filter editor for a Search Everywhere tab.
@@ -17,18 +16,18 @@ import javax.swing.JComponent
 interface SeFilterEditor {
   val resultFlow: StateFlow<SeFilterState>
 
-  fun getPresentation(): SeFilterPresentation
-}
-
-@ApiStatus.Internal
-sealed interface SeFilterPresentation
-
-@ApiStatus.Internal
-interface SeFilterActionsPresentation : SeFilterPresentation {
   fun getActions(): List<AnAction>
 }
 
 @ApiStatus.Internal
-interface SeFilterComponentPresentation : SeFilterPresentation {
-  fun getComponent(): JComponent
+interface AutoToggleAction {
+  /**
+   * Automatically toggles the search scope between the everywhere scope
+   * and the project scope based on the argument `everywhere`.
+   *
+   * @param everywhere If `true`, switches to the everywhere scope.
+   *                          If `false`, switches to the project scope.
+   * @return true if the scope was changed, false otherwise
+   */
+  fun autoToggle(everywhere: Boolean): Boolean
 }

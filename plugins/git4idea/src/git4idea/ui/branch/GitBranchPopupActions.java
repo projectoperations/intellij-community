@@ -6,7 +6,10 @@ import com.intellij.dvcs.ui.BranchActionGroup;
 import com.intellij.dvcs.ui.NewBranchAction;
 import com.intellij.dvcs.ui.PopupElementWithAdditionalInfo;
 import com.intellij.ide.IdeBundle;
-import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.actionSystem.ActionUpdateThread;
+import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.Presentation;
 import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
@@ -15,6 +18,7 @@ import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.ui.EmptyIcon;
+import com.intellij.vcs.git.shared.actions.GitSingleRefActions;
 import com.intellij.vcs.git.shared.ui.GitBranchPresentation;
 import git4idea.*;
 import git4idea.branch.GitBranchIncomingOutgoingManager;
@@ -23,9 +27,7 @@ import git4idea.config.GitSharedSettings;
 import git4idea.i18n.GitBundle;
 import git4idea.remote.hosting.GitRemoteBranchesUtil;
 import git4idea.repo.GitRepository;
-import org.intellij.lang.annotations.Language;
 import org.jetbrains.annotations.Nls;
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -38,14 +40,9 @@ import static com.intellij.util.containers.ContainerUtil.map2SetNotNull;
 import static git4idea.GitUtil.HEAD;
 import static git4idea.branch.GitBranchType.LOCAL;
 import static git4idea.branch.GitBranchType.REMOTE;
-import static git4idea.ui.branch.GitBranchActionsUtilKt.GIT_SINGLE_REF_ACTION_GROUP;
 import static git4idea.ui.branch.GitBranchActionsUtilKt.createOrCheckoutNewBranch;
 
 public final class GitBranchPopupActions {
-
-  @Language("devkit-action-id")
-  public static final @NonNls String EXPERIMENTAL_BRANCH_POPUP_ACTION_GROUP = "Git.Experimental.Branch.Popup.Actions";
-
   private static final int MAX_BRANCH_NAME_LENGTH = 40;
 
   private GitBranchPopupActions() { }
@@ -201,23 +198,6 @@ public final class GitBranchPopupActions {
       }
       return GitBundle.message("branches.there.are.outgoing.commits");
     }
-
-    /**
-     * @deprecated use {@link GitBrancher}
-     */
-    @Deprecated(forRemoval = true)
-    public static final class CheckoutAction {
-      /**
-       * @deprecated use {@link GitBrancher#checkout(String, boolean, List, Runnable))}
-       */
-      @Deprecated(forRemoval = true)
-      public static void checkoutBranch(@NotNull Project project,
-                                        @NotNull List<? extends GitRepository> repositories,
-                                        @NotNull String branchName) {
-        GitBrancher brancher = GitBrancher.getInstance(project);
-        brancher.checkout(branchName, false, repositories, null);
-      }
-    }
   }
 
   /**
@@ -371,7 +351,7 @@ public final class GitBranchPopupActions {
                                                              List<? extends GitRepository> repositories,
                                                              @NotNull GitRepository selectedRepository,
                                                              @Nullable AnActionEvent e) {
-    AnAction[] actions = ((ActionGroup) ActionManager.getInstance().getAction(GIT_SINGLE_REF_ACTION_GROUP)).getChildren(e);
+    AnAction[] actions = GitSingleRefActions.getSingleRefActionGroup().getChildren(e);
     return map2Array(actions,
                      AnAction.class,
                      action -> GitBranchActionWrapper.tryWrap(action, branch, selectedRepository, repositories));

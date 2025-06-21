@@ -1,7 +1,6 @@
 package com.intellij.cce.testrunner
 
 
-import com.intellij.cce.test.TestRunResult
 import com.intellij.cce.java.test.MavenOutputParser
 import com.intellij.testFramework.PlatformTestUtil.getCommunityPath
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
@@ -15,7 +14,13 @@ class MavenOutputParserTest(private val fileName: String) : BasePlatformTestCase
   companion object {
     @JvmStatic
     @Parameterized.Parameters(name = "Test file \"{0}\"")
-    fun data() = arrayOf("test1")
+    fun data() = arrayOf(
+      "test1",
+      "fasterxml__jackson-core-370",
+      "fasterxml__jackson-core-380",
+      "fasterxml__jackson-dataformat-xml-544",
+      "fasterxml__jackson-dataformat-xml-590",
+      )
   }
 
   override fun getTestDataPath(): String? {
@@ -28,9 +33,10 @@ class MavenOutputParserTest(private val fileName: String) : BasePlatformTestCase
 
     val content = file.readText()
 
-    val parser = MavenOutputParser()
-    val result = parser.parse(content)
-    checkResult(dump(result))
+    val compilationSuccessful = MavenOutputParser.compilationSuccessful(content)
+    val projectIsResolvable = MavenOutputParser.checkIfProjectIsResolvable(content)
+    val (passed, failed) = MavenOutputParser.parse(content)
+    checkResult(dump(compilationSuccessful, projectIsResolvable, passed, failed))
   }
 
   // copypast from ActionsProcessorTest.
@@ -48,14 +54,21 @@ class MavenOutputParserTest(private val fileName: String) : BasePlatformTestCase
   }
 }
 
-private fun dump(result: TestRunResult): String {
+private fun dump(
+  compilationSuccessful: Boolean,
+  projectIsResolvable: Boolean,
+  passed: List<String>,
+  failed: List<String>,
+): String {
   val sb = StringBuilder()
-  sb.appendLine("passed: ${result.passed.size}")
-  result.passed.forEach {
+  sb.appendLine("compilationSuccessful: ${compilationSuccessful}")
+  sb.appendLine("projectIsResolvable: ${projectIsResolvable}")
+  sb.appendLine("passed: ${passed.size}")
+  passed.forEach {
     sb.appendLine("\t$it")
   }
-  sb.appendLine("failed: ${result.failed.size}")
-  result.failed.forEach {
+  sb.appendLine("failed: ${failed.size}")
+  failed.forEach {
     sb.appendLine("\t$it")
   }
 

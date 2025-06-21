@@ -16,8 +16,6 @@ interface ModuleStateApi : RemoteApi<Unit> {
 
   suspend fun getModulesUpdateEvents(projectId: ProjectId): Flow<ModuleUpdatedEvent>
 
-  suspend fun getCurrentModuleNames(projectId: ProjectId): List<String>
-
   companion object {
     @JvmStatic
     suspend fun getInstance(): ModuleStateApi {
@@ -27,15 +25,19 @@ interface ModuleStateApi : RemoteApi<Unit> {
 }
 
 @Internal
-enum class ModuleUpdateType {
-  ADD, REMOVE, RENAME
-}
-
-@Internal
 @Serializable
-class ModuleUpdatedEvent(val moduleUpdateType: ModuleUpdateType, val newToOldModuleNameMap: Map<String, String>){// val moduleName: String, val newModuleName: String = moduleName) {
-  constructor(moduleUpdateType: ModuleUpdateType, moduleNames: List<String>) : this(moduleUpdateType, moduleNames.associateWith { it })
-  constructor(moduleUpdateType: ModuleUpdateType, moduleName: String) : this(moduleUpdateType, mapOf(moduleName to moduleName))
+sealed interface ModuleUpdatedEvent {
 
-  val moduleNames: Set<String> = newToOldModuleNameMap.keys
+  @Internal
+  @Serializable
+  class ModulesAddedEvent(val moduleNames: List<String>) : ModuleUpdatedEvent
+
+  @Internal
+  @Serializable
+  class ModuleRemovedEvent(val moduleName: String) : ModuleUpdatedEvent
+
+  @Internal
+  @Serializable
+  class ModulesRenamedEvent(val newToOldModuleNameMap: Map<String, String>) : ModuleUpdatedEvent
+
 }

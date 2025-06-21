@@ -2,8 +2,10 @@ package org.jetbrains.jewel.intui.standalone.theme
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
+import org.jetbrains.jewel.foundation.DisabledAppearanceValues
 import org.jetbrains.jewel.foundation.GlobalColors
 import org.jetbrains.jewel.foundation.GlobalMetrics
 import org.jetbrains.jewel.foundation.theme.JewelTheme
@@ -54,6 +56,19 @@ import org.jetbrains.jewel.ui.icon.LocalNewUiChecker
 import org.jetbrains.jewel.ui.painter.LocalPainterHintsProvider
 import org.jetbrains.jewel.ui.theme.BaseJewelTheme
 
+/**
+ * Create a light theme definition.
+ *
+ * @param colors The [GlobalColors] for this theme definition.
+ * @param metrics The [GlobalMetrics] for this theme definition.
+ * @param palette The [ThemeColorPalette] for this theme definition.
+ * @param iconData The [ThemeIconData] for this theme definition.
+ * @param defaultTextStyle The default text style for this theme definition.
+ * @param editorTextStyle The editor text style for this theme definition.
+ * @param consoleTextStyle The console text style for this theme definition. Same as [editorTextStyle] by default.
+ * @param contentColor The default content (text) color for this theme definition.
+ * @param disabledAppearanceValues The [DisabledAppearanceValues] for this theme definition.
+ */
 public fun JewelTheme.Companion.lightThemeDefinition(
     colors: GlobalColors = GlobalColors.light(),
     metrics: GlobalMetrics = GlobalMetrics.defaults(),
@@ -63,6 +78,7 @@ public fun JewelTheme.Companion.lightThemeDefinition(
     editorTextStyle: TextStyle = JewelTheme.createEditorTextStyle(),
     consoleTextStyle: TextStyle = editorTextStyle,
     contentColor: Color = colors.text.normal,
+    disabledAppearanceValues: DisabledAppearanceValues = DisabledAppearanceValues.light(),
 ): ThemeDefinition =
     ThemeDefinition(
         name = "IntUI Light",
@@ -75,8 +91,22 @@ public fun JewelTheme.Companion.lightThemeDefinition(
         contentColor,
         palette,
         iconData,
+        disabledAppearanceValues,
     )
 
+/**
+ * Create a dark theme definition.
+ *
+ * @param colors The [GlobalColors] for this theme definition.
+ * @param metrics The [GlobalMetrics] for this theme definition.
+ * @param palette The [ThemeColorPalette] for this theme definition.
+ * @param iconData The [ThemeIconData] for this theme definition.
+ * @param defaultTextStyle The default text style for this theme definition.
+ * @param editorTextStyle The editor text style for this theme definition.
+ * @param consoleTextStyle The console text style for this theme definition. Same as [editorTextStyle] by default.
+ * @param contentColor The default content (text) color for this theme definition.
+ * @param disabledAppearanceValues The [DisabledAppearanceValues] for this theme definition.
+ */
 public fun JewelTheme.Companion.darkThemeDefinition(
     colors: GlobalColors = GlobalColors.dark(),
     metrics: GlobalMetrics = GlobalMetrics.defaults(),
@@ -86,6 +116,7 @@ public fun JewelTheme.Companion.darkThemeDefinition(
     editorTextStyle: TextStyle = JewelTheme.createEditorTextStyle(),
     consoleTextStyle: TextStyle = editorTextStyle,
     contentColor: Color = colors.text.normal,
+    disabledAppearanceValues: DisabledAppearanceValues = DisabledAppearanceValues.dark(),
 ): ThemeDefinition =
     ThemeDefinition(
         name = "IntUI Dark",
@@ -98,12 +129,13 @@ public fun JewelTheme.Companion.darkThemeDefinition(
         contentColor,
         palette,
         iconData,
+        disabledAppearanceValues,
     )
 
 @Composable
 public fun ComponentStyling.default(): ComponentStyling = with {
     val isDark = JewelTheme.isDark
-    if (isDark) dark() else light()
+    remember(isDark) { if (isDark) dark() else light() }
 }
 
 public fun ComponentStyling.dark(
@@ -250,7 +282,14 @@ public fun ComponentStyling.light(
 
 @Composable
 public fun IntUiTheme(isDark: Boolean = false, swingCompatMode: Boolean = false, content: @Composable () -> Unit) {
-    val themeDefinition = if (isDark) JewelTheme.darkThemeDefinition() else JewelTheme.lightThemeDefinition()
+    val themeDefinition =
+        remember(isDark) {
+            if (isDark) {
+                JewelTheme.darkThemeDefinition()
+            } else {
+                JewelTheme.lightThemeDefinition()
+            }
+        }
 
     IntUiTheme(
         theme = themeDefinition,

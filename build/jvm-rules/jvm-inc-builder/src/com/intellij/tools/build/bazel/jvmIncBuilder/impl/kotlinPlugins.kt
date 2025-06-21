@@ -3,12 +3,17 @@ package com.intellij.tools.build.bazel.jvmIncBuilder.impl
 
 import androidx.compose.compiler.plugins.kotlin.ComposeCommandLineProcessor
 import androidx.compose.compiler.plugins.kotlin.ComposePluginRegistrar
+import com.intellij.tools.build.bazel.jvmIncBuilder.StorageManager
+import com.intellij.tools.build.bazel.jvmIncBuilder.runner.OutputOrigin
+import com.intellij.tools.build.bazel.jvmIncBuilder.runner.OutputSink
+import com.jetbrains.rhizomedb.plugin.RhizomedbCommandLineProcessor
+import com.jetbrains.rhizomedb.plugin.RhizomedbComponentRegistrar
+import org.jetbrains.kotlin.backend.common.output.OutputFileCollection
 import org.jetbrains.kotlin.cli.jvm.plugins.PluginCliParser.RegisteredPluginInfo
-import org.jetbrains.kotlin.compiler.plugin.CommandLineProcessor
-import org.jetbrains.kotlin.compiler.plugin.CompilerPluginRegistrar
-import org.jetbrains.kotlin.compiler.plugin.ExperimentalCompilerApi
-import org.jetbrains.kotlin.compiler.plugin.PluginProcessingException
+import org.jetbrains.kotlin.compiler.plugin.*
 import org.jetbrains.kotlin.config.CompilerConfiguration
+import org.jetbrains.kotlin.jvm.abi.JvmAbiCommandLineProcessor
+import org.jetbrains.kotlin.jvm.abi.JvmAbiComponentRegistrar
 import org.jetbrains.kotlin.util.ServiceLoaderLite
 import org.jetbrains.kotlinx.serialization.compiler.extensions.SerializationComponentRegistrar
 import org.jetbrains.kotlinx.serialization.compiler.extensions.SerializationPluginOptions
@@ -17,14 +22,15 @@ import java.lang.invoke.MethodHandles
 import java.lang.invoke.MethodType
 import java.net.URLClassLoader
 import java.nio.file.Path
-import kotlin.collections.iterator
-import kotlin.getValue
 
 
 @OptIn(ExperimentalCompilerApi::class)
 fun configurePlugins(
   pluginIdToPluginClasspath: Map<String, String>,
   workingDir: Path,
+  abiConsumer: ((OutputFileCollection) -> Unit)?,
+  out: OutputSink,
+  storageManager: StorageManager,
   consumer: (RegisteredPluginInfo) -> Unit,
 ) {
   for ((id, paths) in pluginIdToPluginClasspath) {
@@ -58,11 +64,38 @@ fun configurePlugins(
         ))
       }
 
+      "org.jetbrains.fleet.rhizomedb-compiler-plugin" -> {
+        val fileProvider = RhizomedbFileProvider(out, storageManager)
+        consumer(RegisteredPluginInfo(
+          componentRegistrar = null,
+          compilerPluginRegistrar = RhizomedbComponentRegistrar(fileProvider.createReadProvider(), fileProvider.createWriteProvider()),
+          commandLineProcessor = RhizomedbCommandLineProcessor(),
+                 pluginOptions = emptyList(),
+        ))
+      }
+
       else -> {
         consumer(CompilerPluginProvider.provide(id))
       }
     }
   }
+
+  if (abiConsumer != null) {
+    val jvmAbiCommandLineProcessor = JvmAbiCommandLineProcessor()
+    val pluginId = jvmAbiCommandLineProcessor.pluginId
+    consumer(RegisteredPluginInfo(
+      componentRegistrar = null,
+      compilerPluginRegistrar = JvmAbiComponentRegistrar(abiConsumer),
+      commandLineProcessor = jvmAbiCommandLineProcessor,
+      pluginOptions = listOf(
+        CliOptionValue(pluginId, JvmAbiCommandLineProcessor.OUTPUT_PATH_OPTION.optionName, ""), // Placeholder to satisfy the "required option" condition. The output is collected into memory
+        CliOptionValue(pluginId, JvmAbiCommandLineProcessor.REMOVE_DATA_CLASS_COPY_IF_CONSTRUCTOR_IS_PRIVATE_OPTION.optionName, "true"),
+        CliOptionValue(pluginId, JvmAbiCommandLineProcessor.REMOVE_PRIVATE_CLASSES_OPTION.optionName, "true"),
+        CliOptionValue(pluginId, JvmAbiCommandLineProcessor.REMOVE_DEBUG_INFO_OPTION.optionName, "true"),
+      )
+    ))
+  }
+
 }
 
 @OptIn(ExperimentalCompilerApi::class)
@@ -105,15 +138,15 @@ private fun loadRegisteredPluginsInfo(classpath: List<Path>): RegisteredPluginIn
 private class CompilerPluginProvider {
   companion object {
     private val expects by getConstructor("fleet.multiplatform.expects.ExpectsPluginRegistrar", null)
-    private val rhizomeDb by getConstructor(
-      registrar = "com.jetbrains.rhizomedb.plugin.RhizomedbComponentRegistrar",
-      commandLineProcessor = "com.jetbrains.rhizomedb.plugin.RhizomedbCommandLineProcessor",
+    private val rpc by getConstructor(
+      registrar = "com.jetbrains.fleet.rpc.plugin.RpcComponentRegistrar",
+      commandLineProcessor = "com.jetbrains.fleet.rpc.plugin.RpcCommandLineProcessor",
     )
 
     fun provide(id: String): RegisteredPluginInfo {
       return when (id) {
         "jetbrains.fleet.expects-compiler-plugin" -> createPluginInfo(expects)
-        "org.jetbrains.fleet.rhizomedb-compiler-plugin" -> createPluginInfo(rhizomeDb)
+        "com.jetbrains.fleet.rpc-compiler-plugin" -> createPluginInfo(rpc)
         else -> throw IllegalArgumentException("plugin requires classpath: $id")
       }
     }
@@ -140,4 +173,23 @@ private fun getConstructor(registrar: String, commandLineProcessor: String?): La
 private fun findConstructor(name: String): MethodHandle {
   val aClass = KotlinCompilerRunner::class.java.classLoader.loadClass(name)
   return MethodHandles.lookup().findConstructor(aClass, MethodType.methodType(Void.TYPE))
+}
+
+class RhizomedbFileProvider(private val out: OutputSink, private val storageManager: StorageManager) {
+  fun readFile(filePath: String): List<String> {
+    val outputBuilder: ZipOutputBuilderImpl = storageManager.getOutputBuilder()
+    val moduleEntryPath: String = outputBuilder.listEntries("META-INF/").singleOrNull { n -> n.endsWith(filePath) } ?: return emptyList()
+    return outputBuilder.getContent(moduleEntryPath)?.toString(Charsets.UTF_8)?.split("\n") ?: emptyList()
+  }
+
+  fun writeFile(filePath: String, lines: Collection<String>) {
+    lines.joinToString(separator = "\n").toByteArray(Charsets.UTF_8)
+    out.addFile(
+      OutputFileImpl(filePath, com.intellij.tools.build.bazel.jvmIncBuilder.runner.OutputFile.Kind.other, lines.joinToString(separator = "\n").toByteArray(Charsets.UTF_8), false),
+      OutputOrigin.create(OutputOrigin.Kind.kotlin, emptyList())
+    )
+  }
+
+  fun createReadProvider(): (String) -> List<String> = { filePath -> readFile(filePath) }
+  fun createWriteProvider(): (String, Collection<String>) -> Unit = { filePath, lines -> writeFile(filePath, lines) }
 }

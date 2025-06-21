@@ -5,7 +5,8 @@ import com.intellij.ide.plugins.PluginMainDescriptor.Companion.productModeAliase
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.util.BuildNumber
 import com.intellij.platform.plugins.testFramework.PluginSetTestBuilder
-import com.intellij.platform.testFramework.PluginBuilder
+import com.intellij.platform.testFramework.plugins.*
+import com.intellij.testFramework.TestLoggerFactory
 import com.intellij.testFramework.rules.InMemoryFsRule
 import com.intellij.util.io.write
 import org.assertj.core.api.Assertions.assertThat
@@ -17,6 +18,7 @@ import java.util.function.Function
 
 class PluginSetLoadingTest {
   init {
+    Logger.setFactory(TestLoggerFactory::class.java)
     Logger.setUnitTestMode() // due to warnInProduction use in IdeaPluginDescriptorImpl
   }
 
@@ -146,8 +148,8 @@ class PluginSetLoadingTest {
 
   @Test
   fun `use first plugin if both versions the same`() {
-    PluginBuilder().id("foo").version("1.0").build(pluginsDirPath.resolve("foo_1-0"))
-    PluginBuilder().id("foo").version("1.0").build(pluginsDirPath.resolve("foo_another"))
+    plugin("foo") { version = "1.0" }.buildDir(pluginsDirPath.resolve("foo_1-0"))
+    plugin("foo") { version = "1.0" }.buildDir(pluginsDirPath.resolve("foo_another"))
 
     val pluginSet = PluginSetTestBuilder.fromPath(pluginsDirPath).build()
     val plugins = pluginSet.enabledPlugins
@@ -161,7 +163,9 @@ class PluginSetLoadingTest {
   }
 
   @Test
-  fun `until build is honored only if it targets 243 and earlier`() {
+  fun `until build is honored only if it targets 251 and earlier`() {
+    if (UntilBuildDeprecation.forceHonorUntilBuild) return
+
     fun addDescriptor(build: String) = writeDescriptor("p$build", """
     <idea-plugin>
       <id>p$build</id>
@@ -170,26 +174,21 @@ class PluginSetLoadingTest {
     </idea-plugin>
     """.trimIndent())
 
-    addDescriptor("243")
     addDescriptor("251")
     addDescriptor("252")
+    addDescriptor("253")
     addDescriptor("261")
 
-    assertEnabledPluginsSetEquals(listOf("p243")) { buildNumber = "243.10" }
     assertEnabledPluginsSetEquals(listOf("p251")) { buildNumber = "251.10" }
-    assertEnabledPluginsSetEquals(listOf("p251", "p252")) { buildNumber = "252.200" }
-    assertEnabledPluginsSetEquals(listOf("p251", "p252", "p261")) { buildNumber = "261.200" }
+    assertEnabledPluginsSetEquals(listOf("p252")) { buildNumber = "252.10" }
+    assertEnabledPluginsSetEquals(listOf("p252", "p253")) { buildNumber = "253.200" }
+    assertEnabledPluginsSetEquals(listOf("p252", "p253", "p261")) { buildNumber = "261.200" }
   }
 
   @Test
   fun `broken plugins is honored while until build is not`() {
-    writeDescriptor("p251", """
-      <idea-plugin>
-      <id>p251</id>
-      <version>1.0</version>
-      <idea-version since-build="251" until-build="251.100"/>
-      </idea-plugin>
-    """.trimIndent())
+    if (UntilBuildDeprecation.forceHonorUntilBuild) return
+
     writeDescriptor("p252", """
       <idea-plugin>
       <id>p252</id>
@@ -197,28 +196,38 @@ class PluginSetLoadingTest {
       <idea-version since-build="252" until-build="252.100"/>
       </idea-plugin>
     """.trimIndent())
+    writeDescriptor("p253", """
+      <idea-plugin>
+      <id>p253</id>
+      <version>1.0</version>
+      <idea-version since-build="253" until-build="253.100"/>
+      </idea-plugin>
+    """.trimIndent())
 
-    assertEnabledPluginsSetEquals(listOf("p251", "p252")) { buildNumber = "252.200" }
-    assertEnabledPluginsSetEquals(listOf("p252")) {
-      buildNumber = "252.200"
-      withBrokenPlugin("p251", "1.0")
-    }
-    assertEnabledPluginsSetEquals(listOf("p251")) {
-      buildNumber = "252.200"
+    assertEnabledPluginsSetEquals(listOf("p252", "p253")) { buildNumber = "253.200" }
+    assertEnabledPluginsSetEquals(listOf("p253")) {
+      buildNumber = "253.200"
       withBrokenPlugin("p252", "1.0")
+    }
+    assertEnabledPluginsSetEquals(listOf("p252")) {
+      buildNumber = "253.200"
+      withBrokenPlugin("p253", "1.0")
     }
   }
 
   @Test
   fun `package prefix collision prevents plugin from loading`() {
-    PluginManagerCore.getAndClearPluginLoadingErrors()
     // FIXME these plugins are not related, but one of them loads => depends on implicit order
-    PluginBuilder().id("foo")
-      .module("foo.module", PluginBuilder().packagePrefix("common.module"), loadingRule = ModuleLoadingRule.REQUIRED)
-      .build(pluginsDirPath.resolve("foo"))
-    PluginBuilder().id("bar")
-      .module("bar.module", PluginBuilder().packagePrefix("common.module"), loadingRule = ModuleLoadingRule.REQUIRED)
-      .build(pluginsDirPath.resolve("bar"))
+    plugin("foo") {
+      content {
+        module("foo.module", loadingRule = ModuleLoadingRule.REQUIRED) { packagePrefix = "common.module" }
+      }
+    }.buildDir(pluginsDirPath.resolve("foo"))
+    plugin("bar") {
+      content {
+        module("bar.module", loadingRule = ModuleLoadingRule.REQUIRED) { packagePrefix = "common.module" }
+      }
+    }.buildDir(pluginsDirPath.resolve("bar"))
     val pluginSet = buildPluginSet()
     assertThat(pluginSet).hasExactlyEnabledPlugins("foo")
     val errors = PluginManagerCore.getAndClearPluginLoadingErrors()
@@ -228,23 +237,29 @@ class PluginSetLoadingTest {
   
   @Test
   fun `package prefix collision in plugin explicitly marked as incompatible`() {
-    PluginBuilder().id("foo")
-      .module("foo.module", PluginBuilder().packagePrefix("common.module"), loadingRule = ModuleLoadingRule.REQUIRED)
-      .incompatibleWith("bar")
-      .build(pluginsDirPath.resolve("foo"))
-    PluginBuilder().id("bar")
-      .module("bar.module", PluginBuilder().packagePrefix("common.module"), loadingRule = ModuleLoadingRule.REQUIRED)
-      .build(pluginsDirPath.resolve("bar"))
+    plugin("foo") {
+      incompatibleWith = listOf("bar")
+      content {
+        module("foo.module", loadingRule = ModuleLoadingRule.REQUIRED) { packagePrefix = "common.module" }
+      }
+    }.buildDir(pluginsDirPath.resolve("foo"))
+    plugin("bar") {
+      content {
+        module("bar.module", loadingRule = ModuleLoadingRule.REQUIRED) { packagePrefix = "common.module" }
+      }
+    }.buildDir(pluginsDirPath.resolve("bar"))
     val pluginSet = buildPluginSet()
     assertThat(pluginSet).hasExactlyEnabledPlugins("bar")
   }
 
   @Test
   fun `package prefix collision prevents plugin from loading - same plugin`() {
-    PluginManagerCore.getAndClearPluginLoadingErrors()
-    PluginBuilder().id("foo").packagePrefix("common.module")
-      .module("foo.module", PluginBuilder().packagePrefix("common.module"), loadingRule = ModuleLoadingRule.REQUIRED)
-      .build(pluginsDirPath.resolve("foo"))
+    plugin("foo") {
+      packagePrefix = "common.module"
+      content {
+        module("foo.module", loadingRule = ModuleLoadingRule.REQUIRED) { packagePrefix = "common.module" }
+      }
+    }.buildDir(pluginsDirPath.resolve("foo"))
     val pluginSet = buildPluginSet()
     assertThat(pluginSet).doesNotHaveEnabledPlugins()
     val errors = PluginManagerCore.getAndClearPluginLoadingErrors()
@@ -254,13 +269,16 @@ class PluginSetLoadingTest {
 
   @Test
   fun `package prefix collision does not prevent plugin from loading if module is optional`() {
-    PluginManagerCore.getAndClearPluginLoadingErrors()
-    PluginBuilder().id("foo")
-      .module("foo.module", PluginBuilder().packagePrefix("common.module"), loadingRule = ModuleLoadingRule.OPTIONAL)
-      .build(pluginsDirPath.resolve("foo"))
-    PluginBuilder().id("bar")
-      .module("bar.module", PluginBuilder().packagePrefix("common.module"), loadingRule = ModuleLoadingRule.OPTIONAL)
-      .build(pluginsDirPath.resolve("bar"))
+    plugin("foo") {
+      content {
+        module("foo.module", loadingRule = ModuleLoadingRule.OPTIONAL) { packagePrefix = "common.module" }
+      }
+    }.buildDir(pluginsDirPath.resolve("foo"))
+    plugin("bar") {
+      content {
+        module("bar.module", loadingRule = ModuleLoadingRule.OPTIONAL) { packagePrefix = "common.module" }
+      }
+    }.buildDir(pluginsDirPath.resolve("bar"))
     val pluginSet = buildPluginSet()
     assertThat(pluginSet).hasExactlyEnabledPlugins("foo", "bar")
     // FIXME these plugins are not related, but one of them loads => depends on implicit order
@@ -272,9 +290,13 @@ class PluginSetLoadingTest {
 
   @Test
   fun `content module without a package prefix nor isSeparateJar fails to load`() {
-    PluginBuilder().id("foo")
-      .module("foo.module", PluginBuilder())
-      .build(pluginsDirPath.resolve("foo"))
+    plugin("foo") {
+      content {
+        module("foo.module") {}
+      }
+    }.buildDir(pluginsDirPath.resolve("foo"), object : PluginPackagingConfig() {
+      override val ContentModuleSpec.packageToMainJar: Boolean get() = true
+    })
     assertThatThrownBy {
       buildPluginSet()
     }.hasMessageContaining("Package is not specified")
@@ -282,24 +304,27 @@ class PluginSetLoadingTest {
 
   @Test
   fun `content module with a package prefix or separate jar loads`() {
-    PluginBuilder().id("foo")
-      .module("foo.module", PluginBuilder().packagePrefix("foo.module"))
-      .build(pluginsDirPath.resolve("foo"))
-    PluginBuilder().id("bar")
-      .module("bar.module", PluginBuilder().separateJar(true))
-      .build(pluginsDirPath.resolve("bar"))
+    plugin("foo") {
+      content {
+        module("foo.module") { packagePrefix = "foo.module" }
+      }
+    }.buildDir(pluginsDirPath.resolve("foo"))
+    plugin("bar") {
+      content {
+        module("bar.module") { isSeparateJar = true }
+      }
+    }.buildDir(pluginsDirPath.resolve("bar"))
     assertThat(buildPluginSet()).hasExactlyEnabledPlugins("foo", "bar")
   }
 
   @Test
   fun `id, version, name are inherited in depends sub-descriptors`() {
-    PluginBuilder().id("foo").build(pluginsDirPath.resolve("foo"))
-    PluginBuilder()
-      .id("bar")
-      .name("Bar")
-      .version("1.0.0")
-      .depends("foo", PluginBuilder())
-      .build(pluginsDirPath.resolve("bar"))
+    plugin("foo") {}.buildDir(pluginsDirPath.resolve("foo"))
+    plugin("bar") {
+      name = "Bar"
+      version = "1.0.0"
+      depends("foo", "foo.xml") {}
+    }.buildDir(pluginsDirPath.resolve("bar"))
 
     val pluginSet = buildPluginSet()
     assertThat(pluginSet).hasExactlyEnabledPlugins("bar", "foo")
@@ -316,17 +341,16 @@ class PluginSetLoadingTest {
 
   @Test
   fun `id, version, name can't be overridden in depends sub-descriptors`() {
-    PluginBuilder().id("foo").build(pluginsDirPath.resolve("foo"))
-    PluginBuilder()
-      .id("bar")
-      .name("Bar")
-      .version("1.0.0")
-      .depends("foo", PluginBuilder()
-        // .id("bar 2") TODO ids are disregarded for content modules
-        .additionalXmlContent("<id>bar 2</id>")
-        .name("Bar Sub")
-        .version("2.0.0"))
-      .build(pluginsDirPath.resolve("bar"))
+    plugin("foo") {}.buildDir(pluginsDirPath.resolve("foo"))
+    plugin("bar") {
+      name = "Bar"
+      version = "1.0.0"
+      depends("foo", "foo.xml") {
+        id = "bar2"
+        name = "Bar Sub"
+        version = "2.0.0"
+      }
+    }.buildDir(pluginsDirPath.resolve("bar"))
 
     val (pluginSet, errs) = runAndReturnWithLoggedErrors { buildPluginSet() }
     assertThat(errs.joinToString { it.message ?: "" }).isNotNull
@@ -345,12 +369,12 @@ class PluginSetLoadingTest {
 
   @Test
   fun `resource bundle is inherited in depends sub-descriptors`() {
-    PluginBuilder().id("foo").build(pluginsDirPath.resolve("foo"))
-    PluginBuilder()
-      .id("bar")
-      .resourceBundle("resourceBundle")
-      .depends("foo", PluginBuilder())
-      .build(pluginsDirPath.resolve("bar"))
+    plugin("foo") {}.buildDir(pluginsDirPath.resolve("foo"))
+    plugin("bar") {
+      name = "Bar"
+      resourceBundle = "resourceBundle"
+      depends("foo", "foo.xml") {}
+    }.buildDir(pluginsDirPath.resolve("bar"))
 
     val pluginSet = buildPluginSet()
     assertThat(pluginSet).hasExactlyEnabledPlugins("bar", "foo")
@@ -363,12 +387,12 @@ class PluginSetLoadingTest {
 
   @Test
   fun `resource bundle can be overridden in depends sub-descriptors`() {
-    PluginBuilder().id("foo").build(pluginsDirPath.resolve("foo"))
-    PluginBuilder()
-      .id("bar")
-      .resourceBundle("resourceBundle")
-      .depends("foo", PluginBuilder().resourceBundle("sub"))
-      .build(pluginsDirPath.resolve("bar"))
+    plugin("foo") {}.buildDir(pluginsDirPath.resolve("foo"))
+    plugin("bar") {
+      name = "Bar"
+      resourceBundle = "resourceBundle"
+      depends("foo", "foo.xml") { resourceBundle = "sub" }
+    }.buildDir(pluginsDirPath.resolve("bar"))
 
     val pluginSet = buildPluginSet()
     assertThat(pluginSet).hasExactlyEnabledPlugins("bar", "foo")
@@ -381,17 +405,44 @@ class PluginSetLoadingTest {
 
   @Test
   fun `additional core plugin aliases`() {
-    PluginBuilder()
-      .id("com.intellij")
-      .module("embedded.module", PluginBuilder().packagePrefix("embedded"), loadingRule = ModuleLoadingRule.EMBEDDED)
-      .module("required.module", PluginBuilder().packagePrefix("required"), loadingRule = ModuleLoadingRule.REQUIRED)
-      .module("optional.module", PluginBuilder().packagePrefix("optional"), loadingRule = ModuleLoadingRule.OPTIONAL)
-      .build(pluginsDirPath.resolve("core"))
+    plugin(PluginManagerCore.CORE_PLUGIN_ID) {
+      content {
+        module("embedded.module", loadingRule = ModuleLoadingRule.EMBEDDED) { packagePrefix = "embedded" }
+        module("required.module", loadingRule = ModuleLoadingRule.REQUIRED) { packagePrefix = "required" }
+        module("optional.module", loadingRule = ModuleLoadingRule.OPTIONAL) { packagePrefix = "optional" }
+      }
+    }.buildDir(pluginsDirPath.resolve("core"))
     val pluginSet = buildPluginSet()
     val core = pluginSet.getEnabledPlugin("com.intellij")
     for (alias in IdeaPluginOsRequirement.getHostOsModuleIds() + productModeAliasesForCorePlugin()) {
       assertThat(pluginSet.findEnabledPlugin(alias)).isSameAs(core)
     }
+  }
+
+  @Test
+  fun `plugin with duplicate content module fails to load`() {
+    plugin("foo") {
+      content {
+        module("foo.module") { isSeparateJar = true }
+        module("foo.module") { packagePrefix = "foo.module" }
+      }
+    }.buildDir(pluginsDirPath.resolve("foo"))
+    val pluginSet = buildPluginSet()
+    assertThat(pluginSet).doesNotHaveEnabledPlugins()
+    val errors = PluginManagerCore.getAndClearPluginLoadingErrors()
+    assertThat(errors).hasSizeGreaterThan(0)
+    assertThat(errors[0].get().toString()).contains("foo", "duplicate", "content module")
+  }
+
+  @Test
+  fun testLoadDisabledPlugin() {
+    plugin("disabled") { }.buildDir(pluginsDirPath.resolve("disabled"))
+    val pluginSet = buildPluginSet {
+      withDisabledPlugins("disabled")
+    }
+    val descriptor = pluginSet.getPlugin("disabled")
+    assertThat(pluginSet).doesNotHaveEnabledPlugins()
+    assertThat(descriptor).isNotMarkedEnabled()
   }
 
   private fun writeDescriptor(id: String, @Language("xml") data: String) {
